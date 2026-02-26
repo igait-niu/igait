@@ -6,7 +6,7 @@
 import { type Result, Ok, Err, AppError, tryAsync } from '$lib/result';
 import { authStore } from '$lib/stores';
 import { API_ENDPOINTS, DEFAULT_TIMEOUT_MS } from './config';
-import type { RerunResponse, JobFilesResponse } from './types';
+import type { RerunResponse, JobFilesResponse, UpdateCyclesResponse, GaitCycle } from './types';
 import type { ContributionRequest, ProgressCallback, ResearchContributionRequest } from './types';
 import { validateVideoFile, validateRequired, validateEmail } from './validation';
 
@@ -346,4 +346,20 @@ export async function getJobFiles(
 	jobId: string
 ): Promise<Result<JobFilesResponse, AppError>> {
 	return authenticatedFetch<JobFilesResponse>(API_ENDPOINTS.files(jobId));
+}
+
+/**
+ * Update gait cycles for a stage 5 output file.
+ * Admin-only: replaces the gait_cycles array in the specified JSON file.
+ */
+export async function updateCycles(
+	jobId: string,
+	fileName: string,
+	gaitCycles: GaitCycle[]
+): Promise<Result<UpdateCyclesResponse, AppError>> {
+	return authenticatedFetch<UpdateCyclesResponse>(API_ENDPOINTS.cycles(jobId), {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ file_name: fileName, gait_cycles: gaitCycles })
+	});
 }

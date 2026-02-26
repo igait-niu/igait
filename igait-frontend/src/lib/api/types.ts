@@ -90,3 +90,28 @@ export interface FileEntry {
 export interface JobFilesResponse {
 	readonly stages: Record<string, FileEntry[]>;
 }
+
+/**
+ * A single gait cycle with start/end frame numbers and side.
+ */
+export interface GaitCycle {
+	start: number;
+	end: number;
+	side: 'L' | 'R';
+}
+
+/**
+ * Request body for updating cycle data
+ */
+export interface UpdateCyclesRequest {
+	readonly file_name: string;
+	readonly gait_cycles: GaitCycle[];
+}
+
+/**
+ * Response from the cycles endpoint
+ */
+export interface UpdateCyclesResponse {
+	readonly success: boolean;
+	readonly message: string;
+}

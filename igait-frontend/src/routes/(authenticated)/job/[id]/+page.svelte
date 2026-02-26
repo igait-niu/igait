@@ -423,6 +423,10 @@
 						loading={filesLoading}
 						error={filesError}
 						label=""
+						stageNumber={activeStageNumber}
+						allFiles={filesData}
+						{isAdmin}
+						{jobId}
 					/>
 				{:else if activeSubTab === 'logs'}
 					<div class="logs-content">

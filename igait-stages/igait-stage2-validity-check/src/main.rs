@@ -202,7 +202,10 @@ impl ValidityCheckWorker {
         logs.push_str(&format!("Side result: {:?}\n", side_result));
 
         // Build combined validity result
-        let overall_valid = front_result.valid && side_result.valid;
+        // NOTE: We only require a human to be detected in both clips.
+        // Walking detection is bypassed for now — the SlowFast model is
+        // too unreliable and rejects many valid submissions.
+        let overall_valid = front_result.human_detected && side_result.human_detected;
         let combined = CombinedValidity {
             overall_valid,
             front: front_result.clone(),
@@ -275,19 +278,11 @@ impl ValidityCheckWorker {
         // If either video failed validation, error out of the pipeline
         if !overall_valid {
             let mut reasons = Vec::new();
-            if !front_result.valid {
-                if !front_result.human_detected {
-                    reasons.push("Front video: no human detected".to_string());
-                } else if !front_result.walking_detected {
-                    reasons.push("Front video: human detected but not walking".to_string());
-                }
+            if !front_result.human_detected {
+                reasons.push("Front video: no human detected".to_string());
             }
-            if !side_result.valid {
-                if !side_result.human_detected {
-                    reasons.push("Side video: no human detected".to_string());
-                } else if !side_result.walking_detected {
-                    reasons.push("Side video: human detected but not walking".to_string());
-                }
+            if !side_result.human_detected {
+                reasons.push("Side video: no human detected".to_string());
             }
             return Err(anyhow::anyhow!(
                 "Validity check failed: {}",
@@ -303,7 +298,7 @@ impl ValidityCheckWorker {
         output_keys.insert("front_annotated".to_string(), front_annotated_key);
         output_keys.insert("side_annotated".to_string(), side_annotated_key);
 
-        logs.push_str("Validity check passed — both videos contain one person walking!\n");
+        logs.push_str("Validity check passed — both videos contain a detected human!\n");
 
         Ok(output_keys)
     }

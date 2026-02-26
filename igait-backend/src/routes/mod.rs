@@ -80,6 +80,14 @@ pub mod rerun;
 /// presigned URLs so the frontend can display/download them securely.
 pub mod files;
 
+/// Cycle editing endpoint for updating gait cycle detection results.
+///
+/// Allows administrators to modify the `gait_cycles` array in Stage 5
+/// output JSON files (front/side gait analysis) stored in S3.
+/// Useful for manually correcting cycle boundaries before re-running
+/// prediction from Stage 6.
+pub mod cycles;
+
 /// Internal endpoints for microservice communication
 /// 
 /// These endpoints are NOT exposed publicly and should only be called
