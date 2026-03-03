@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y \
     python3-opencv \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    ffmpeg \
     && pip3 install --no-cache-dir --break-system-packages \
         "mediapipe>=0.10.13,<0.10.14" \
         "opencv-python>=4.13" \

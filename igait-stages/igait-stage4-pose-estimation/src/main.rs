@@ -153,6 +153,17 @@ impl PoseEstimationWorker {
             .context("Failed to run pose estimation on side video")?;
         logs.push_str("Side video pose estimation complete.\n");
 
+        // Re-encode pose videos from MPEG-4 Part 2 to H.264 for browser playback
+        let front_pose_path = output_dir.join("front_pose.mp4");
+        let side_pose_path = output_dir.join("side_pose.mp4");
+
+        reencode_to_h264(&front_pose_path, logs)
+            .await
+            .context("Failed to re-encode front pose video to H.264")?;
+        reencode_to_h264(&side_pose_path, logs)
+            .await
+            .context("Failed to re-encode side pose video to H.264")?;
+
         // Construct output storage keys
         let stage_num = stage.as_u8();
         let front_pose_key = format!("jobs/{}/stage_{}/front_pose.mp4", job.job_id, stage_num);
@@ -163,7 +174,6 @@ impl PoseEstimationWorker {
             format!("jobs/{}/stage_{}/side_landmarks.json", job.job_id, stage_num);
 
         // Upload front pose video
-        let front_pose_path = output_dir.join("front_pose.mp4");
         logs.push_str(&format!(
             "Uploading front pose video from {:?}...\n",
             front_pose_path
@@ -178,7 +188,6 @@ impl PoseEstimationWorker {
         logs.push_str(&format!("Uploaded front pose video to: {}\n", front_pose_key));
 
         // Upload side pose video
-        let side_pose_path = output_dir.join("side_pose.mp4");
         logs.push_str(&format!(
             "Uploading side pose video from {:?}...\n",
             side_pose_path
@@ -290,6 +299,58 @@ async fn run_pose_estimation(
             output.status
         ));
     }
+
+    Ok(())
+}
+
+/// Re-encodes a video file from MPEG-4 Part 2 (mp4v) to H.264 (libx264)
+/// so that it can be played in web browsers.
+async fn reencode_to_h264(video_path: &PathBuf, logs: &mut String) -> Result<()> {
+    let temp_output = video_path.with_extension("h264.mp4");
+
+    logs.push_str(&format!(
+        "Re-encoding {:?} to H.264 for browser compatibility...\n",
+        video_path
+    ));
+
+    let output = Command::new("ffmpeg")
+        .args([
+            "-i",
+            video_path.to_str().context("Invalid video path")?,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "23",
+            "-movflags",
+            "+faststart",
+            "-an",
+            "-y",
+            temp_output.to_str().context("Invalid temp output path")?,
+        ])
+        .output()
+        .await
+        .context("Failed to run ffmpeg re-encode")?;
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.is_empty() {
+        logs.push_str(&format!("ffmpeg stderr:\n{}\n", stderr));
+    }
+
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(
+            "ffmpeg re-encode failed with status: {}",
+            output.status
+        ));
+    }
+
+    // Replace original file with the H.264 version
+    fs::rename(&temp_output, video_path)
+        .await
+        .context("Failed to replace original video with H.264 version")?;
+
+    logs.push_str("H.264 re-encode complete.\n");
 
     Ok(())
 }
