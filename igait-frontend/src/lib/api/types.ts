@@ -115,3 +115,33 @@ export interface UpdateCyclesResponse {
 	readonly success: boolean;
 	readonly message: string;
 }
+
+/**
+ * Per-video transformation parameters for video editing.
+ */
+export interface VideoTransform {
+	rotation?: number;      // 0, 90, 180, 270 degrees
+	trim_start?: number;    // seconds
+	trim_end?: number;      // seconds
+	crop_x?: number;        // pixels
+	crop_y?: number;        // pixels
+	crop_width?: number;    // pixels
+	crop_height?: number;   // pixels
+}
+
+/**
+ * Request body for the video-edit endpoint.
+ */
+export interface VideoEditRequest {
+	front?: VideoTransform;
+	side?: VideoTransform;
+}
+
+/**
+ * Response from the video-edit endpoint.
+ */
+export interface VideoEditResponse {
+	readonly success: boolean;
+	readonly message: string;
+	readonly objects_deleted: number;
+}

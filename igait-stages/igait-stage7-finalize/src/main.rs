@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use igait_lib::microservice::{
     EmailClient, EmailTemplates, FinalizeQueueItem, ProcessingResult, StorageClient,
-    JobStatus, QueueOps, FirebaseRtdb,
+    JobStatus, StageStatus, QueueOps, FirebaseRtdb,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -219,6 +219,20 @@ impl FinalizeStageWorker {
             }
         }
     }
+
+    /// Update per-stage status in RTDB
+    async fn update_stage_status(&self, job_id: &str, stage: u8, status: StageStatus) {
+        match QueueOps::parse_job_id(job_id) {
+            Ok((user_id, job_index)) => {
+                if let Err(e) = self.queue_ops.update_stage_status(&user_id, job_index, stage, &status).await {
+                    eprintln!("Failed to update stage {} status in RTDB: {:?}", stage, e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to parse job_id for stage status update: {:?}", e);
+            }
+        }
+    }
 }
 
 /// Trait for finalize workers (separate from regular StageWorker).
@@ -247,6 +261,7 @@ impl FinalizeWorker for FinalizeStageWorker {
 
         // Update status to stage 7 on entry
         self.update_job_status(&job.job_id, JobStatus::processing(7)).await;
+        self.update_stage_status(&job.job_id, 7, StageStatus::Running).await;
 
         // Check for prediction.json in S3 - this is the source of truth
         let prediction_score = self.get_prediction_score(&job.job_id).await;
@@ -269,6 +284,7 @@ impl FinalizeWorker for FinalizeStageWorker {
             // Update job status to Complete
             let is_asd = score >= ASD_THRESHOLD;
             self.update_job_status(&job.job_id, JobStatus::complete(score as f32, is_asd)).await;
+            self.update_stage_status(&job.job_id, 7, StageStatus::Complete).await;
 
             // Upload stage 7 logs to Firebase RTDB
             self.upload_stage_logs(&job.job_id, &logs).await;
@@ -306,6 +322,7 @@ impl FinalizeWorker for FinalizeStageWorker {
             
             // Update job status to Error
             self.update_job_status(&job.job_id, JobStatus::error(error_msg.clone())).await;
+            self.update_stage_status(&job.job_id, 7, StageStatus::Error).await;
 
             // Upload stage 7 logs to Firebase RTDB
             self.upload_stage_logs(&job.job_id, &logs).await;

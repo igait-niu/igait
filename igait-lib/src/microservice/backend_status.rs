@@ -8,6 +8,22 @@ use serde::{Deserialize, Serialize};
 /// The total number of processing stages in the pipeline
 pub const NUM_STAGES: u8 = 7;
 
+/// Per-stage status for tracking individual stage progress.
+///
+/// Stored in Firebase RTDB at `users/{uid}/jobs/{index}/stage_statuses/stage_{n}`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum StageStatus {
+    /// Stage has not started yet
+    NotStarted,
+    /// Stage is currently running
+    Running,
+    /// Stage completed successfully
+    Complete,
+    /// Stage failed with an error
+    Error,
+}
+
 /// Simplified job status that gets stored in Firebase RTDB.
 /// 
 /// This is written directly to `users/{uid}/jobs/{index}/status`

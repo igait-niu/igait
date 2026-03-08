@@ -19,8 +19,8 @@
 
 	// Navigation items for admin panel
 	const adminNavItems = [
-		{ href: '/admin/queues', label: 'Queue Overview', icon: Layers },
-		{ href: '/admin/jobs', label: 'Job Overview', icon: Users }
+		{ href: '/admin/queues', label: 'Queue Overview', desc: 'Pipeline Queues', icon: Layers },
+		{ href: '/admin/jobs', label: 'Job Overview', desc: 'All Submissions', icon: Users }
 	];
 
 	const currentPath = $derived($page.url.pathname);
@@ -28,24 +28,30 @@
 
 {#if user.administrator}
 	<div class="admin-panel">
-		<div class="admin-header">
-			<div class="admin-title">
-				<Shield class="h-6 w-6 text-amber-500" />
-				<h1>Admin Panel</h1>
+		<!-- Header -->
+		<header class="admin-header">
+			<div class="admin-title-row">
+				<Shield class="admin-shield-icon" />
+				<h1 class="admin-title">Admin Panel</h1>
 				<Badge variant="outline" class="admin-badge">Administrator</Badge>
 			</div>
 			<p class="admin-description">Monitor system queues and manage all user submissions</p>
+		</header>
+
+		<!-- Tab Navigation -->
+		<div class="admin-nav-container">
+			<nav class="admin-nav">
+				{#each adminNavItems as item}
+					<a href={item.href} class="admin-nav-tab" class:active={currentPath === item.href}>
+						<item.icon class="admin-nav-icon" />
+						<span class="admin-nav-label">{item.label}</span>
+						<span class="admin-nav-desc">{item.desc}</span>
+					</a>
+				{/each}
+			</nav>
 		</div>
 
-		<nav class="admin-nav">
-			{#each adminNavItems as item}
-				<a href={item.href} class="admin-nav-item" class:active={currentPath === item.href}>
-					<item.icon class="h-4 w-4" />
-					{item.label}
-				</a>
-			{/each}
-		</nav>
-
+		<!-- Content -->
 		<div class="admin-content">
 			{@render children()}
 		</div>
@@ -63,77 +69,128 @@
 	.admin-panel {
 		display: flex;
 		flex-direction: column;
-		gap: var(--spacing-lg);
+		gap: 1.25rem;
 	}
+
+	/* ── Header ─────────────────────────────────────────── */
 
 	.admin-header {
 		display: flex;
 		flex-direction: column;
-		gap: var(--spacing-xs);
+		gap: 0.375rem;
+	}
+
+	.admin-title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.625rem;
+	}
+
+	:global(.admin-shield-icon) {
+		width: 1.375rem;
+		height: 1.375rem;
+		color: oklch(0.795 0.184 86.047);
+		flex-shrink: 0;
 	}
 
 	.admin-title {
-		display: flex;
-		align-items: center;
-		gap: var(--spacing-sm);
-	}
-
-	.admin-title h1 {
-		font-size: 1.5rem;
-		font-weight: 700;
-		letter-spacing: -0.025em;
+		font-size: 1.125rem;
+		font-weight: 600;
+		margin: 0;
 	}
 
 	:global(.admin-badge) {
-		background-color: hsl(var(--amber-500) / 0.1) !important;
-		border-color: hsl(var(--amber-500) / 0.3) !important;
-		color: hsl(38 92% 50%) !important;
+		background-color: oklch(0.795 0.184 86.047 / 0.1) !important;
+		border-color: oklch(0.795 0.184 86.047 / 0.3) !important;
+		color: oklch(0.795 0.184 86.047) !important;
+		font-size: 0.6875rem !important;
 	}
 
 	.admin-description {
-		font-size: 0.875rem;
-		color: hsl(var(--muted-foreground));
+		font-size: 0.8125rem;
+		color: var(--muted-foreground);
+		margin: 0;
+	}
+
+	/* ── Tab Navigation ─────────────────────────────────── */
+
+	.admin-nav-container {
+		padding: 0.5rem;
 	}
 
 	.admin-nav {
 		display: flex;
-		gap: var(--spacing-sm);
-		border-bottom: 1px solid hsl(var(--border));
-		padding-bottom: var(--spacing-sm);
+		gap: 0.25rem;
+		justify-content: center;
 	}
 
-	.admin-nav-item {
+	.admin-nav-tab {
 		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: var(--spacing-xs);
-		padding: 0.5rem 1rem;
-		border-radius: var(--radius-md);
-		font-size: 0.875rem;
-		font-weight: 500;
-		color: hsl(var(--muted-foreground));
-		transition: all 0.2s;
+		gap: 0.125rem;
+		padding: 0.625rem 1.5rem;
+		border: 1px solid transparent;
+		background: none;
+		cursor: pointer;
+		color: var(--muted-foreground);
+		transition: all 0.15s ease;
+		white-space: nowrap;
+		border-radius: var(--radius-sm);
+		text-decoration: none;
 	}
 
-	.admin-nav-item:hover {
-		background-color: hsl(var(--muted));
-		color: hsl(var(--foreground));
+	.admin-nav-tab:hover {
+		color: var(--foreground);
+		background-color: oklch(from var(--primary) l c h / 0.06);
 	}
 
-	.admin-nav-item.active {
-		background-color: hsl(var(--primary) / 0.1);
-		color: hsl(var(--primary));
+	.admin-nav-tab.active {
+		color: var(--primary);
+		background-color: var(--background);
+		border-color: oklch(from var(--primary) l c h / 0.3);
+		box-shadow: 0 1px 3px oklch(from var(--primary) l c h / 0.1);
 	}
+
+	:global(.admin-nav-icon) {
+		width: 1rem;
+		height: 1rem;
+		margin-bottom: 0.125rem;
+	}
+
+	.admin-nav-label {
+		font-size: 0.8125rem;
+		font-weight: 600;
+	}
+
+	.admin-nav-tab.active .admin-nav-label {
+		color: var(--primary);
+	}
+
+	.admin-nav-desc {
+		font-size: 0.6875rem;
+		font-weight: 400;
+		opacity: 0.7;
+	}
+
+	.admin-nav-tab.active .admin-nav-desc {
+		opacity: 1;
+	}
+
+	/* ── Content ────────────────────────────────────────── */
 
 	.admin-content {
 		min-height: 400px;
 	}
+
+	/* ── Access Denied ──────────────────────────────────── */
 
 	.access-denied {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: var(--spacing-md);
+		gap: 1rem;
 		padding: 4rem 2rem;
 		text-align: center;
 	}
@@ -144,6 +201,6 @@
 	}
 
 	.access-denied p {
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 	}
 </style>

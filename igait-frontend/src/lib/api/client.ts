@@ -6,7 +6,7 @@
 import { type Result, Ok, Err, AppError, tryAsync } from '$lib/result';
 import { authStore } from '$lib/stores';
 import { API_ENDPOINTS, DEFAULT_TIMEOUT_MS } from './config';
-import type { RerunResponse, JobFilesResponse, UpdateCyclesResponse, GaitCycle } from './types';
+import type { RerunResponse, JobFilesResponse, UpdateCyclesResponse, GaitCycle, VideoEditRequest, VideoEditResponse } from './types';
 import type { ContributionRequest, ProgressCallback, ResearchContributionRequest } from './types';
 import { validateVideoFile, validateRequired, validateEmail } from './validation';
 
@@ -361,5 +361,20 @@ export async function updateCycles(
 		method: 'PUT',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ file_name: fileName, gait_cycles: gaitCycles })
+	});
+}
+
+/**
+ * Save video edits (rotation, trim, crop) and re-run the job from Stage 1.
+ * Admin-only: stores edit flags, copies Stage 1 → Stage 0, re-queues.
+ */
+export async function saveVideoEdit(
+	jobId: string,
+	edits: VideoEditRequest
+): Promise<Result<VideoEditResponse, AppError>> {
+	return authenticatedFetch<VideoEditResponse>(API_ENDPOINTS.videoEdit(jobId), {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(edits)
 	});
 }

@@ -253,6 +253,7 @@ pub async fn upload_entrypoint(
         // if neither the job nor the queue requires approval.
         approved: false,
         stage_logs: HashMap::new(),
+        stage_statuses: HashMap::new(),
     };
 
     // Add the job to the database

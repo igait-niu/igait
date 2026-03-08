@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use igait_lib::microservice::{
     run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker, StorageClient,
+    VideoEditFlags, VideoTransform,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -71,6 +72,17 @@ impl MediaConversionWorker {
     ) -> Result<HashMap<String, String>> {
         let stage = StageNumber::Stage1MediaConversion;
 
+        // Check for video edit flags in metadata.extra
+        let video_edit: Option<VideoEditFlags> = job
+            .metadata
+            .extra
+            .get("video_edit")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+        if video_edit.is_some() {
+            logs.push_str("Video edit flags detected — transforms will be applied.\n");
+        }
+
         // Construct input paths from the job
         let front_input = job.input_front_video(stage);
         let side_input = job.input_side_video(stage);
@@ -110,13 +122,16 @@ impl MediaConversionWorker {
         let front_output_path = temp_dir.join("front.mp4");
         let side_output_path = temp_dir.join("side.mp4");
 
+        let front_transform = video_edit.as_ref().and_then(|ve| ve.front.clone());
+        let side_transform = video_edit.as_ref().and_then(|ve| ve.side.clone());
+
         logs.push_str("Converting front video...\n");
-        standardize_video(&front_input_path, &front_output_path, logs).await
+        standardize_video(&front_input_path, &front_output_path, front_transform.as_ref(), logs).await
             .context("Failed to convert front video")?;
         logs.push_str("Front video conversion done.\n");
 
         logs.push_str("Converting side video...\n");
-        standardize_video(&side_input_path, &side_output_path, logs).await
+        standardize_video(&side_input_path, &side_output_path, side_transform.as_ref(), logs).await
             .context("Failed to convert side video")?;
         logs.push_str("Side video conversion done.\n");
 
@@ -154,28 +169,102 @@ impl MediaConversionWorker {
     }
 }
 
-/// Converts a video to the standardized format using FFmpeg.
+/// Builds the `-vf` filter string.
+///
+/// Order: crop → rotate → scale+pad (so crop coordinates are in source space).
+fn build_video_filter(transform: Option<&VideoTransform>) -> String {
+    let mut filters: Vec<String> = Vec::new();
+
+    if let Some(t) = transform {
+        // Crop
+        if let (Some(w), Some(h)) = (t.crop_width, t.crop_height) {
+            let x = t.crop_x.unwrap_or(0);
+            let y = t.crop_y.unwrap_or(0);
+            filters.push(format!("crop={}:{}:{}:{}", w, h, x, y));
+        }
+
+        // Rotation
+        if let Some(deg) = t.rotation {
+            match deg {
+                90 => filters.push("transpose=1".to_string()),
+                180 => filters.push("transpose=1,transpose=1".to_string()),
+                270 => filters.push("transpose=2".to_string()),
+                _ => {} // 0 or unsupported → no rotation
+            }
+        }
+    }
+
+    // Always finish with scale + pad to 1920×1080
+    filters.push(
+        "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
+            .to_string(),
+    );
+
+    filters.join(",")
+}
+
+/// Converts a video to the standardized format using FFmpeg,
+/// optionally applying spatial/temporal transforms.
 async fn standardize_video(
     input_file_path: &PathBuf,
     output_file_path: &PathBuf,
+    transform: Option<&VideoTransform>,
     logs: &mut String,
 ) -> Result<()> {
+    let vf = build_video_filter(transform);
+    logs.push_str(&format!("Filter chain: {}\n", vf));
+
+    let mut args: Vec<String> = Vec::new();
+    args.push("-y".to_string());
+
+    // Trim: -ss / -to placed before -i for fast seek
+    if let Some(t) = transform {
+        if let Some(start) = t.trim_start {
+            args.push("-ss".to_string());
+            args.push(format!("{:.3}", start));
+        }
+        if let Some(end) = t.trim_end {
+            args.push("-to".to_string());
+            args.push(format!("{:.3}", end));
+        }
+    }
+
+    args.push("-i".to_string());
+    args.push(
+        input_file_path
+            .to_str()
+            .context("Invalid input path")?
+            .to_string(),
+    );
+    args.extend_from_slice(&[
+        "-vf".to_string(),
+        vf,
+        "-r".to_string(),
+        "60".to_string(),
+        "-b:v".to_string(),
+        "5000k".to_string(),
+        "-maxrate".to_string(),
+        "5000k".to_string(),
+        "-bufsize".to_string(),
+        "10000k".to_string(),
+        "-preset".to_string(),
+        "fast".to_string(),
+        "-c:v".to_string(),
+        "libx264".to_string(),
+        "-pix_fmt".to_string(),
+        "yuv420p".to_string(),
+        "-c:a".to_string(),
+        "aac".to_string(),
+        "-b:a".to_string(),
+        "192k".to_string(),
+        output_file_path
+            .to_str()
+            .context("Invalid output path")?
+            .to_string(),
+    ]);
+
     let output = Command::new("ffmpeg")
-        .args([
-            "-y", // Overwrite without asking
-            "-i", input_file_path.to_str().context("Invalid input path")?,
-            "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
-            "-r", "60",
-            "-b:v", "5000k",
-            "-maxrate", "5000k",
-            "-bufsize", "10000k",
-            "-preset", "fast", // x264 presets: ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow
-            "-c:v", "libx264", // Use software x264 encoder
-            "-pix_fmt", "yuv420p",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            output_file_path.to_str().context("Invalid output path")?,
-        ])
+        .args(&args)
         .output()
         .await
         .context("Failed to run ffmpeg")?;

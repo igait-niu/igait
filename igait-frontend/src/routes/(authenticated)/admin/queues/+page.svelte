@@ -19,7 +19,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Switch } from '$lib/components/ui/switch';
 	import { JobsDataTable } from '$lib/components/jobs';
-	import { Inbox } from '@lucide/svelte';
+	import { Inbox, Activity, ShieldCheck } from '@lucide/svelte';
 	import AdminLoadingState from '../AdminLoadingState.svelte';
 	import AdminErrorState from '../AdminErrorState.svelte';
 	import type { Job } from '../../../../types/Job';
@@ -94,6 +94,9 @@
 	/** Active stage display info */
 	const activeStageInfo = $derived(stageInfo.find((s) => s.key === activeStage) ?? stageInfo[0]);
 
+	/** Count for active stage */
+	const activeStageCount = $derived(getQueueItemCount(activeStage));
+
 	// ── Handlers ───────────────────────────────────────────
 
 	function handleSelectStage(stageKey: string) {
@@ -119,54 +122,65 @@
 	<AdminErrorState message="Failed to load queues: {queuesState.error}" />
 {:else if isQueuesLoaded(queuesState)}
 	<div class="queue-overview">
-		<!-- Header -->
-		<header class="overview-header">
-			<div class="header-left">
-				<h2>Pipeline Status</h2>
-				<Badge variant="secondary">{totalJobs} active</Badge>
-			</div>
-		</header>
-
-		<!-- Stage Tabs -->
-		<div class="stage-tabs">
-			{#each stageInfo as stage}
-				{@const count = getQueueItemCount(stage.key)}
-				<button
-					class="stage-tab"
-					class:active={activeStage === stage.key}
-					onclick={() => handleSelectStage(stage.key)}
-				>
-					<span class="tab-name">{stage.name}</span>
-					<Badge variant={count > 0 ? 'default' : 'outline'} class="tab-badge">
-						{count}
-					</Badge>
-				</button>
-			{/each}
+		<!-- Pipeline Status Summary -->
+		<div class="pipeline-summary">
+			<Activity class="summary-icon" />
+			<h2 class="summary-title">Pipeline Status</h2>
+			<Badge variant="secondary" class="summary-badge">{totalJobs} active</Badge>
 		</div>
 
-		<!-- Active Stage Controls -->
-		<div class="stage-controls">
-			<span class="stage-description"><b>{activeStageInfo.description}</b></span>
-
-			<label class="approval-toggle">
-				<Switch checked={activeRequiresApproval} onCheckedChange={handleToggleApproval} />
-				<span class="toggle-label">Require Manual Approval</span>
-			</label>
-		</div>
-
-		<!-- Main Content -->
-		<div class="content-area">
-			{#if jobsForTable.length === 0}
-				<div class="empty-state">
-					<Inbox class="empty-icon" />
-					<p class="empty-title">No jobs in queue</p>
-					<p class="empty-description">
-						{activeStageInfo.description} has no pending items right now.
-					</p>
+		<!-- Stage Tabs + Content -->
+		<div class="stage-content-wrapper">
+			<div class="stage-tabs-container">
+				<div class="stage-tabs">
+				{#each stageInfo as stage}
+					{@const count = getQueueItemCount(stage.key)}
+					<button
+						class="stage-tab"
+						class:active={activeStage === stage.key}
+						onclick={() => handleSelectStage(stage.key)}
+					>
+						<span class="tab-name">{stage.name}</span>
+						<span class="tab-desc">{stage.description}</span>
+						{#if count > 0}
+							<Badge variant="default" class="stage-count-badge">{count}</Badge>
+						{/if}
+					</button>
+					{/each}
 				</div>
-			{:else}
-				<JobsDataTable data={jobsForTable} uid="" showEmail={true} onRowClick={handleSelectJob} />
-			{/if}
+			</div>
+
+			<!-- Main Content Card -->
+			<div class="main-content-card">
+			<!-- Controls Row -->
+			<div class="controls-row">
+				<div class="controls-left">
+					<span class="active-stage-label">{activeStageInfo.description}</span>
+					<Badge variant="outline" class="queue-count-badge {activeStageCount === 0 ? 'queue-count-zero' : ''}">{activeStageCount} job{activeStageCount !== 1 ? 's' : ''}</Badge>
+				</div>
+
+				<label class="approval-toggle">
+					<ShieldCheck class="approval-icon" />
+					<span class="toggle-label">Manual Approval</span>
+					<Switch checked={activeRequiresApproval} onCheckedChange={handleToggleApproval} />
+				</label>
+			</div>
+
+			<!-- Content -->
+			<div class="content-area">
+				{#if jobsForTable.length === 0}
+					<div class="empty-state">
+						<Inbox class="empty-icon" />
+						<p class="empty-title">No jobs in queue</p>
+						<p class="empty-description">
+							{activeStageInfo.description} has no pending items right now.
+						</p>
+					</div>
+				{:else}
+					<JobsDataTable data={jobsForTable} uid="" showEmail={true} onRowClick={handleSelectJob} />
+				{/if}
+				</div>
+			</div>
 		</div>
 	</div>
 {/if}
@@ -178,96 +192,153 @@
 		gap: 1.25rem;
 	}
 
-	.overview-header {
+	/* ── Pipeline Summary ───────────────────────────────── */
+
+	.pipeline-summary {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		justify-content: center;
+		gap: 0.625rem;
 	}
 
-	.header-left {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
+	:global(.summary-icon) {
+		width: 1.125rem;
+		height: 1.125rem;
+		color: var(--primary);
 	}
 
-	.overview-header h2 {
+	.summary-title {
 		font-size: 1.125rem;
 		font-weight: 600;
 		margin: 0;
 	}
 
+	:global(.summary-badge) {
+		font-size: 0.6875rem !important;
+	}
+
+	/* ── Stage Content Wrapper ───────────────────────────── */
+
+	.stage-content-wrapper {
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		overflow: hidden;
+	}
+
 	/* ── Stage Tabs ─────────────────────────────────────── */
+
+	.stage-tabs-container {
+		background: oklch(from var(--primary) l c h / 0.04);
+		border-bottom: 1px solid var(--border);
+		padding: 0.5rem;
+		overflow-x: auto;
+	}
 
 	.stage-tabs {
 		display: flex;
-		gap: 0.125rem;
-		overflow-x: auto;
-		overflow-y: clip;
-		border-bottom: 2px solid hsl(var(--border));
-		padding-bottom: 0;
+		gap: 0.25rem;
+		justify-content: center;
 	}
 
 	.stage-tab {
+		position: relative;
 		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: 0.375rem;
-		padding: 0.625rem 0.875rem;
-		border: none;
+		gap: 0.125rem;
+		padding: 0.5rem 1rem;
+		border: 1px solid transparent;
 		background: none;
 		cursor: pointer;
-		font-size: 0.8125rem;
-		font-weight: 500;
-		color: hsl(var(--muted-foreground));
-		border-bottom: 2px solid transparent;
-		transition:
-			color 0.15s ease,
-			border-color 0.15s ease,
-			background-color 0.15s ease;
+		color: var(--muted-foreground);
+		transition: all 0.15s ease;
 		white-space: nowrap;
-		margin-bottom: -2px;
-		border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+		border-radius: var(--radius-sm);
 	}
 
 	.stage-tab:hover {
-		color: hsl(var(--foreground));
-		background-color: hsl(var(--muted) / 0.5);
+		color: var(--foreground);
+		background-color: oklch(from var(--primary) l c h / 0.06);
 	}
 
 	.stage-tab.active {
-		color: hsl(var(--foreground));
-		font-weight: 600;
-		border-bottom-color: hsl(var(--primary));
+		color: var(--primary);
+		background-color: var(--background);
+		border-color: oklch(from var(--primary) l c h / 0.3);
+		box-shadow: 0 1px 3px oklch(from var(--primary) l c h / 0.1);
 	}
 
 	.tab-name {
-		font-weight: inherit;
+		font-size: 0.8125rem;
+		font-weight: 600;
 	}
 
-	:global(.tab-badge) {
-		font-size: 0.625rem;
-		padding: 0.0625rem 0.375rem;
-		height: auto;
-		min-width: 1.25rem;
-		text-align: center;
+	.stage-tab.active .tab-name {
+		color: var(--primary);
 	}
 
-	/* ── Stage Controls ─────────────────────────────────── */
+	.tab-desc {
+		font-size: 0.6875rem;
+		font-weight: 400;
+		opacity: 0.7;
+	}
 
-	.stage-controls {
+	.stage-tab.active .tab-desc {
+		opacity: 1;
+	}
+
+	:global(.stage-count-badge) {
+		position: absolute;
+		top: -0.25rem;
+		right: -0.25rem;
+		font-size: 0.5625rem !important;
+		padding: 0 0.3rem !important;
+		height: 1rem !important;
+		min-width: 1rem !important;
+		line-height: 1rem !important;
+	}
+
+	/* ── Main Content Card ────────────────────────────────── */
+
+	.main-content-card {
+		background: var(--card);
+	}
+
+	/* ── Controls Row ───────────────────────────────────── */
+
+	.controls-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 1rem;
 		padding: 0.625rem 0.875rem;
-		background: hsl(var(--muted) / 0.35);
-		border: 1px solid hsl(var(--border));
-		border-radius: var(--radius-md);
+		background: oklch(from var(--muted) l c h / 0.35);
+		border-bottom: 1px solid var(--border);
 	}
 
-	.stage-description {
+	.controls-left {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.active-stage-label {
 		font-size: 0.8125rem;
-		color: hsl(var(--muted-foreground));
-		font-weight: 500;
+		font-weight: 600;
+		color: var(--foreground);
+	}
+
+	:global(.queue-count-badge) {
+		font-size: 0.625rem !important;
+		padding: 0 0.375rem !important;
+		height: 1.125rem !important;
+		min-width: 1.125rem !important;
+		scale: 0.9;
+	}
+
+	:global(.queue-count-zero) {
+		border-color: oklch(0.637 0.237 25.331) !important;
+		color: oklch(0.637 0.237 25.331) !important;
 	}
 
 	.approval-toggle {
@@ -277,18 +348,23 @@
 		cursor: pointer;
 	}
 
+	:global(.approval-icon) {
+		width: 0.875rem;
+		height: 0.875rem;
+		color: var(--muted-foreground);
+	}
+
 	.toggle-label {
 		font-size: 0.8125rem;
 		font-weight: 500;
-		color: hsl(var(--foreground));
+		color: var(--foreground);
 		user-select: none;
 	}
 
 	/* ── Content Area ───────────────────────────────────── */
 
 	.content-area {
-		display: flex;
-		gap: 1rem;
+		min-height: 300px;
 	}
 
 	.empty-state {
@@ -298,23 +374,20 @@
 		justify-content: center;
 		text-align: center;
 		padding: 3.5rem 2rem;
-		color: hsl(var(--muted-foreground));
-		background: hsl(var(--card));
-		border: 1px dashed hsl(var(--border));
-		border-radius: var(--radius-md);
+		color: var(--muted-foreground);
 	}
 
 	:global(.empty-icon) {
 		width: 2.5rem;
 		height: 2.5rem;
-		color: hsl(var(--muted-foreground) / 0.5);
+		color: oklch(from var(--muted-foreground) l c h / 0.4);
 		margin-bottom: 0.75rem;
 	}
 
 	.empty-title {
 		font-size: 0.9375rem;
 		font-weight: 600;
-		color: hsl(var(--foreground));
+		color: var(--foreground);
 		margin: 0 0 0.25rem;
 	}
 

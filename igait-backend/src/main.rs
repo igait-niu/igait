@@ -53,6 +53,7 @@ async fn main() -> Result<()> {
         .route("/assistant_proxied", any(crate::routes::assistant::assistant_proxied_entrypoint))
         .route("/files/:job_id", get(crate::routes::files::files_entrypoint))
         .route("/cycles/:job_id", axum::routing::put(crate::routes::cycles::cycles_entrypoint))
+        .route("/video-edit/:job_id", post(crate::routes::video_edit::video_edit_entrypoint))
         .with_state(app_state_ptr.clone());
     
     // Build the internal API router (for microservice communication)

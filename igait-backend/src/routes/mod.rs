@@ -88,6 +88,12 @@ pub mod files;
 /// prediction from Stage 6.
 pub mod cycles;
 
+/// Video editing endpoint for applying rotation, trim, and crop to job videos.
+///
+/// Copies Stage 1 outputs to Stage 0, stores edit flags on the Job,
+/// and re-queues for Stage 1 processing with the transform parameters.
+pub mod video_edit;
+
 /// Internal endpoints for microservice communication
 /// 
 /// These endpoints are NOT exposed publicly and should only be called

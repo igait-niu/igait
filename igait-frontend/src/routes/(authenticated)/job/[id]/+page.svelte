@@ -6,6 +6,8 @@
 	import { getJobFiles } from '$lib/api';
 	import type { FileEntry, JobFilesResponse } from '$lib/api';
 	import { FileViewer } from '$lib/components';
+	import CycleEditor from '$lib/components/CycleEditor.svelte';
+	import VideoEditor from '$lib/components/VideoEditor.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Separator } from '$lib/components/ui/separator';
@@ -23,10 +25,12 @@
 		Clock,
 		ShieldCheck,
 		Loader2,
-		AlertCircle
+		AlertCircle,
+		Film
 	} from '@lucide/svelte';
 	import type { Job } from '../../../../types/Job';
 	import type { JobStatus } from '../../../../types/JobStatus';
+	import type { StageStatus } from '../../../../types/StageStatus';
 
 	// ── Auth ──────────────────────────────────────────────
 	const user = getUser();
@@ -43,6 +47,8 @@
 	let rerunLoading = $state(false);
 	let rerunError: string | null = $state(null);
 	let rerunSuccess: string | null = $state(null);
+	let cycleEditorOpen = $state(false);
+	let videoEditorOpen = $state(false);
 
 	// ── Files state ───────────────────────────────────────
 	let filesLoading = $state(false);
@@ -129,6 +135,44 @@
 		if (!currentStageLogs) return 0;
 		return currentStageLogs.split('\n').length;
 	});
+
+	// ── Cycle editor file lookups ────────────────────────
+	const stage1Files = $derived((filesData as JobFilesResponse | null)?.stages['stage_1'] ?? []);
+
+	const stage1FrontVideo = $derived(
+		stage1Files.find((f: FileEntry) => f.name.startsWith('front') && f.name.endsWith('.mp4')) ?? null
+	);
+	const stage1SideVideo = $derived(
+		stage1Files.find((f: FileEntry) => f.name.startsWith('side') && f.name.endsWith('.mp4')) ?? null
+	);
+	const canOpenVideoEditor = $derived(!!(stage1FrontVideo || stage1SideVideo));
+
+	const stage4Files = $derived((filesData as JobFilesResponse | null)?.stages['stage_4'] ?? []);
+	const stage5Files = $derived((filesData as JobFilesResponse | null)?.stages['stage_5'] ?? []);
+
+	const frontVideoFile = $derived(
+		stage4Files.find((f: FileEntry) => f.name.startsWith('front') && f.name.endsWith('.mp4')) ?? null
+	);
+	const sideVideoFile = $derived(
+		stage4Files.find((f: FileEntry) => f.name.startsWith('side') && f.name.endsWith('.mp4')) ?? null
+	);
+	const frontJsonFile = $derived(
+		stage5Files.find((f: FileEntry) => f.name === 'front_gait_analysis.json') ?? null
+	);
+	const sideJsonFile = $derived(
+		stage5Files.find((f: FileEntry) => f.name === 'side_gait_analysis.json') ?? null
+	);
+	const canOpenCycleEditor = $derived(
+		!!(frontVideoFile || sideVideoFile) && !!(frontJsonFile || sideJsonFile)
+	);
+
+	// ── Stage status helpers ────────────────────────────────
+	function getStageStatus(stageKey: string): StageStatus {
+		return job?.stage_statuses?.[stageKey] ?? 'not_started';
+	}
+
+	const activeStageStatus = $derived(getStageStatus(activeStage));
+	const stageHasContent = $derived(activeStageStatus !== 'not_started');
 
 	// ── Status helpers ─────────────────────────────────────
 	function getStatusLabel(status: JobStatus): string {
@@ -363,12 +407,24 @@
 			<div class="stage-tabs-container">
 				<div class="stage-tabs">
 					{#each stageInfo as stage}
+						{@const status = getStageStatus(stage.key)}
 						<button
-							class="stage-tab"
+							class="stage-tab stage-tab--{status}"
 							class:active={activeStage === stage.key}
 							onclick={() => handleStageClick(stage.key)}
 						>
-							<span class="tab-name">{stage.name}</span>
+							<span class="tab-header">
+								{#if status === 'complete'}
+									<CheckCircle2 class="tab-status-icon tab-status-icon--complete" />
+								{:else if status === 'running'}
+									<Loader2 class="tab-status-icon tab-status-icon--running" />
+								{:else if status === 'error'}
+									<XCircle class="tab-status-icon tab-status-icon--error" />
+								{:else}
+									<Clock class="tab-status-icon tab-status-icon--not-started" />
+								{/if}
+								<span class="tab-name">{stage.name}</span>
+							</span>
 							<span class="tab-desc">{stage.description}</span>
 						</button>
 					{/each}
@@ -377,65 +433,96 @@
 
 			<!-- Main content card -->
 			<div class="main-content-card">
-				<!-- Sub-tabs + Re-Run row -->
-				<div class="sub-tab-row">
-					<div class="sub-tabs">
-						<button
-							class="sub-tab"
-							class:active={activeSubTab === 'output'}
-							onclick={() => handleSubTabClick('output')}
-						>
-							<FileOutput class="sub-tab-icon" />
-							Output Files
-							{#if !filesLoading}
-								<Badge variant="outline" class="sub-tab-badge {outputFileCount === 0 ? 'sub-tab-badge-zero' : ''}">{outputFileCount}</Badge>
+				{#if stageHasContent}
+					<!-- Sub-tabs + Re-Run row -->
+					<div class="sub-tab-row">
+						<div class="sub-tabs">
+							<button
+								class="sub-tab"
+								class:active={activeSubTab === 'output'}
+								onclick={() => handleSubTabClick('output')}
+							>
+								<FileOutput class="sub-tab-icon" />
+								Output Files
+								{#if !filesLoading}
+									<Badge variant="outline" class="sub-tab-badge {outputFileCount === 0 ? 'sub-tab-badge-zero' : ''}">{outputFileCount}</Badge>
+								{/if}
+							</button>
+							<button
+								class="sub-tab"
+								class:active={activeSubTab === 'logs'}
+								onclick={() => handleSubTabClick('logs')}
+							>
+								<ScrollText class="sub-tab-icon" />
+								Logs
+								<Badge variant="outline" class="sub-tab-badge {logLineCount === 0 ? 'sub-tab-badge-zero' : ''}">{logLineCount}</Badge>
+							</button>
+						</div>
+
+						<div class="sub-tab-actions">
+							{#if canOpenVideoEditor}
+								<Button variant="outline" size="sm" onclick={() => (videoEditorOpen = true)}>
+									<Film class="mr-1 h-4 w-4" />
+									Video Editor
+								</Button>
+							{:else}
+								<Button variant="outline" size="sm" disabled title="Stage 1 outputs must exist to use the Video Editor">
+									<Film class="mr-1 h-4 w-4" />
+									Video Editor
+								</Button>
 							{/if}
-						</button>
-						<button
-							class="sub-tab"
-							class:active={activeSubTab === 'logs'}
-							onclick={() => handleSubTabClick('logs')}
-						>
-							<ScrollText class="sub-tab-icon" />
-							Logs
-							<Badge variant="outline" class="sub-tab-badge {logLineCount === 0 ? 'sub-tab-badge-zero' : ''}">{logLineCount}</Badge>
-						</button>
+							{#if canOpenCycleEditor}
+								<Button variant="outline" size="sm" onclick={() => (cycleEditorOpen = true)}>
+									<Film class="mr-1 h-4 w-4" />
+									Cycle Editor
+								</Button>
+							{/if}
+							<Button variant="destructive" size="sm" onclick={handleRerunClick}>
+								<RotateCcw class="mr-1 h-4 w-4" />
+								Re-Run
+							</Button>
+						</div>
 					</div>
 
-					<Button variant="destructive" size="sm" onclick={handleRerunClick}>
-						<RotateCcw class="mr-1 h-4 w-4" />
-						Re-Run
-					</Button>
-				</div>
+					<!-- Success banner -->
+					{#if rerunSuccess}
+						<div class="success-banner">
+							{rerunSuccess}
+						</div>
+					{/if}
 
-				<!-- Success banner -->
-				{#if rerunSuccess}
-					<div class="success-banner">
-						{rerunSuccess}
+					<!-- Tab Content -->
+					<div class="tab-content">
+					{#if activeSubTab === 'output'}
+						<FileViewer
+							files={outputFiles}
+							loading={filesLoading}
+							error={filesError}
+							label=""
+							stageNumber={activeStageNumber}
+							allFiles={filesData}
+							{isAdmin}
+							{jobId}
+						/>
+					{:else if activeSubTab === 'logs'}
+						<div class="logs-content">
+							{#if currentStageLogs}
+								<pre class="log-output">{currentStageLogs}</pre>
+							{/if}
+						</div>
+					{/if}
+					</div>
+				{:else}
+					<div class="stage-not-started">
+						<Clock class="not-started-icon" />
+						<p class="not-started-title">{activeStageInfo.name}: {activeStageInfo.description}</p>
+						<p class="not-started-subtitle">This stage hasn't started yet</p>
+						<Button variant="destructive" size="sm" onclick={handleRerunClick}>
+							<RotateCcw class="mr-1 h-4 w-4" />
+							Re-Run from here
+						</Button>
 					</div>
 				{/if}
-
-				<!-- Tab Content -->
-				<div class="tab-content">
-				{#if activeSubTab === 'output'}
-					<FileViewer
-						files={outputFiles}
-						loading={filesLoading}
-						error={filesError}
-						label=""
-						stageNumber={activeStageNumber}
-						allFiles={filesData}
-						{isAdmin}
-						{jobId}
-					/>
-				{:else if activeSubTab === 'logs'}
-					<div class="logs-content">
-						{#if currentStageLogs}
-							<pre class="log-output">{currentStageLogs}</pre>
-						{/if}
-					</div>
-				{/if}
-				</div>
 			</div>
 		{/if}
 	</div>
@@ -486,6 +573,24 @@
 			</Dialog.Footer>
 		</Dialog.Content>
 	</Dialog.Root>
+
+	<CycleEditor
+		open={cycleEditorOpen}
+		onclose={() => (cycleEditorOpen = false)}
+		{jobId}
+		frontVideo={frontVideoFile}
+		sideVideo={sideVideoFile}
+		{frontJsonFile}
+		{sideJsonFile}
+	/>
+
+	<VideoEditor
+		open={videoEditorOpen}
+		onclose={() => (videoEditorOpen = false)}
+		{jobId}
+		frontVideo={stage1FrontVideo}
+		sideVideo={stage1SideVideo}
+	/>
 {/if}
 
 <style>
@@ -705,19 +810,74 @@
 	}
 
 	.stage-tab.active {
-		color: hsl(var(--primary));
 		background-color: hsl(var(--background));
-		border-color: hsl(var(--primary) / 0.3);
 		box-shadow: 0 1px 3px hsl(var(--primary) / 0.1);
+	}
+
+	/* Stage status color variants */
+	.stage-tab--complete {
+		color: hsl(142 76% 36%);
+	}
+	.stage-tab--complete.active {
+		border-color: hsl(142 76% 36% / 0.4);
+	}
+
+	.stage-tab--running {
+		color: hsl(var(--primary));
+	}
+	.stage-tab--running.active {
+		border-color: hsl(var(--primary) / 0.4);
+	}
+
+	.stage-tab--error {
+		color: hsl(var(--destructive));
+	}
+	.stage-tab--error.active {
+		border-color: hsl(var(--destructive) / 0.4);
+	}
+
+	.stage-tab--not_started {
+		color: hsl(var(--muted-foreground));
+		opacity: 0.7;
+	}
+	.stage-tab--not_started.active {
+		border-color: hsl(var(--border));
+		opacity: 1;
+	}
+
+	.tab-header {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+
+	:global(.tab-status-icon) {
+		width: 0.8125rem;
+		height: 0.8125rem;
+		flex-shrink: 0;
+	}
+
+	:global(.tab-status-icon--complete) {
+		color: hsl(142 76% 36%);
+	}
+
+	:global(.tab-status-icon--running) {
+		color: hsl(var(--primary));
+		animation: spin 1s linear infinite;
+	}
+
+	:global(.tab-status-icon--error) {
+		color: hsl(var(--destructive));
+	}
+
+	:global(.tab-status-icon--not-started) {
+		color: hsl(var(--muted-foreground));
+		opacity: 0.5;
 	}
 
 	.tab-name {
 		font-size: 0.8125rem;
 		font-weight: 600;
-	}
-
-	.stage-tab.active .tab-name {
-		color: hsl(var(--primary));
 	}
 
 	.tab-desc {
@@ -728,6 +888,35 @@
 
 	.stage-tab.active .tab-desc {
 		opacity: 1;
+	}
+
+	/* Stage not started placeholder */
+	.stage-not-started {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.625rem;
+		padding: 3rem 1.5rem;
+		color: hsl(var(--muted-foreground));
+	}
+
+	:global(.not-started-icon) {
+		width: 2rem;
+		height: 2rem;
+		opacity: 0.35;
+	}
+
+	.not-started-title {
+		font-size: 0.875rem;
+		font-weight: 600;
+		margin: 0;
+	}
+
+	.not-started-subtitle {
+		font-size: 0.8125rem;
+		margin: 0;
+		opacity: 0.7;
 	}
 
 	/* ── Main Content Card ────────────────────────────────── */
@@ -749,6 +938,12 @@
 		padding: 0.5rem 0.75rem;
 		background: hsl(var(--muted) / 0.35);
 		border-bottom: 1px solid hsl(var(--border));
+	}
+
+	.sub-tab-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 	}
 
 	.sub-tabs {
@@ -898,5 +1093,10 @@
 		.stage-tabs {
 			justify-content: flex-start;
 		}
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 </style>

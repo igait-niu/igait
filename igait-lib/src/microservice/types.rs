@@ -73,6 +73,48 @@ impl StageNumber {
 }
 
 // ============================================================================
+// VIDEO EDIT FLAGS
+// ============================================================================
+
+/// Describes a set of spatial/temporal transformations to apply to a single video.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VideoTransform {
+    /// Rotation in degrees: 0, 90, 180, or 270.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<u16>,
+    /// Trim start in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trim_start: Option<f64>,
+    /// Trim end in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trim_end: Option<f64>,
+    /// Crop region X offset (pixels).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop_x: Option<u32>,
+    /// Crop region Y offset (pixels).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop_y: Option<u32>,
+    /// Crop region width (pixels).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop_width: Option<u32>,
+    /// Crop region height (pixels).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop_height: Option<u32>,
+}
+
+/// Video editing flags for front and side videos.
+///
+/// Stored on the Job record and forwarded to Stage 1 via `metadata.extra`
+/// when re-processing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VideoEditFlags {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub front: Option<VideoTransform>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub side: Option<VideoTransform>,
+}
+
+// ============================================================================
 // JOB METADATA
 // ============================================================================
 

@@ -277,7 +277,8 @@ export function queueItemToJob(item: QueueItem | FinalizeQueueItem): Job & { id:
 			: { code: 'Submitted' as const, value: 'Waiting in queue' },
 		requires_approval: item.requires_approval ?? false,
 		approved: item.approved ?? false,
-		stage_logs: {}
+		stage_logs: {},
+		stage_statuses: {}
 	};
 }
 

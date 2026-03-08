@@ -2,6 +2,7 @@
 import type { Ethnicity } from './Ethnicity';
 import type { JobStatus } from './JobStatus';
 import type { Sex } from './Sex';
+import type { StageStatus } from './StageStatus';
 
 /**
  * The job struct, which contains the job
@@ -40,4 +41,32 @@ export type Job = {
 	 * Keys are "stage_1" through "stage_7", values are the log text.
 	 */
 	stage_logs: Record<string, string>;
+	/**
+	 * Per-stage statuses tracking individual stage progress.
+	 * Keys are "stage_1" through "stage_7", values are the stage status.
+	 */
+	stage_statuses: Record<string, StageStatus>;
+	/**
+	 * Optional video edit transforms applied before stage 1 processing.
+	 */
+	video_edit?: {
+		front?: {
+			rotation?: number;
+			trim_start?: number;
+			trim_end?: number;
+			crop_x?: number;
+			crop_y?: number;
+			crop_width?: number;
+			crop_height?: number;
+		};
+		side?: {
+			rotation?: number;
+			trim_start?: number;
+			trim_end?: number;
+			crop_x?: number;
+			crop_y?: number;
+			crop_width?: number;
+			crop_height?: number;
+		};
+	};
 };

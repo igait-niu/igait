@@ -10,7 +10,8 @@ export const API_ENDPOINTS = {
 	assistant: `${API_BASE_URL.replace(/^http/, 'ws')}/assistant_proxied`,
 	rerun: `${API_BASE_URL}/rerun`,
 	files: (jobId: string) => `${API_BASE_URL}/files/${jobId}`,
-	cycles: (jobId: string) => `${API_BASE_URL}/cycles/${jobId}`
+	cycles: (jobId: string) => `${API_BASE_URL}/cycles/${jobId}`,
+	videoEdit: (jobId: string) => `${API_BASE_URL}/video-edit/${jobId}`
 } as const;
 
 /**

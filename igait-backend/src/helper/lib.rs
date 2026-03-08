@@ -10,7 +10,7 @@ use async_openai::{
 };
 use tokio::sync::Mutex;
 use firebase_auth::{FirebaseAuth, FirebaseUser};
-use igait_lib::microservice::{EmailClient, StorageClient};
+use igait_lib::microservice::{EmailClient, StorageClient, VideoEditFlags, StageStatus};
 use ts_rs::TS;
 
 use super::database::Database;
@@ -90,6 +90,15 @@ pub struct Job {
     /// Keys are "stage_1" through "stage_7", values are the log text.
     #[serde(default)]
     pub stage_logs: std::collections::HashMap<String, String>,
+    /// Per-stage statuses tracking individual stage progress.
+    /// Keys are "stage_1" through "stage_7", values are the stage status.
+    #[serde(default)]
+    #[ts(type = "Record<string, StageStatus>")]
+    pub stage_statuses: std::collections::HashMap<String, StageStatus>,
+    /// Video editing flags (rotation, trim, crop) to apply on the next Stage 1 run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "{ front?: { rotation?: number, trim_start?: number, trim_end?: number, crop_x?: number, crop_y?: number, crop_width?: number, crop_height?: number }, side?: { rotation?: number, trim_start?: number, trim_end?: number, crop_x?: number, crop_y?: number, crop_width?: number, crop_height?: number } }")]
+    pub video_edit: Option<VideoEditFlags>,
 }
 
 /// The total number of processing stages in the pipeline

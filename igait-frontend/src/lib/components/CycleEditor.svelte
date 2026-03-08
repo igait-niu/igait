@@ -3,7 +3,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Badge } from '$lib/components/ui/badge';
-	import { updateCycles } from '$lib/api';
+	import { updateCycles, rerunJob } from '$lib/api';
 	import type { FileEntry, GaitCycle } from '$lib/api';
 	import { toast } from 'svelte-sonner';
 
@@ -31,11 +31,11 @@
 	let saving = $state(false);
 	let frontCycles: GaitCycle[] = $state([]);
 	let sideCycles: GaitCycle[] = $state([]);
-	let frontVideoEl: HTMLVideoElement | undefined = $state(undefined);
-	let sideVideoEl: HTMLVideoElement | undefined = $state(undefined);
+	let videoEl: HTMLVideoElement | undefined = $state(undefined);
 	let isPlaying = $state(false);
 	let currentTime = $state(0);
-	let duration = $state(0);
+	let frontDuration = $state(0);
+	let sideDuration = $state(0);
 	let frontTotalFrames = $state(0);
 	let sideTotalFrames = $state(0);
 	let activeTab: 'front' | 'side' = $state('front');
@@ -43,17 +43,25 @@
 	let editingCycle: GaitCycle | null = $state(null);
 	let hasChanges = $state(false);
 	let fps = 30; // Default framerate assumption
+	let isDraggingScrubber = $state(false);
 
 	// ── Derived ───────────────────────────────────────────
 	const activeCycles = $derived(activeTab === 'front' ? frontCycles : sideCycles);
+	const activeVideo = $derived(activeTab === 'front' ? frontVideo : sideVideo);
 	const activeJsonFile = $derived(activeTab === 'front' ? frontJsonFile : sideJsonFile);
 	const totalFrames = $derived(activeTab === 'front' ? frontTotalFrames : sideTotalFrames);
+	const duration = $derived(activeTab === 'front' ? frontDuration : sideDuration);
 	const currentFrame = $derived(Math.round(currentTime * fps));
+	const hasFrontTab = $derived(!!frontVideo || !!frontJsonFile);
+	const hasSideTab = $derived(!!sideVideo || !!sideJsonFile);
 
 	// ── Load cycle data ───────────────────────────────────
 	$effect(() => {
 		if (open) {
 			loadCycleData();
+			// Default to the first available tab
+			if (hasFrontTab) activeTab = 'front';
+			else if (hasSideTab) activeTab = 'side';
 		} else {
 			// Reset state when closed
 			frontCycles = [];
@@ -78,7 +86,6 @@
 						.then((r) => r.json())
 						.then((data) => {
 							frontCycles = (data.gait_cycles ?? []).map((c: GaitCycle) => ({ ...c }));
-							// Try to deduce total frames from landmark data length
 							if (data.landmark_data?.length) {
 								frontTotalFrames = data.landmark_data.length;
 							}
@@ -111,30 +118,40 @@
 	// ── Video controls ────────────────────────────────────
 	function handleVideoLoaded(e: Event) {
 		const video = e.target as HTMLVideoElement;
-		if (video.duration && video.duration > duration) {
-			duration = video.duration;
+		if (video.duration) {
+			if (activeTab === 'front') frontDuration = video.duration;
+			else sideDuration = video.duration;
 		}
 	}
 
+	function handleTabSwitch(tab: 'front' | 'side') {
+		if (tab === activeTab) return;
+		// Pause current video
+		if (isPlaying) {
+			videoEl?.pause();
+			isPlaying = false;
+		}
+		activeTab = tab;
+		currentTime = 0;
+		selectedCycleIndex = null;
+		editingCycle = null;
+	}
+
 	function togglePlayback() {
-		if (!frontVideoEl && !sideVideoEl) return;
+		if (!videoEl) return;
 
 		if (isPlaying) {
-			frontVideoEl?.pause();
-			sideVideoEl?.pause();
+			videoEl.pause();
 			isPlaying = false;
 		} else {
-			frontVideoEl?.play();
-			sideVideoEl?.play();
+			videoEl.play();
 			isPlaying = true;
 		}
 	}
 
 	function handleTimeUpdate() {
-		if (frontVideoEl) {
-			currentTime = frontVideoEl.currentTime;
-		} else if (sideVideoEl) {
-			currentTime = sideVideoEl.currentTime;
+		if (videoEl && !isDraggingScrubber) {
+			currentTime = videoEl.currentTime;
 		}
 	}
 
@@ -144,14 +161,7 @@
 
 	function seekToFrame(frame: number) {
 		const time = frame / fps;
-		if (frontVideoEl) frontVideoEl.currentTime = time;
-		if (sideVideoEl) sideVideoEl.currentTime = time;
-		currentTime = time;
-	}
-
-	function seekToTime(time: number) {
-		if (frontVideoEl) frontVideoEl.currentTime = time;
-		if (sideVideoEl) sideVideoEl.currentTime = time;
+		if (videoEl) videoEl.currentTime = time;
 		currentTime = time;
 	}
 
@@ -163,11 +173,42 @@
 	function handleTimelineClick(e: MouseEvent) {
 		const target = e.currentTarget as HTMLElement;
 		const rect = target.getBoundingClientRect();
-		const fraction = (e.clientX - rect.left) / rect.width;
+		const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
 		const maxFrames = totalFrames || Math.round(duration * fps);
 		if (maxFrames > 0) {
 			seekToFrame(Math.round(fraction * maxFrames));
 		}
+	}
+
+	// ── Scrubber drag ─────────────────────────────────────
+	function handleScrubberDown(e: MouseEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		isDraggingScrubber = true;
+
+		const timeline = (e.target as HTMLElement).closest('.timeline') as HTMLElement;
+		if (!timeline) return;
+
+		const onMove = (ev: MouseEvent) => {
+			const rect = timeline.getBoundingClientRect();
+			const fraction = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+			const maxFrames = totalFrames || Math.round(duration * fps);
+			if (maxFrames > 0) {
+				const frame = Math.round(fraction * maxFrames);
+				const time = frame / fps;
+				if (videoEl) videoEl.currentTime = time;
+				currentTime = time;
+			}
+		};
+
+		const onUp = () => {
+			isDraggingScrubber = false;
+			window.removeEventListener('mousemove', onMove);
+			window.removeEventListener('mouseup', onUp);
+		};
+
+		window.addEventListener('mousemove', onMove);
+		window.addEventListener('mouseup', onUp);
 	}
 
 	// ── Cycle CRUD ────────────────────────────────────────
@@ -185,7 +226,7 @@
 		}
 
 		hasChanges = true;
-		selectedCycleIndex = activeCycles.length; // Select the newly added one
+		selectedCycleIndex = activeCycles.length;
 		editingCycle = { ...newCycle };
 	}
 
@@ -196,7 +237,6 @@
 		} else {
 			selectedCycleIndex = index;
 			editingCycle = { ...activeCycles[index] };
-			// Seek to cycle start
 			seekToFrame(activeCycles[index].start);
 		}
 	}
@@ -267,7 +307,15 @@
 
 			await Promise.all(saves);
 			hasChanges = false;
-			toast.success('Cycle data saved successfully!');
+
+			// Trigger re-run from stage 6 (ML Prediction)
+			const rerunResult = await rerunJob(jobId, 6);
+			if (rerunResult.isOk()) {
+				toast.success('Cycles saved — re-running from Stage 6!');
+				onclose();
+			} else {
+				toast.error(`Cycles saved, but re-run failed: ${rerunResult.error.rootCause}`);
+			}
 		} catch (err) {
 			console.error('Save failed:', err);
 			toast.error(`Failed to save: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -334,38 +382,92 @@
 			</div>
 		{:else}
 			<div class="editor-body">
-				<!-- Video Players -->
+				<!-- Video + Timeline Section -->
 				<div class="video-section">
-					<div class="video-grid">
-						{#if frontVideo}
-							<div class="video-wrapper">
-								<span class="video-label">Front View</span>
+					<!-- Front / Side Video Tabs -->
+					<div class="video-tabs">
+						{#if hasFrontTab}
+							<button
+								class="video-tab"
+								class:active={activeTab === 'front'}
+								onclick={() => handleTabSwitch('front')}
+							>
+								Front View
+								<Badge variant="outline" class="ml-1.5 video-tab-badge">{frontCycles.length}</Badge>
+							</button>
+						{/if}
+						{#if hasSideTab}
+							<button
+								class="video-tab"
+								class:active={activeTab === 'side'}
+								onclick={() => handleTabSwitch('side')}
+							>
+								Side View
+								<Badge variant="outline" class="ml-1.5 video-tab-badge">{sideCycles.length}</Badge>
+							</button>
+						{/if}
+					</div>
+
+					<!-- Single Active Video -->
+					<div class="video-wrapper">
+						{#if activeVideo}
+							{#key activeTab}
 								<!-- svelte-ignore a11y_media_has_caption -->
 								<video
-									bind:this={frontVideoEl}
-									src={frontVideo.url}
+									bind:this={videoEl}
+									src={activeVideo.url}
 									onloadedmetadata={handleVideoLoaded}
 									ontimeupdate={handleTimeUpdate}
 									onended={handleVideoEnded}
 									preload="metadata"
 									class="video-player"
 								></video>
+							{/key}
+						{:else}
+							<div class="no-video">
+								<p>No {activeTab} video available</p>
 							</div>
 						{/if}
-						{#if sideVideo}
-							<div class="video-wrapper">
-								<span class="video-label">Side View</span>
-								<!-- svelte-ignore a11y_media_has_caption -->
-								<video
-									bind:this={sideVideoEl}
-									src={sideVideo.url}
-									onloadedmetadata={handleVideoLoaded}
-									onended={handleVideoEnded}
-									preload="metadata"
-									class="video-player"
-								></video>
+					</div>
+
+					<!-- Timeline (directly below video) -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="timeline" onclick={handleTimelineClick}>
+						<div class="timeline-track">
+							<!-- Cycle overlays -->
+							{#each activeCycles as cycle, i}
+								{@const pos = getCyclePosition(cycle)}
+								<div
+									class="cycle-block"
+									class:cycle-block--left={cycle.side === 'L'}
+									class:cycle-block--right={cycle.side === 'R'}
+									class:cycle-block--selected={selectedCycleIndex === i}
+									style="left: {pos.left}; width: {pos.width}"
+									onclick={(e) => { e.stopPropagation(); selectCycle(i); }}
+									onkeydown={(e) => { if (e.key === 'Enter') selectCycle(i); }}
+									role="button"
+									tabindex="0"
+									title="Cycle {i + 1}: {cycle.side} ({cycle.start}–{cycle.end})"
+								>
+									<span class="cycle-block-label">{cycle.side}{i + 1}</span>
+								</div>
+							{/each}
+
+							<!-- Scrubber / Playhead -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								class="scrubber"
+								style="left: {getPlayheadPosition()}"
+								onmousedown={handleScrubberDown}
+							>
+								<div class="scrubber-head"></div>
+								<div class="scrubber-line"></div>
 							</div>
-						{/if}
+						</div>
+						<div class="timeline-frame-label" style="left: {getPlayheadPosition()}">
+							{currentFrame}
+						</div>
 					</div>
 
 					<!-- Playback Controls -->
@@ -390,55 +492,13 @@
 							<span class="time-indicator">{formatTime(currentTime)} / {formatTime(duration)}</span>
 						</div>
 					</div>
-
-					<!-- Timeline -->
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div class="timeline" onclick={handleTimelineClick}>
-						<div class="timeline-track">
-							<!-- Cycle overlays -->
-							{#each activeCycles as cycle, i}
-								{@const pos = getCyclePosition(cycle)}
-								<div
-									class="cycle-block"
-									class:cycle-block--left={cycle.side === 'L'}
-									class:cycle-block--right={cycle.side === 'R'}
-									class:cycle-block--selected={selectedCycleIndex === i}
-									style="left: {pos.left}; width: {pos.width}"
-									onclick={(e) => { e.stopPropagation(); selectCycle(i); }}
-									onkeydown={(e) => { if (e.key === 'Enter') selectCycle(i); }}
-									role="button"
-									tabindex="0"
-									title="Cycle {i + 1}: {cycle.side} ({cycle.start}–{cycle.end})"
-								>
-									<span class="cycle-block-label">{cycle.side}{i + 1}</span>
-								</div>
-							{/each}
-
-							<!-- Playhead -->
-							<div class="playhead" style="left: {getPlayheadPosition()}"></div>
-						</div>
-					</div>
 				</div>
 
 				<!-- Cycle List Panel -->
 				<div class="cycles-panel">
-					<!-- Tabs: Front / Side -->
-					<div class="panel-tabs">
-						<button
-							class="panel-tab"
-							class:active={activeTab === 'front'}
-							onclick={() => { activeTab = 'front'; selectedCycleIndex = null; editingCycle = null; }}
-						>
-							Front ({frontCycles.length})
-						</button>
-						<button
-							class="panel-tab"
-							class:active={activeTab === 'side'}
-							onclick={() => { activeTab = 'side'; selectedCycleIndex = null; editingCycle = null; }}
-						>
-							Side ({sideCycles.length})
-						</button>
+					<div class="panel-header">
+						<span class="panel-title">{activeTab === 'front' ? 'Front' : 'Side'} Cycles</span>
+						<Badge variant="outline" class="panel-count-badge">{activeCycles.length}</Badge>
 					</div>
 
 					<!-- Cycle list -->
@@ -550,10 +610,7 @@
 		{/if}
 
 		<div class="editor-footer">
-			<Button variant="ghost" size="sm" onclick={handleClose}>
-				<X class="h-4 w-4 mr-1" />
-				Close
-			</Button>
+			<div></div>
 			<Button
 				variant="default"
 				size="sm"
@@ -597,7 +654,7 @@
 		align-items: center;
 		justify-content: center;
 		padding: 4rem 2rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		gap: 0.75rem;
 	}
 
@@ -623,42 +680,80 @@
 	.video-section {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0;
 		min-height: 0;
 		overflow: hidden;
 	}
 
-	.video-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.75rem;
-		flex: 1;
-		min-height: 0;
+	/* ── Video Tabs ───────────────────────────────────────── */
+
+	.video-tabs {
+		display: flex;
+		gap: 0.25rem;
+		padding: 0 0.25rem;
+		flex-shrink: 0;
+		background: color-mix(in oklch, var(--muted) 30%, transparent);
+		border-radius: var(--radius) var(--radius) 0 0;
+		padding-top: 0.25rem;
 	}
+
+	.video-tab {
+		display: flex;
+		align-items: center;
+		padding: 0.5rem 1.25rem;
+		border: 1px solid transparent;
+		border-bottom: none;
+		background: transparent;
+		cursor: pointer;
+		font-size: 0.8125rem;
+		font-weight: 600;
+		color: var(--muted-foreground);
+		transition: all 0.15s ease;
+		border-radius: var(--radius) var(--radius) 0 0;
+		position: relative;
+	}
+
+	.video-tab.active {
+		color: var(--foreground);
+		background: var(--background);
+		border-color: var(--border);
+		box-shadow: 0 -2px 6px color-mix(in oklch, var(--primary) 8%, transparent);
+	}
+
+	/* hides bottom border to blend into content */
+	.video-tab.active::after {
+		content: '';
+		position: absolute;
+		bottom: -1px;
+		left: 0;
+		right: 0;
+		height: 1px;
+		background: var(--background);
+	}
+
+	.video-tab:hover:not(.active) {
+		color: color-mix(in oklch, var(--foreground) 80%, transparent);
+		background: color-mix(in oklch, var(--muted) 50%, transparent);
+	}
+
+	:global(.video-tab-badge) {
+		font-size: 0.625rem !important;
+		padding: 0 0.375rem !important;
+		height: 1.125rem !important;
+	}
+
+	/* ── Video Player ─────────────────────────────────────── */
 
 	.video-wrapper {
 		position: relative;
 		display: flex;
 		flex-direction: column;
+		flex: 1;
 		min-height: 0;
-		background: hsl(var(--muted) / 0.3);
-		border-radius: var(--radius);
+		background: hsl(0 0% 5%);
 		overflow: hidden;
-	}
-
-	.video-label {
-		position: absolute;
-		top: 0.5rem;
-		left: 0.5rem;
-		z-index: 2;
-		font-size: 0.6875rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		padding: 0.125rem 0.5rem;
-		background: hsl(0 0% 0% / 0.6);
-		color: white;
-		border-radius: var(--radius-sm);
+		border-left: 1px solid var(--border);
+		border-right: 1px solid var(--border);
 	}
 
 	.video-player {
@@ -668,83 +763,40 @@
 		background: black;
 	}
 
-	/* ── Playback Controls ────────────────────────────────── */
-
-	.playback-controls {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0.375rem 0.5rem;
-		background: hsl(var(--muted) / 0.3);
-		border-radius: var(--radius);
-	}
-
-	.control-group {
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
-	}
-
-	.control-btn {
+	.no-video {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 2rem;
-		height: 2rem;
-		border: none;
-		background: none;
-		cursor: pointer;
-		border-radius: var(--radius-sm);
-		color: hsl(var(--foreground));
-		transition: background-color 0.15s ease;
+		flex: 1;
+		color: var(--muted-foreground);
+		font-size: 0.875rem;
 	}
 
-	.control-btn:hover {
-		background: hsl(var(--muted));
-	}
-
-	.control-btn--play {
-		width: 2.5rem;
-		height: 2.5rem;
-		background: hsl(var(--primary));
-		color: hsl(var(--primary-foreground));
-		border-radius: 50%;
-	}
-
-	.control-btn--play:hover {
-		background: hsl(var(--primary) / 0.85);
-	}
-
-	.time-display {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		font-family: ui-monospace, monospace;
-		font-size: 0.75rem;
-	}
-
-	.frame-indicator {
-		color: hsl(var(--primary));
-		font-weight: 600;
-	}
-
-	.time-indicator {
-		color: hsl(var(--muted-foreground));
+	.no-video p {
+		margin: 0;
 	}
 
 	/* ── Timeline ─────────────────────────────────────────── */
 
 	.timeline {
-		padding: 0.25rem 0;
+		padding: 0.625rem 0.5rem 1.25rem;
 		cursor: pointer;
+		flex-shrink: 0;
+		position: relative;
+		background: color-mix(in oklch, var(--muted) 25%, transparent);
+		border: 1px solid var(--border);
+		border-top: none;
+		border-radius: 0 0 var(--radius) var(--radius);
 	}
 
 	.timeline-track {
 		position: relative;
-		height: 2.5rem;
-		background: hsl(var(--muted) / 0.4);
+		height: 2.25rem;
+		background: color-mix(in oklch, var(--muted) 50%, transparent);
 		border-radius: var(--radius-sm);
-		overflow: hidden;
+		overflow: visible;
+		border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+		box-shadow: inset 0 1px 3px hsl(0 0% 0% / 0.06);
 	}
 
 	.cycle-block {
@@ -773,7 +825,7 @@
 	.cycle-block--selected {
 		z-index: 2;
 		filter: brightness(1.3);
-		outline: 2px solid hsl(var(--primary));
+		outline: 2px solid var(--primary);
 		outline-offset: 1px;
 	}
 
@@ -791,26 +843,127 @@
 		overflow: hidden;
 	}
 
-	.playhead {
+	/* ── Scrubber ──────────────────────────────────────────── */
+
+	.scrubber {
 		position: absolute;
-		top: 0;
-		bottom: 0;
-		width: 2px;
-		background: hsl(var(--destructive));
+		top: -6px;
+		bottom: -6px;
 		z-index: 10;
-		pointer-events: none;
-		transition: left 0.05s linear;
+		cursor: grab;
+		transform: translateX(-50%);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		touch-action: none;
+		transition: left 0.06s linear;
 	}
 
-	.playhead::before {
-		content: '';
-		position: absolute;
-		top: -3px;
-		left: -4px;
-		width: 10px;
-		height: 10px;
-		background: hsl(var(--destructive));
+	.scrubber:active {
+		cursor: grabbing;
+		transition: none;
+	}
+
+	.scrubber-head {
+		width: 12px;
+		height: 12px;
+		background: var(--primary);
 		border-radius: 50%;
+		border: 2px solid var(--background);
+		box-shadow: 0 0 0 1px color-mix(in oklch, var(--primary) 30%, transparent), 0 1px 4px rgba(0, 0, 0, 0.25);
+		flex-shrink: 0;
+		transition: transform 0.1s ease;
+	}
+
+	.scrubber:hover .scrubber-head {
+		transform: scale(1.25);
+	}
+
+	.scrubber-line {
+		width: 2px;
+		flex: 1;
+		background: var(--primary);
+		border-radius: 1px;
+		box-shadow: 0 0 4px color-mix(in oklch, var(--primary) 25%, transparent);
+	}
+
+	.timeline-frame-label {
+		position: absolute;
+		bottom: -1rem;
+		transform: translateX(-50%);
+		font-family: ui-monospace, monospace;
+		font-size: 0.625rem;
+		font-weight: 600;
+		color: var(--primary);
+		pointer-events: none;
+		white-space: nowrap;
+		background: color-mix(in oklch, var(--primary) 10%, transparent);
+		padding: 0.0625rem 0.375rem;
+		border-radius: var(--radius-sm);
+		transition: left 0.06s linear;
+	}
+
+	/* ── Playback Controls ────────────────────────────────── */
+
+	.playback-controls {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.5rem 0.5rem 0.25rem;
+		flex-shrink: 0;
+	}
+
+	.control-group {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.control-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		border: none;
+		background: none;
+		cursor: pointer;
+		border-radius: var(--radius-sm);
+		color: var(--foreground);
+		transition: background-color 0.15s ease;
+	}
+
+	.control-btn:hover {
+		background: var(--muted);
+	}
+
+	.control-btn--play {
+		width: 2.5rem;
+		height: 2.5rem;
+		background: var(--primary);
+		color: var(--primary-foreground);
+		border-radius: 50%;
+	}
+
+	.control-btn--play:hover {
+		background: color-mix(in oklch, var(--primary) 85%, transparent);
+	}
+
+	.time-display {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		font-family: ui-monospace, monospace;
+		font-size: 0.75rem;
+	}
+
+	.frame-indicator {
+		color: var(--primary);
+		font-weight: 600;
+	}
+
+	.time-indicator {
+		color: var(--muted-foreground);
 	}
 
 	/* ── Cycles Panel ─────────────────────────────────────── */
@@ -818,38 +971,34 @@
 	.cycles-panel {
 		display: flex;
 		flex-direction: column;
-		border: 1px solid hsl(var(--border));
+		border: 1px solid var(--border);
 		border-radius: var(--radius);
 		overflow: hidden;
 		min-height: 0;
+		background: var(--card);
+		box-shadow: 0 1px 3px hsl(0 0% 0% / 0.04);
 	}
 
-	.panel-tabs {
+	.panel-header {
 		display: flex;
-		border-bottom: 1px solid hsl(var(--border));
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.625rem 0.75rem;
+		border-bottom: 1px solid var(--border);
 		flex-shrink: 0;
+		background: color-mix(in oklch, var(--muted) 25%, transparent);
 	}
 
-	.panel-tab {
-		flex: 1;
-		padding: 0.5rem;
-		border: none;
-		background: none;
-		cursor: pointer;
-		font-size: 0.75rem;
-		font-weight: 500;
-		color: hsl(var(--muted-foreground));
-		transition: all 0.15s ease;
+	.panel-title {
+		font-size: 0.8125rem;
+		font-weight: 600;
+		color: var(--foreground);
+		letter-spacing: -0.01em;
 	}
 
-	.panel-tab.active {
-		color: hsl(var(--foreground));
-		background: hsl(var(--muted) / 0.5);
-		box-shadow: inset 0 -2px 0 hsl(var(--primary));
-	}
-
-	.panel-tab:hover:not(.active) {
-		background: hsl(var(--muted) / 0.3);
+	:global(.panel-count-badge) {
+		font-size: 0.625rem !important;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.cycle-list {
@@ -868,17 +1017,18 @@
 		background: none;
 		cursor: pointer;
 		text-align: left;
-		transition: background-color 0.15s ease;
-		border-bottom: 1px solid hsl(var(--border) / 0.5);
+		transition: all 0.15s ease;
+		border-bottom: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
+		border-left: 3px solid transparent;
 	}
 
 	.cycle-item:hover {
-		background: hsl(var(--muted) / 0.4);
+		background: color-mix(in oklch, var(--muted) 35%, transparent);
 	}
 
 	.cycle-item--selected {
-		background: hsl(var(--primary) / 0.08);
-		border-left: 3px solid hsl(var(--primary));
+		background: color-mix(in oklch, var(--primary) 6%, transparent);
+		border-left-color: var(--primary);
 	}
 
 	.cycle-item-info {
@@ -896,7 +1046,7 @@
 
 	.cycle-duration {
 		font-size: 0.6875rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 	}
 
 	.cycle-delete-btn {
@@ -907,7 +1057,7 @@
 		border: none;
 		background: none;
 		cursor: pointer;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		border-radius: var(--radius-sm);
 		opacity: 0;
 		transition: all 0.15s ease;
@@ -918,8 +1068,8 @@
 	}
 
 	.cycle-delete-btn:hover {
-		color: hsl(var(--destructive));
-		background: hsl(var(--destructive) / 0.1);
+		color: var(--destructive);
+		background: color-mix(in oklch, var(--destructive) 10%, transparent);
 	}
 
 	.no-cycles {
@@ -928,7 +1078,7 @@
 		align-items: center;
 		justify-content: center;
 		padding: 2rem 1rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		text-align: center;
 	}
 
@@ -946,15 +1096,17 @@
 	/* ── Edit Panel ───────────────────────────────────────── */
 
 	.edit-panel {
-		border-top: 1px solid hsl(var(--border));
+		border-top: 1px solid var(--border);
 		padding: 0.75rem;
 		flex-shrink: 0;
+		background: color-mix(in oklch, var(--muted) 15%, transparent);
 	}
 
 	.edit-title {
 		font-size: 0.75rem;
 		font-weight: 600;
 		margin: 0 0 0.5rem;
+		color: var(--primary);
 	}
 
 	.edit-fields {
@@ -973,7 +1125,7 @@
 	.edit-field label {
 		font-size: 0.6875rem;
 		font-weight: 500;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		flex-shrink: 0;
 	}
 
@@ -982,17 +1134,17 @@
 		padding: 0.25rem 0.5rem;
 		font-family: ui-monospace, monospace;
 		font-size: 0.75rem;
-		border: 1px solid hsl(var(--border));
+		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
-		background: hsl(var(--background));
-		color: hsl(var(--foreground));
+		background: var(--background);
+		color: var(--foreground);
 		text-align: right;
 	}
 
 	.edit-input:focus {
 		outline: none;
-		border-color: hsl(var(--primary));
-		box-shadow: 0 0 0 2px hsl(var(--primary) / 0.2);
+		border-color: var(--primary);
+		box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 20%, transparent);
 	}
 
 	.side-toggle {
@@ -1013,17 +1165,18 @@
 
 	.panel-actions {
 		padding: 0.75rem;
-		border-top: 1px solid hsl(var(--border));
+		border-top: 1px solid var(--border);
 		flex-shrink: 0;
+		background: color-mix(in oklch, var(--muted) 15%, transparent);
 	}
 
 	/* ── Footer ───────────────────────────────────────────── */
 
 	.editor-footer {
 		display: flex;
-		justify-content: space-between;
+		justify-content: flex-end;
 		padding-top: 0.75rem;
-		border-top: 1px solid hsl(var(--border));
+		border-top: 1px solid var(--border);
 		flex-shrink: 0;
 	}
 </style>

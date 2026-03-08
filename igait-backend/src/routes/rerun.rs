@@ -14,7 +14,7 @@ use firebase_auth::FirebaseUser;
 use serde::{Deserialize, Serialize};
 
 use igait_lib::microservice::{
-    JobMetadata, QueueItem, StageNumber, StoragePaths,
+    JobMetadata, QueueItem, StageNumber, StageStatus, StoragePaths,
     FirebaseRtdb, queue_item_path,
 };
 
@@ -123,12 +123,43 @@ pub async fn rerun_entrypoint(
         total_deleted += deleted;
     }
 
+    // ── 3b. Clear stage logs for stages `stage..=7` ─────────────────
+    let rtdb_for_logs = FirebaseRtdb::from_env()
+        .context("Failed to initialise Firebase RTDB client for log cleanup")?;
+    for s in stage..=NUM_STAGES {
+        let log_path = format!("users/{}/jobs/{}/stage_logs/stage_{}", target_uid, job_index, s);
+        rtdb_for_logs.delete(&log_path)
+            .await
+            .context(format!("Failed to delete logs for stage {}", s))?;
+        println!("Cleared logs for stage {}", s);
+    }
+
+    // ── 3c. Reset stage statuses for stages `stage..=7` ────────────
+    for s in stage..=NUM_STAGES {
+        let status_path = format!("users/{}/jobs/{}/stage_statuses/stage_{}", target_uid, job_index, s);
+        rtdb_for_logs.set(&status_path, &StageStatus::NotStarted)
+            .await
+            .context(format!("Failed to reset stage status for stage {}", s))?;
+        println!("Reset stage status for stage {}", s);
+    }
+
     // ── 4. Build input keys for the target stage ────────────────────
     // The target stage reads from the *previous* stage's output directory.
     // For stage 1 the inputs are the original uploads (stage_0).
     let input_keys = build_input_keys(&job_id, stage);
 
     // Build metadata from the job record
+    // If the job has video_edit flags and we're re-running from stage 1,
+    // include them in metadata.extra so Stage 1 can apply the transforms.
+    let mut extra = HashMap::new();
+    if stage == 1 {
+        if let Some(ref video_edit) = job.video_edit {
+            if let Ok(val) = serde_json::to_value(video_edit) {
+                extra.insert("video_edit".to_string(), val);
+            }
+        }
+    }
+
     let metadata = JobMetadata {
         email: Some(job.email.clone()),
         age: Some(job.age),
@@ -136,7 +167,7 @@ pub async fn rerun_entrypoint(
         ethnicity: Some(job.ethnicity.to_string()),
         height: Some(job.height.clone()),
         weight: Some(job.weight),
-        extra: HashMap::new(),
+        extra,
     };
 
     let mut queue_item = QueueItem::new(
@@ -185,7 +216,8 @@ pub async fn rerun_entrypoint(
 /// Builds the `input_keys` map for the target stage.
 ///
 /// The expected keys are **stage-specific**:
-/// - Stages 1–4: `front_video`, `side_video` (video-based processing)
+/// - Stages 1–3: `front_video`, `side_video` (video-based processing)
+/// - Stage 4:    `front_video`, `side_video` (from stage 2 — stage 3 is a passthrough)
 /// - Stage 5:    `front_landmarks`, `side_landmarks`, `front_video`, `side_video` (from pose estimation)
 /// - Stage 6:    `front_gait_analysis`, `side_gait_analysis` (from cycle detection)
 ///
@@ -195,8 +227,8 @@ fn build_input_keys(job_id: &str, stage: u8) -> HashMap<String, String> {
     let mut keys = HashMap::new();
 
     match stage {
-        // Stages 1–4 consume video outputs from the previous stage.
-        1..=4 => {
+        // Stages 1–3 consume video outputs from the previous stage.
+        1..=3 => {
             keys.insert(
                 "front_video".to_string(),
                 StoragePaths::stage_front_video(job_id, prev, "mp4"),
@@ -204,6 +236,18 @@ fn build_input_keys(job_id: &str, stage: u8) -> HashMap<String, String> {
             keys.insert(
                 "side_video".to_string(),
                 StoragePaths::stage_side_video(job_id, prev, "mp4"),
+            );
+        }
+        // Stage 4 reads from stage 2 because stage 3 is a passthrough
+        // that does not produce its own files.
+        4 => {
+            keys.insert(
+                "front_video".to_string(),
+                StoragePaths::stage_front_video(job_id, 2, "mp4"),
+            );
+            keys.insert(
+                "side_video".to_string(),
+                StoragePaths::stage_side_video(job_id, 2, "mp4"),
             );
         }
         // Stage 5 consumes pose landmarks AND videos from stage 4.

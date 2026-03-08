@@ -9,7 +9,7 @@ use crate::microservice::{
         CLAIM_TIMEOUT_MS, HEARTBEAT_INTERVAL_SECS,
         generate_worker_id, next_stage, now_ms, queue_config_path, queue_item_path, queue_path,
     },
-    backend_status::JobStatus,
+    backend_status::{JobStatus, StageStatus},
     StageNumber,
 };
 use anyhow::{Context, Result};
@@ -420,6 +420,14 @@ impl QueueOps {
         self.db.set(&path, status).await
     }
 
+    /// Updates the per-stage status in Firebase RTDB.
+    ///
+    /// This writes to `users/{user_id}/jobs/{job_index}/stage_statuses/stage_{n}`
+    pub async fn update_stage_status(&self, user_id: &str, job_index: usize, stage: u8, status: &StageStatus) -> Result<()> {
+        let path = format!("users/{}/jobs/{}/stage_statuses/stage_{}", user_id, job_index, stage);
+        self.db.set(&path, status).await
+    }
+
     /// Uploads stage logs to Firebase RTDB.
     ///
     /// This writes to `users/{user_id}/jobs/{job_index}/stage_logs/stage_{n}`
@@ -619,9 +627,10 @@ impl<W: StageWorker> WorkerRunner<W> {
             self.worker_id, job.job_id
         );
         
-        // Update job status to "Processing" in RTDB
+        // Update job status to "Processing" and stage status to "Running" in RTDB
         let stage_num = stage.as_u8();
         self.update_job_status(&job.job_id, JobStatus::processing(stage_num)).await;
+        self.update_stage_status(&job.job_id, stage_num, StageStatus::Running).await;
 
         // Spawn heartbeat task for long-running jobs
         let heartbeat_db = self.queue_ops.db.clone();
@@ -678,10 +687,9 @@ impl<W: StageWorker> WorkerRunner<W> {
 
                 // Upload stage logs to Firebase RTDB
                 self.upload_stage_logs(&job.job_id, stage_num, &logs).await;
-                
-                // Note: We don't update status here for intermediate stages.
-                // The next stage will update to its "Processing" status.
-                // Only the finalize stage sets the final Complete/Error status.
+
+                // Mark this stage as complete
+                self.update_stage_status(&job.job_id, stage_num, StageStatus::Complete).await;
 
                 // Check if this is the last processing stage (stage 6)
                 // Stage 7 is finalize, so stage 6 sends to finalize on success
@@ -706,7 +714,8 @@ impl<W: StageWorker> WorkerRunner<W> {
                 // Upload stage logs to Firebase RTDB
                 self.upload_stage_logs(&job.job_id, stage_num, &logs).await;
                 
-                // Update job status to "Error" in RTDB
+                // Mark this stage as errored and update job status
+                self.update_stage_status(&job.job_id, stage_num, StageStatus::Error).await;
                 self.update_job_status(&job.job_id, JobStatus::error(logs.clone())).await;
 
                 self.queue_ops
@@ -743,6 +752,20 @@ impl<W: StageWorker> WorkerRunner<W> {
             }
             Err(e) => {
                 eprintln!("Failed to parse job_id: {:?}", e);
+            }
+        }
+    }
+
+    /// Update per-stage status directly in RTDB
+    async fn update_stage_status(&self, job_id: &str, stage: u8, status: StageStatus) {
+        match QueueOps::parse_job_id(job_id) {
+            Ok((user_id, job_index)) => {
+                if let Err(e) = self.queue_ops.update_stage_status(&user_id, job_index, stage, &status).await {
+                    eprintln!("Failed to update stage {} status in RTDB: {:?}", stage, e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to parse job_id for stage status update: {:?}", e);
             }
         }
     }
