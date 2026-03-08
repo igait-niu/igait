@@ -254,6 +254,7 @@ pub async fn upload_entrypoint(
         approved: false,
         stage_logs: HashMap::new(),
         stage_statuses: HashMap::new(),
+        video_edit: None,
     };
 
     // Add the job to the database
