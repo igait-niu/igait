@@ -39,8 +39,8 @@ RUN apt-get update && apt-get install -y \
     libssl3t64 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the binary from workspace target directory
-COPY --from=builder /app/target/release/igait-backend /usr/local/bin/igait-backend
+# Copy the binary from backend target directory
+COPY --from=builder /app/igait-backend/target/release/igait-backend /usr/local/bin/igait-backend
 
 # Set environment
 ENV RUST_LOG=info

@@ -12,6 +12,8 @@ use axum::{
 use helper::lib::{AppState, AppStatePtr};
 use std::sync::Arc;
 use dotenv::dotenv;
+use tracing::{info, warn};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub const ASD_CLASSIFICATION_THRESHOLD: f32 = 0.5;
 pub const DISABLE_RESULT_EMAIL: bool = true;
@@ -37,6 +39,17 @@ async fn main() -> Result<()> {
     
     // Enable loading on WSL
     dotenv().ok();
+
+    // Initialize tracing subscriber with environment filter
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "igait_backend=info,tower_http=info,axum::rejection=trace".into())
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    info!("Starting iGait backend initialization...");
 
     // Create a thread-safe mutex lock to hold the app state
     let state: Arc<AppState> = Arc::new(
@@ -88,17 +101,17 @@ async fn main() -> Result<()> {
 
         tokio::select! {
             _ = ctrl_c => {
-                println!("\nReceived Ctrl+C, shutting down gracefully...");
+                warn!("Received Ctrl+C, shutting down gracefully...");
             },
             _ = terminate => {
-                println!("\nReceived SIGTERM, shutting down gracefully...");
+                warn!("Received SIGTERM, shutting down gracefully...");
             },
         }
     };
 
     // Serve the API with graceful shutdown
     let port = std::env::var("PORT").unwrap_or("3000".to_string());
-    println!("Starting iGait backend on port {port}...");
+    info!("iGait backend listening on port {}", port);
     let listener = tokio::net::TcpListener::bind(&format!("0.0.0.0:{port}")).await
         .context("Couldn't start up listener!")?;
     
@@ -107,6 +120,6 @@ async fn main() -> Result<()> {
         .await
         .context("Could't serve the API!")?;
 
-    println!("Server shut down gracefully");
+    info!("Server shut down gracefully");
     Ok(())
 }
