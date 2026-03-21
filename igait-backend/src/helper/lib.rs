@@ -38,8 +38,18 @@ mod systemtime_as_secs {
     }
 }
 
+/// Deserializes a value that may be `null` in JSON, falling back to `T::default()`.
+/// Firebase RTDB can store `null` for fields that should be `false` / `vec![]` / etc.
+fn null_as_default<'de, D, T>(deserializer: D) -> std::result::Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(|o| o.unwrap_or_default())
+}
+
 /// The user struct, which contains a user ID and a list of jobs.
-/// 
+///
 /// # Fields
 /// * `uid` - The user ID
 /// * `jobs` - The list of jobs
@@ -48,9 +58,9 @@ mod systemtime_as_secs {
 #[ts(export)]
 pub struct User {
     pub uid: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub jobs: Vec<Job>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub administrator: bool,
 }
 

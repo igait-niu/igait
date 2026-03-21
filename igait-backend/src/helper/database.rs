@@ -66,7 +66,7 @@ impl Database {
 
         // Check if the user doesn't exist
         println!("Verifying user existence...");
-        if user_handle.get::<User>().await.is_err() {
+        if user_handle.get::<Option<User>>().await.ok().flatten().is_none() {
             println!("User doesn't exist, creating new user with UID '{uid}'...");
 
             // Create a new user with no jobs
@@ -102,10 +102,11 @@ impl Database {
 
         self._state
             .at(uid)
-            .get::<User>()
+            .get::<Option<User>>()
             .await
             .map_err(|e| anyhow!("{e:?}"))
-            .context("Failed to get user!")
+            .context("Failed to get user!")?
+            .ok_or_else(|| anyhow!("User not found after ensure!"))
     }
 
     /// Counts the number of jobs a user has.
@@ -170,10 +171,11 @@ impl Database {
         jobs.push(job);
             
         // Get existing user to preserve administrator status
-        let existing_user = self._state.at(uid).get::<User>().await
+        let existing_user = self._state.at(uid).get::<Option<User>>().await
             .map_err(|e| anyhow!("{e:?}"))
-            .context("Failed to get existing user!")?;
-            
+            .context("Failed to get existing user!")?
+            .ok_or_else(|| anyhow!("User not found!"))?;
+
         // Update the user with the new job
         self._state.at(uid).update(&User {
             uid: String::from(uid),
@@ -226,9 +228,10 @@ impl Database {
         jobs.get_mut(job_id).ok_or(anyhow!("Job ID does not exist!"))?.status = status.clone();
         
         // Get existing user to preserve administrator status
-        let existing_user = user_handle.get::<User>().await
+        let existing_user = user_handle.get::<Option<User>>().await
             .map_err(|e| anyhow!("{e:?}"))
-            .context("Failed to get existing user!")?;
+            .context("Failed to get existing user!")?
+            .ok_or_else(|| anyhow!("User not found!"))?;
         
         // Update the user with the modified job array
         user_handle.update(&User {
