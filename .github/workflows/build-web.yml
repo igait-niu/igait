@@ -67,3 +67,16 @@ jobs:
             VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID }}
             VITE_FIREBASE_DATABASE_URL=${{ secrets.VITE_FIREBASE_DATABASE_URL }}
             VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}
+
+      - name: Update deployment image tag
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+        run: |
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          git clone https://x-access-token:${DEPLOY_TOKEN}@github.com/igait-niu/igait-kubernetes-configs.git /tmp/k8s-configs
+          cd /tmp/k8s-configs
+          sed -i "s|image: ghcr.io/igait-niu/igait/igait-frontend:.*|image: ghcr.io/igait-niu/igait/igait-frontend:sha-${SHA_SHORT}|" igait-frontend/deployment.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "deploy: igait-frontend:sha-${SHA_SHORT}" && git push
