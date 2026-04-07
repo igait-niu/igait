@@ -14,7 +14,7 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, dgx-spark]
     permissions:
       contents: read
       packages: write
