@@ -313,7 +313,7 @@ impl Orchestrator {
                             }]),
                             env_from: Some(vec![EnvFromSource {
                                 secret_ref: Some(SecretEnvSource {
-                                    name: Some(SECRET_NAME.to_string()),
+                                    name: SECRET_NAME.to_string(),
                                     optional: Some(false),
                                 }),
                                 ..Default::default()
