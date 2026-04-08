@@ -21,6 +21,10 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
+# Kubernetes orchestration
+kube = { version = "0.98", features = ["runtime", "client", "derive"] }
+k8s-openapi = { version = "0.24", features = ["v1_32"] }
+
 # Backend-specific dependencies
 async-openai = { git = "https://github.com/hiibolt/async-openai.git" }
 aws-config = { version = "1", features = ["behavior-version-latest"] }

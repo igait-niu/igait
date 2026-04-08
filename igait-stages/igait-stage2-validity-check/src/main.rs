@@ -12,7 +12,8 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use igait_lib::microservice::{
-    run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker, StorageClient,
+    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker,
+    StorageClient,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -365,6 +366,10 @@ async fn parse_validity_json(path: &Path) -> Result<VideoValidity> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("Starting Stage 2 Validity Check worker...");
-    run_stage_worker(ValidityCheckWorker).await
+    if std::env::var("IGAIT_JOB_PAYLOAD").is_ok() {
+        run_stage_job(ValidityCheckWorker).await
+    } else {
+        println!("Starting Stage 2 Validity Check worker...");
+        run_stage_worker(ValidityCheckWorker).await
+    }
 }

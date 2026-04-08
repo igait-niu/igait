@@ -10,8 +10,8 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use igait_lib::microservice::{
-    EmailClient, EmailTemplates, FinalizeQueueItem, ProcessingResult, StorageClient,
-    JobStatus, StageStatus, QueueOps, FirebaseRtdb,
+    EmailClient, EmailTemplates, FinalizeQueueItem, JobResult, ProcessingResult, StorageClient,
+    JobStatus, StageStatus, QueueOps, FirebaseRtdb, job_result_path,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -466,11 +466,80 @@ pub async fn run_finalize_worker(worker: FinalizeStageWorker) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("Starting Stage 7 Finalize worker...");
-    
+    if std::env::var("IGAIT_FINALIZE_PAYLOAD").is_ok() {
+        run_finalize_job_mode().await
+    } else {
+        println!("Starting Stage 7 Finalize worker...");
+        let worker = FinalizeStageWorker::new()
+            .await
+            .context("Failed to create finalize worker")?;
+        run_finalize_worker(worker).await
+    }
+}
+
+/// Runs the finalize worker in single-job mode for K8s Job execution.
+async fn run_finalize_job_mode() -> Result<()> {
+    println!("[job-mode] Starting finalize worker");
+
+    let payload = std::env::var("IGAIT_FINALIZE_PAYLOAD")
+        .context("Missing IGAIT_FINALIZE_PAYLOAD environment variable")?;
+    let job: FinalizeQueueItem = serde_json::from_str(&payload)
+        .context("Failed to deserialize IGAIT_FINALIZE_PAYLOAD as FinalizeQueueItem")?;
+
+    println!("[job-mode] Processing finalize job {}", job.job_id);
+
     let worker = FinalizeStageWorker::new()
         .await
         .context("Failed to create finalize worker")?;
-    
-    run_finalize_worker(worker).await
+
+    // The finalize worker handles status updates, emails, etc. internally
+    let process_result = worker.process(&job).await;
+
+    // Write result to RTDB for the orchestrator to clean up the finalize queue
+    let db = FirebaseRtdb::from_env()
+        .context("Failed to create Firebase RTDB client")?;
+
+    let job_result = match &process_result {
+        ProcessingResult::Success { output_keys, logs, duration_ms } => {
+            println!("[job-mode] Finalize job {} completed in {}ms", job.job_id, duration_ms);
+            JobResult {
+                stage: 7,
+                success: true,
+                output_keys: output_keys.clone(),
+                error: None,
+                logs: logs.clone(),
+                duration_ms: *duration_ms,
+                job_id: job.job_id.clone(),
+                user_id: job.user_id.clone(),
+                metadata: job.metadata.clone(),
+                input_keys: HashMap::new(),
+                requires_approval: false,
+                approved: false,
+            }
+        }
+        ProcessingResult::Failure { error, logs, duration_ms } => {
+            eprintln!("[job-mode] Finalize job {} failed after {}ms: {}", job.job_id, duration_ms, error);
+            JobResult {
+                stage: 7,
+                success: false,
+                output_keys: HashMap::new(),
+                error: Some(error.clone()),
+                logs: logs.clone(),
+                duration_ms: *duration_ms,
+                job_id: job.job_id.clone(),
+                user_id: job.user_id.clone(),
+                metadata: job.metadata.clone(),
+                input_keys: HashMap::new(),
+                requires_approval: false,
+                approved: false,
+            }
+        }
+    };
+
+    let result_path = job_result_path(&job.job_id);
+    db.set(&result_path, &job_result).await
+        .context("Failed to write finalize JobResult to Firebase RTDB")?;
+
+    println!("[job-mode] Finalize result written to RTDB at {}", result_path);
+    Ok(())
 }

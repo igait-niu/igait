@@ -335,6 +335,51 @@ pub fn queue_item_path(stage: StageNumber, job_id: &str) -> String {
     format!("{}/{}", queue_path(stage), safe_job_id)
 }
 
+/// Returns the Firebase RTDB path for a job's result (written by K8s Job, read by orchestrator).
+///
+/// Result paths are: `job_results/{safe_job_id}`
+pub fn job_result_path(job_id: &str) -> String {
+    let safe_job_id = job_id.replace('.', "_").replace('/', "_");
+    format!("job_results/{}", safe_job_id)
+}
+
+/// The result a K8s Job writes to Firebase RTDB after processing.
+///
+/// The backend orchestrator reads this to determine whether the stage
+/// succeeded and what the output keys are, then handles stage transitions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobResult {
+    /// Which stage produced this result (1-7).
+    pub stage: u8,
+    /// Whether processing succeeded.
+    pub success: bool,
+    /// Output storage keys (empty on failure).
+    #[serde(default)]
+    pub output_keys: HashMap<String, String>,
+    /// Error message if failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Processing logs.
+    pub logs: String,
+    /// Processing duration in milliseconds.
+    pub duration_ms: u64,
+    /// The original job ID (for correlation).
+    pub job_id: String,
+    /// The original user ID.
+    pub user_id: String,
+    /// The original job metadata (needed for stage transitions).
+    pub metadata: JobMetadata,
+    /// The original input keys (needed for reconstructing QueueItem).
+    #[serde(default)]
+    pub input_keys: HashMap<String, String>,
+    /// Whether the original job required approval.
+    #[serde(default)]
+    pub requires_approval: bool,
+    /// Whether the original job was approved.
+    #[serde(default)]
+    pub approved: bool,
+}
+
 /// Returns the next stage in the pipeline, or Stage7Finalize if at the end.
 pub fn next_stage(current: StageNumber) -> StageNumber {
     match current {
