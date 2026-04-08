@@ -56,8 +56,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=build-cache.igait.svc.cluster.local:5000/igait-stage4:cache
-          cache-to: type=registry,ref=build-cache.igait.svc.cluster.local:5000/igait-stage4:cache,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Update deployment image tag
         env:
