@@ -38,6 +38,9 @@ pub const DISABLE_RESULT_EMAIL: bool = true;
 #[tokio::main]
 async fn main() -> Result<()> {
     
+    // Install rustls crypto provider (required for kube client on some platforms)
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     // Enable loading on WSL
     dotenv().ok();
 
