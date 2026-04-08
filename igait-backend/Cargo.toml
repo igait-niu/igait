@@ -22,7 +22,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 # Kubernetes orchestration
-kube = { version = "0.98", features = ["runtime", "client", "derive"] }
+kube = { version = "0.98", features = ["runtime", "client", "derive", "rustls-tls"] }
 k8s-openapi = { version = "0.24", features = ["v1_32"] }
 
 # Backend-specific dependencies
@@ -37,4 +37,5 @@ futures-util = "0.3"
 rand = "0.8"
 time-util = { version = "0.3", features = ["chrono", "serde"] }
 tokio-tungstenite = "0.24"
+rustls = { version = "0.23", features = ["aws-lc-rs"] }
 ts-rs = "12.0.1"
