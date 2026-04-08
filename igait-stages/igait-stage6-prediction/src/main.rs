@@ -8,7 +8,8 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use igait_lib::microservice::{
-    run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker, StorageClient,
+    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker,
+    StorageClient,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -232,6 +233,10 @@ impl PredictionWorker {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("Starting Stage 6 Prediction worker...");
-    run_stage_worker(PredictionWorker).await
+    if std::env::var("IGAIT_JOB_PAYLOAD").is_ok() {
+        run_stage_job(PredictionWorker).await
+    } else {
+        println!("Starting Stage 6 Prediction worker...");
+        run_stage_worker(PredictionWorker).await
+    }
 }

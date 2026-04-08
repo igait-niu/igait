@@ -17,7 +17,7 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: arc-runner-set
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write
@@ -25,9 +25,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -53,7 +50,7 @@ jobs:
         with:
           context: .
           file: ./igait-stages/igait-stage1-media-conversion/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -67,7 +64,7 @@ jobs:
           SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
           git clone https://x-access-token:${DEPLOY_TOKEN}@github.com/igait-niu/igait-kubernetes-configs.git /tmp/k8s-configs
           cd /tmp/k8s-configs
-          sed -i "s|image: ghcr.io/igait-niu/igait/igait-stage1-media-conversion:.*|image: ghcr.io/igait-niu/igait/igait-stage1-media-conversion:sha-${SHA_SHORT}|" igait-stage1-media-conversion/deployment.yaml
+          sed -i "s|value: ghcr.io/igait-niu/igait/igait-stage1-media-conversion:.*|value: ghcr.io/igait-niu/igait/igait-stage1-media-conversion:sha-${SHA_SHORT}|" igait-backend/deployment.yaml
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A

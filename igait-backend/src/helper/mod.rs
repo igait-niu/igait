@@ -10,3 +10,6 @@ pub mod email;
 
 /// Contains the filesystem helper functions and custom types.
 pub mod lib;
+
+/// Contains the K8s Job orchestrator for the processing pipeline.
+pub mod orchestrator;

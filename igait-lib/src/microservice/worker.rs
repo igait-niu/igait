@@ -5,9 +5,10 @@
 
 use crate::microservice::{
     queue::{
-        ClaimResult, FinalizeQueueItem, ProcessingResult, QueueConfig, QueueItem,
+        ClaimResult, FinalizeQueueItem, JobResult, ProcessingResult, QueueConfig, QueueItem,
         CLAIM_TIMEOUT_MS, HEARTBEAT_INTERVAL_SECS,
-        generate_worker_id, next_stage, now_ms, queue_config_path, queue_item_path, queue_path,
+        generate_worker_id, job_result_path, next_stage, now_ms, queue_config_path,
+        queue_item_path, queue_path,
     },
     backend_status::{JobStatus, StageStatus},
     StageNumber,
@@ -856,3 +857,123 @@ macro_rules! stage_worker_main {
         }
     };
 }
+
+// ============================================================================
+// K8S JOB MODE (RUN-ONCE)
+// ============================================================================
+
+/// Runs a stage worker in single-job mode for K8s Job execution.
+///
+/// Instead of polling a queue in a loop, this reads a pre-serialized `QueueItem`
+/// from the `IGAIT_JOB_PAYLOAD` environment variable, processes it once, writes
+/// the result to Firebase RTDB at `job_results/{job_id}`, and exits.
+///
+/// The backend orchestrator is responsible for:
+/// - Claiming the job and spawning this K8s Job
+/// - Reading the `JobResult` from RTDB after completion
+/// - Moving the job to the next stage queue (or finalize on failure)
+///
+/// # Exit codes
+/// - 0: Processing completed (check `JobResult.success` for outcome)
+/// - 1: Fatal error (couldn't read env, connect to RTDB, etc.)
+pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
+    let stage = worker.stage();
+    let stage_num = stage.as_u8();
+
+    println!(
+        "[job-mode] Starting {} for stage {} ({})",
+        worker.service_name(),
+        stage_num,
+        stage.name()
+    );
+
+    // Read the job payload from environment
+    let payload = std::env::var("IGAIT_JOB_PAYLOAD")
+        .context("Missing IGAIT_JOB_PAYLOAD environment variable")?;
+    let job: QueueItem = serde_json::from_str(&payload)
+        .context("Failed to deserialize IGAIT_JOB_PAYLOAD as QueueItem")?;
+
+    println!("[job-mode] Processing job {}", job.job_id);
+
+    // Connect to Firebase RTDB for status updates and result reporting
+    let db = FirebaseRtdb::from_env()?;
+    let queue_ops = QueueOps::new(db.clone(), format!("job-{}", job.job_id));
+
+    // Update job status to Processing
+    if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
+        let _ = queue_ops.update_job_status(&user_id, job_index, &JobStatus::processing(stage_num)).await;
+        let _ = queue_ops.update_stage_status(&user_id, job_index, stage_num, &StageStatus::Running).await;
+    }
+
+    // Process the job
+    let process_result = worker.process(&job).await;
+
+    // Build the JobResult
+    let job_result = match &process_result {
+        ProcessingResult::Success { output_keys, logs, duration_ms } => {
+            println!("[job-mode] Job {} completed successfully in {}ms", job.job_id, duration_ms);
+
+            // Update stage status
+            if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
+                let _ = queue_ops.update_stage_status(&user_id, job_index, stage_num, &StageStatus::Complete).await;
+                let _ = queue_ops.update_stage_logs(&user_id, job_index, stage_num, logs).await;
+            }
+
+            JobResult {
+                stage: stage_num,
+                success: true,
+                output_keys: output_keys.clone(),
+                error: None,
+                logs: logs.clone(),
+                duration_ms: *duration_ms,
+                job_id: job.job_id.clone(),
+                user_id: job.user_id.clone(),
+                metadata: job.metadata.clone(),
+                input_keys: job.input_keys.clone(),
+                requires_approval: job.requires_approval,
+                approved: job.approved,
+            }
+        }
+        ProcessingResult::Failure { error, logs, duration_ms } => {
+            eprintln!("[job-mode] Job {} failed after {}ms: {}", job.job_id, duration_ms, error);
+
+            // Update stage status
+            if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
+                let _ = queue_ops.update_stage_status(&user_id, job_index, stage_num, &StageStatus::Error).await;
+                let _ = queue_ops.update_job_status(&user_id, job_index, &JobStatus::error(logs.clone())).await;
+                let _ = queue_ops.update_stage_logs(&user_id, job_index, stage_num, logs).await;
+            }
+
+            JobResult {
+                stage: stage_num,
+                success: false,
+                output_keys: HashMap::new(),
+                error: Some(error.clone()),
+                logs: logs.clone(),
+                duration_ms: *duration_ms,
+                job_id: job.job_id.clone(),
+                user_id: job.user_id.clone(),
+                metadata: job.metadata.clone(),
+                input_keys: job.input_keys.clone(),
+                requires_approval: job.requires_approval,
+                approved: job.approved,
+            }
+        }
+    };
+
+    // Write result to Firebase RTDB for the orchestrator to read
+    let result_path = job_result_path(&job.job_id);
+    db.set(&result_path, &job_result).await
+        .context("Failed to write JobResult to Firebase RTDB")?;
+
+    println!("[job-mode] Result written to RTDB at {}", result_path);
+
+    // Exit with appropriate code
+    if job_result.success {
+        Ok(())
+    } else {
+        // Return error so the process exits with code 1
+        anyhow::bail!("Job {} failed: {}", job.job_id, job_result.error.unwrap_or_default());
+    }
+}
+
