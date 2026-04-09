@@ -64,23 +64,50 @@ impl Database {
         // Create a path to the user in the database
         let user_handle = self._state.at(uid);
 
-        // Check if the user doesn't exist
+        // Check if the user doesn't exist using a raw Value to avoid
+        // deserialization failures on existing records (which previously
+        // caused silent data corruption via .ok() swallowing errors).
         println!("Verifying user existence...");
-        if user_handle.get::<Option<User>>().await.ok().flatten().is_none() {
-            println!("User doesn't exist, creating new user with UID '{uid}'...");
+        match user_handle.get::<Option<serde_json::Value>>().await {
+            Ok(Some(_)) => {
+                // User already exists — nothing to do
+            }
+            Ok(None) => {
+                println!("User doesn't exist, creating new user with UID '{uid}'...");
 
-            // Create a new user with no jobs
-            user_handle.update(&User {
-                uid: String::from(uid),
-                jobs: vec![],
-                administrator: false,
-            }).await
-                .map_err(|e| anyhow!("{e:?}"))
-                .context("Failed to create a new user while ensuring they existed!")?;
-            println!("Successfully created new user!");
+                // Create a new user with only uid and empty jobs.
+                // Do NOT set administrator here — it defaults to false on read
+                // via serde(default), and explicitly writing false would overwrite
+                // an existing admin flag if this ever runs against a partial record.
+                user_handle.update(&serde_json::json!({
+                    "uid": uid,
+                    "jobs": []
+                })).await
+                    .map_err(|e| anyhow!("{e:?}"))
+                    .context("Failed to create a new user while ensuring they existed!")?;
+                println!("Successfully created new user!");
+            }
+            Err(e) => {
+                return Err(anyhow!("{e:?}"))
+                    .context("Failed to check user existence in database");
+            }
         }
 
         Ok(())
+    }
+
+    /// Checks whether a user has administrator privileges.
+    ///
+    /// This reads ONLY the `administrator` field, avoiding deserialization
+    /// of the full user record (which includes all jobs). This is both
+    /// faster and safer for admin-gating endpoints.
+    pub async fn is_admin(&self, uid: &str) -> Result<bool> {
+        let admin_handle = self._state.at(uid).at("administrator");
+        match admin_handle.get::<Option<bool>>().await {
+            Ok(Some(val)) => Ok(val),
+            Ok(None) => Ok(false),
+            Err(e) => Err(anyhow!("{e:?}")).context("Failed to check admin status"),
+        }
     }
 
     /// Fetches a user record from the database.
@@ -169,19 +196,13 @@ impl Database {
         let mut jobs = self.get_jobs(uid).await
             .context("Failed to get jobs!")?;
         jobs.push(job);
-            
-        // Get existing user to preserve administrator status
-        let existing_user = self._state.at(uid).get::<Option<User>>().await
-            .map_err(|e| anyhow!("{e:?}"))
-            .context("Failed to get existing user!")?
-            .ok_or_else(|| anyhow!("User not found!"))?;
 
-        // Update the user with the new job
-        self._state.at(uid).update(&User {
-            uid: String::from(uid),
-            jobs,
-            administrator: existing_user.administrator,
-        }).await.map_err(|e| anyhow!("{e:?}")).context("Failed to update database with the new job array!")?;
+        // Write only the jobs array — never touch the administrator field
+        self._state.at(uid).at("jobs")
+            .set(&jobs)
+            .await
+            .map_err(|e| anyhow!("{e:?}"))
+            .context("Failed to update database with the new job array!")?;
 
         // Return as successful
         println!("Added new job!");
@@ -207,40 +228,29 @@ impl Database {
     /// * This function overwrites the status of the job with the new status.
     
     pub async fn update_status (
-        &self, 
+        &self,
         uid:         &str,
-        job_id:      usize, 
+        job_id:      usize,
         status:      JobStatus
     ) -> Result<()> {
         println!("Updating status...");
 
         // First double check that the user actually exists
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
-        
-        // Get the user handle
-        let user_handle = self._state.at(&uid);
 
-        // Get the jobs as a mutable vector
-        let mut jobs = self.get_jobs(uid).await
+        // Verify the job index exists
+        let jobs = self.get_jobs(uid).await
             .context("Failed to get jobs!")?;
+        if job_id >= jobs.len() {
+            return Err(anyhow!("Job ID does not exist!"));
+        }
 
-        // Edit the status
-        jobs.get_mut(job_id).ok_or(anyhow!("Job ID does not exist!"))?.status = status.clone();
-        
-        // Get existing user to preserve administrator status
-        let existing_user = user_handle.get::<Option<User>>().await
+        // Write only the specific job's status — never touch the administrator field
+        self._state.at(uid).at("jobs").at(&job_id.to_string()).at("status")
+            .set(&status)
+            .await
             .map_err(|e| anyhow!("{e:?}"))
-            .context("Failed to get existing user!")?
-            .ok_or_else(|| anyhow!("User not found!"))?;
-        
-        // Update the user with the modified job array
-        user_handle.update(&User {
-                uid: String::from(uid),
-                jobs,
-                administrator: existing_user.administrator,
-            }).await
-            .map_err(|e| anyhow!("{e:?}"))
-            .context("Failed to update the user object in the database!")?;
+            .context("Failed to update the job status in the database!")?;
 
         // Return as successful
         let code = status.code();

@@ -72,15 +72,15 @@ pub async fn video_edit_entrypoint(
     let caller_uid = &current_user.user_id;
 
     // ── 0. Verify admin ────────────────────────────────────────────
-    let caller = app
+    let is_admin = app
         .db
         .lock()
         .await
-        .get_user(caller_uid)
+        .is_admin(caller_uid)
         .await
-        .context("Failed to look up caller in the database")?;
+        .context("Failed to check admin status")?;
 
-    if !caller.administrator {
+    if !is_admin {
         return Err(AppError(anyhow!(
             "Forbidden: only administrators may edit videos."
         )));
@@ -111,21 +111,19 @@ pub async fn video_edit_entrypoint(
 
     // ── 4. Store flags on the Job record ────────────────────────────
     let job = {
-        let mut db = app.db.lock().await;
+        let db = app.db.lock().await;
         let mut job = db
             .get_job(target_uid, job_index)
             .await
             .context("Failed to fetch job — does it exist?")?;
         job.video_edit = Some(video_edit.clone());
-        // We need to write the whole user record back (existing pattern)
-        let mut user = db.get_user(target_uid).await.context("Failed to get user")?;
-        user.jobs[job_index] = job.clone();
-        // Write user back via RTDB
+        // Write only the specific job back, not the entire user record
+        // (writing the whole user would risk overwriting the administrator flag)
         drop(db);
         let rtdb = FirebaseRtdb::from_env().context("Failed to init RTDB")?;
-        rtdb.set(&format!("users/{}", target_uid), &user)
+        rtdb.set(&format!("users/{}/jobs/{}", target_uid, job_index), &job)
             .await
-            .context("Failed to write updated user record")?;
+            .context("Failed to write updated job record")?;
         job
     };
 

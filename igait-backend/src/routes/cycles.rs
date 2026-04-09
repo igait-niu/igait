@@ -63,15 +63,15 @@ pub async fn cycles_entrypoint(
     let caller_uid = &current_user.user_id;
 
     // ── 1. Verify the caller is an administrator ────────────────────
-    let caller = app
+    let is_admin = app
         .db
         .lock()
         .await
-        .get_user(caller_uid)
+        .is_admin(caller_uid)
         .await
-        .context("Failed to look up caller in the database")?;
+        .context("Failed to check admin status")?;
 
-    if !caller.administrator {
+    if !is_admin {
         return Err(AppError(anyhow!(
             "Forbidden: only administrators may edit cycle data."
         )));
