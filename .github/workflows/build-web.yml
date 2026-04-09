@@ -66,10 +66,13 @@ jobs:
             VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}
 
       - name: Update deployment image tag
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
         run: |
           SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
           sed -i "s|image: ghcr.io/igait-niu/igait/igait-frontend:.*|image: ghcr.io/igait-niu/igait/igait-frontend:sha-${SHA_SHORT}|" igait-kubernetes-configs/igait-frontend/deployment.yaml
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${DEPLOY_TOKEN}@github.com/igait-niu/igait.git
           git add igait-kubernetes-configs/
           git diff --cached --quiet || git commit -m "deploy: igait-frontend:sha-${SHA_SHORT}" && git push
