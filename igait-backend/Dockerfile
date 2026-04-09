@@ -1,48 +1,49 @@
-# Multi-stage build for igait-backend
-FROM rust:1.93-slim AS builder
+# Multi-stage build for igait-backend using cargo-chef
+FROM rust:1.93-slim AS chef
 
 WORKDIR /app
 
-# Install dependencies
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Cargo manifests for dependency caching
-COPY igait-lib/Cargo.toml ./igait-lib/Cargo.toml
-COPY igait-backend/Cargo.toml ./igait-backend/Cargo.toml
+RUN cargo install cargo-chef
 
-# Create dummy source files to cache dependencies
-RUN mkdir -p igait-lib/src && echo "pub fn dummy() {}" > igait-lib/src/lib.rs
-RUN mkdir -p igait-backend/src && echo "fn main() {}" > igait-backend/src/main.rs
+FROM chef AS planner
 
-# Build dependencies only (this layer will be cached)
+COPY igait-lib ./igait-lib
+COPY igait-backend ./igait-backend
+
 WORKDIR /app/igait-backend
-RUN cargo build --release 2>/dev/null || true
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Now copy actual source files
+FROM chef AS builder
+
+COPY igait-lib/Cargo.toml ./igait-lib/Cargo.toml
+RUN mkdir -p igait-lib/src && echo "pub fn dummy() {}" > igait-lib/src/lib.rs
+
+COPY --from=planner /app/igait-backend/recipe.json ./igait-backend/recipe.json
+WORKDIR /app/igait-backend
+RUN cargo chef cook --release --recipe-path recipe.json
+
 WORKDIR /app
 COPY igait-lib ./igait-lib
 COPY igait-backend ./igait-backend
 
-# Build the backend with actual source
 WORKDIR /app/igait-backend
 RUN cargo build --release -p igait-backend
 
-# Runtime stage - use matching Debian version
+# Runtime stage
 FROM debian:trixie-slim
 
-# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3t64 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the binary from backend target directory
 COPY --from=builder /app/igait-backend/target/release/igait-backend /usr/local/bin/igait-backend
 
-# Set environment
 ENV RUST_LOG=info
 ENV PORT=3000
 
