@@ -15,8 +15,7 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 
-COPY igait-lib/Cargo.toml ./igait-lib/Cargo.toml
-RUN mkdir -p igait-lib/src && echo "pub fn dummy() {}" > igait-lib/src/lib.rs
+COPY igait-lib ./igait-lib
 
 COPY --from=planner /app/igait-stages/igait-stage4-pose-estimation/recipe.json ./igait-stages/igait-stage4-pose-estimation/recipe.json
 WORKDIR /app/igait-stages/igait-stage4-pose-estimation
