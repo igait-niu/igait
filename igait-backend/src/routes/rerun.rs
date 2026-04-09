@@ -71,15 +71,15 @@ pub async fn rerun_entrypoint(
     let job_index = request.job_index;
 
     // ── 0. Verify the caller is an administrator ────────────────────
-    let caller = app
+    let is_admin = app
         .db
         .lock()
         .await
-        .get_user(caller_uid)
+        .is_admin(caller_uid)
         .await
-        .context("Failed to look up caller in the database")?;
+        .context("Failed to check admin status")?;
 
-    if !caller.administrator {
+    if !is_admin {
         return Err(AppError(anyhow!(
             "Forbidden: only administrators may rerun jobs."
         )));
