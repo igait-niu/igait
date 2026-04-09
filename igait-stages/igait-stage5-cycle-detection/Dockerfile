@@ -1,30 +1,32 @@
-FROM rust:1.93-alpine AS builder
+FROM rust:1.93-alpine AS chef
 
 RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig
+RUN cargo install cargo-chef
 
 WORKDIR /app
 
-# Copy Cargo manifests for dependency caching
-COPY igait-lib/Cargo.toml ./igait-lib/Cargo.toml
-COPY igait-stages/igait-stage5-cycle-detection/Cargo.toml ./igait-stages/igait-stage5-cycle-detection/Cargo.toml
+FROM chef AS planner
 
-# Create dummy source files to cache dependencies
-RUN mkdir -p igait-lib/src && echo "pub fn dummy() {}" > igait-lib/src/lib.rs
-RUN mkdir -p igait-stages/igait-stage5-cycle-detection/src && echo "fn main() {}" > igait-stages/igait-stage5-cycle-detection/src/main.rs
+COPY igait-lib ./igait-lib
+COPY igait-stages/igait-stage5-cycle-detection ./igait-stages/igait-stage5-cycle-detection
 
-# Build dependencies only (this layer will be cached)
 WORKDIR /app/igait-stages/igait-stage5-cycle-detection
-RUN cargo build --release 2>/dev/null || true
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Now copy actual source files
+FROM chef AS builder
+
+COPY igait-lib/Cargo.toml ./igait-lib/Cargo.toml
+RUN mkdir -p igait-lib/src && echo "pub fn dummy() {}" > igait-lib/src/lib.rs
+
+COPY --from=planner /app/igait-stages/igait-stage5-cycle-detection/recipe.json ./igait-stages/igait-stage5-cycle-detection/recipe.json
+WORKDIR /app/igait-stages/igait-stage5-cycle-detection
+RUN cargo chef cook --release --recipe-path recipe.json
+
 WORKDIR /app
 COPY igait-lib ./igait-lib
 COPY igait-stages/igait-stage5-cycle-detection ./igait-stages/igait-stage5-cycle-detection
 
-# Build with actual source
 WORKDIR /app/igait-stages/igait-stage5-cycle-detection
-# Clean the dummy build artifacts first
-RUN cargo clean --release
 RUN cargo build --release
 
 FROM debian:bookworm-slim

@@ -1,30 +1,32 @@
-FROM rust:1.93-alpine AS builder
+FROM rust:1.93-alpine AS chef
 
 RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig
+RUN cargo install cargo-chef
 
 WORKDIR /app
 
-# Copy Cargo manifests for dependency caching
-COPY igait-lib/Cargo.toml ./igait-lib/Cargo.toml
-COPY igait-stages/igait-stage3-reframing/Cargo.toml ./igait-stages/igait-stage3-reframing/Cargo.toml
+FROM chef AS planner
 
-# Create dummy source files to cache dependencies
-RUN mkdir -p igait-lib/src && echo "pub fn dummy() {}" > igait-lib/src/lib.rs
-RUN mkdir -p igait-stages/igait-stage3-reframing/src && echo "fn main() {}" > igait-stages/igait-stage3-reframing/src/main.rs
+COPY igait-lib ./igait-lib
+COPY igait-stages/igait-stage3-reframing ./igait-stages/igait-stage3-reframing
 
-# Build dependencies only (this layer will be cached)
 WORKDIR /app/igait-stages/igait-stage3-reframing
-RUN cargo build --release 2>/dev/null || true
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Now copy actual source files
+FROM chef AS builder
+
+COPY igait-lib/Cargo.toml ./igait-lib/Cargo.toml
+RUN mkdir -p igait-lib/src && echo "pub fn dummy() {}" > igait-lib/src/lib.rs
+
+COPY --from=planner /app/igait-stages/igait-stage3-reframing/recipe.json ./igait-stages/igait-stage3-reframing/recipe.json
+WORKDIR /app/igait-stages/igait-stage3-reframing
+RUN cargo chef cook --release --recipe-path recipe.json
+
 WORKDIR /app
 COPY igait-lib ./igait-lib
 COPY igait-stages/igait-stage3-reframing ./igait-stages/igait-stage3-reframing
 
-# Build with actual source
 WORKDIR /app/igait-stages/igait-stage3-reframing
-# Clean the dummy build artifacts first
-RUN cargo clean --release
 RUN cargo build --release
 
 FROM alpine:latest
