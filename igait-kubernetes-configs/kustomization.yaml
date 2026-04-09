@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - igait-namespace/namespace.yaml
+  - igait-frontend/deployment.yaml
+  - igait-frontend/service.yaml
+  - igait-backend/rbac.yaml
+  - igait-backend/deployment.yaml
+  - igait-backend/service.yaml

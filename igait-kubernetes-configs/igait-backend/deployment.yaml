@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: igait-backend
+  namespace: igait
+  labels:
+    app: igait-backend
+spec:
+  revisionHistoryLimit: 1
+  replicas: 2
+  selector:
+    matchLabels:
+      app: igait-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: igait-backend
+    spec:
+      serviceAccountName: igait-backend
+      containers:
+      - image: ghcr.io/igait-niu/igait/igait-backend:sha-f5357a5
+        name: igait-backend
+        ports:
+        - containerPort: 3000
+          protocol: TCP
+        env:
+        - name: PORT
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: PORT
+        - name: RUST_LOG
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: RUST_LOG
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: GOOGLE_APPLICATION_CREDENTIALS
+        - name: FIREBASE_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: FIREBASE_ACCESS_KEY
+        - name: FIREBASE_RTDB_URL
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: FIREBASE_RTDB_URL
+        - name: AWS_S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: AWS_S3_BUCKET
+        - name: AWS_REGION
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: AWS_REGION
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: AWS_SECRET_ACCESS_KEY
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: OPENAI_API_KEY
+        - name: OPENAI_ASSISTANT_ID
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: OPENAI_ASSISTANT_ID
+        - name: OPENAI_VECTOR_STORE_ID
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: OPENAI_VECTOR_STORE_ID
+        # Pipeline orchestrator
+        - name: ENABLE_ORCHESTRATOR
+          value: "true"
+        # Stage container images (updated by CI/CD)
+        - name: STAGE1_IMAGE
+          value: ghcr.io/igait-niu/igait/igait-stage1-media-conversion:sha-7a7b157
+        - name: STAGE2_IMAGE
+          value: ghcr.io/igait-niu/igait/igait-stage2-validity-check:sha-7a7b157
+        - name: STAGE3_IMAGE
+          value: ghcr.io/igait-niu/igait/igait-stage3-reframing:sha-7a7b157
+        - name: STAGE4_IMAGE
+          value: ghcr.io/igait-niu/igait/igait-stage4-pose-estimation:sha-7a7b157
+        - name: STAGE5_IMAGE
+          value: ghcr.io/igait-niu/igait/igait-stage5-cycle-detection:sha-7a7b157
+        - name: STAGE6_IMAGE
+          value: ghcr.io/igait-niu/igait/igait-stage6-prediction:sha-7a7b157
+        - name: STAGE7_IMAGE
+          value: ghcr.io/igait-niu/igait/igait-stage7-finalize:sha-7a7b157
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+            ephemeral-storage: 256Mi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+            ephemeral-storage: 64Mi
+        volumeMounts:
+        - name: gcp-key
+          mountPath: /credentials
+          readOnly: true
+      volumes:
+      - name: gcp-key
+        secret:
+          secretName: gcp-key

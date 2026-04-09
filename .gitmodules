@@ -14,6 +14,3 @@
 	path = igait-stages/igait-stage6-prediction/iGAIT_MODEL_IO
 	url = https://github.com/igait-niu/iGAIT_MODEL_IO
 
-[submodule "igait-kubernetes-configs"]
-	path = igait-kubernetes-configs
-	url = https://github.com/igait-niu/igait-kubernetes-configs
