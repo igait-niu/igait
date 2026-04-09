@@ -78,4 +78,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin git@github.com:igait-niu/igait.git
           git add igait-kubernetes-configs/
-          git diff --cached --quiet || git commit -m "deploy: igait-frontend:sha-${SHA_SHORT}" && git push
+          git diff --cached --quiet && exit 0
+          git commit -m "deploy: igait-frontend:sha-${SHA_SHORT}"
+          for i in 1 2 3 4 5; do
+            git push && exit 0
+            git pull --rebase
+          done
+          echo "Failed to push after 5 attempts" && exit 1
