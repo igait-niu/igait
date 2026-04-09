@@ -1591,8 +1591,7 @@ dependencies = [
 [[package]]
 name = "firebase-rs"
 version = "2.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "378982bd0fa1adccbe66c35fb9b2f9d6af30a1cabecfe98f355ca9f2689183a1"
+source = "git+https://github.com/hiibolt/firebase-rs.git#45f18d5144832a7a0de0027e428e3eda5c8d01b3"
 dependencies = [
  "eventsource-client",
  "futures-util",
@@ -2352,6 +2351,7 @@ dependencies = [
  "kube",
  "rand 0.8.5",
  "reqwest 0.12.28",
+ "rustls 0.23.37",
  "serde",
  "serde_json",
  "time-util",
