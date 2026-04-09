@@ -58,10 +58,13 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Update deployment image tag
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
         run: |
           SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
           sed -i "s|value: ghcr.io/igait-niu/igait/igait-stage7-finalize:.*|value: ghcr.io/igait-niu/igait/igait-stage7-finalize:sha-${SHA_SHORT}|" igait-kubernetes-configs/igait-backend/deployment.yaml
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${DEPLOY_TOKEN}@github.com/igait-niu/igait.git
           git add igait-kubernetes-configs/
           git diff --cached --quiet || git commit -m "deploy: igait-stage7-finalize:sha-${SHA_SHORT}" && git push
