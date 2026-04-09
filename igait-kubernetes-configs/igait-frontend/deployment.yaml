@@ -22,7 +22,7 @@ spec:
         app: igait-frontend
     spec:
       containers:
-      - image: ghcr.io/igait-niu/igait/igait-frontend:sha-745e76d
+      - image: ghcr.io/igait-niu/igait/igait-frontend:sha-d7420c1
         name: igait-frontend
         ports:
         - containerPort: 4173
