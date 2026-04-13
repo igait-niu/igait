@@ -57,16 +57,16 @@ pub async fn files_entrypoint(
         .ok_or_else(|| anyhow!("Invalid job ID format: {}", job_id))?;
 
     if caller_uid != owner_uid {
-        // Check if caller is admin
-        let caller = app
+        // Check if caller is admin (reads only the boolean field, not the full user)
+        let is_admin = app
             .db
             .lock()
             .await
-            .get_user(caller_uid)
+            .is_admin(caller_uid)
             .await
-            .context("Failed to look up caller")?;
+            .context("Failed to check admin status")?;
 
-        if !caller.administrator {
+        if !is_admin {
             return Err(AppError(anyhow!(
                 "Forbidden: you do not own this job."
             )));

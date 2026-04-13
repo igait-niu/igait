@@ -14,7 +14,7 @@ ARG VITE_FIREBASE_DATABASE_URL
 ARG VITE_API_BASE_URL
 
 COPY package.json bun.lock /usr/src/app/
-RUN bun install --frozen-lockfile
+RUN bun install
 COPY . /usr/src/app
 RUN bun run build
 EXPOSE 4173

@@ -10,6 +10,7 @@ use axum::{
     extract::DefaultBodyLimit, routing::{any, get, post}, Router
 };
 use helper::lib::{AppState, AppStatePtr};
+use helper::orchestrator::{self, Orchestrator};
 use std::sync::Arc;
 use dotenv::dotenv;
 use tracing::{info, warn};
@@ -37,6 +38,9 @@ pub const DISABLE_RESULT_EMAIL: bool = true;
 #[tokio::main]
 async fn main() -> Result<()> {
     
+    // Install rustls crypto provider (required for kube client on some platforms)
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     // Enable loading on WSL
     dotenv().ok();
 
@@ -79,6 +83,25 @@ async fn main() -> Result<()> {
         .nest("/api/v1", api_v1)
         .nest("/api/internal", api_internal)
         .layer(DefaultBodyLimit::max(500000000));
+
+    // Start the K8s Job orchestrator if enabled
+    if std::env::var("ENABLE_ORCHESTRATOR").unwrap_or_default() == "true" {
+        info!("Pipeline orchestrator enabled — starting background loops");
+        match Orchestrator::new().await {
+            Ok(orch) => {
+                let orch = Arc::new(orch);
+                tokio::spawn(orchestrator::orchestration_loop(orch.clone()));
+                tokio::spawn(orchestrator::completion_monitor_loop(orch));
+                info!("Orchestrator loops spawned");
+            }
+            Err(e) => {
+                warn!("Failed to initialize orchestrator: {:?}", e);
+                warn!("Pipeline orchestration is disabled — stages must run as standalone workers");
+            }
+        }
+    } else {
+        info!("Pipeline orchestrator disabled (set ENABLE_ORCHESTRATOR=true to enable)");
+    }
 
     // Setup graceful shutdown signal handling
     let shutdown_signal = async {

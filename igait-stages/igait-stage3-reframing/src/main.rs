@@ -7,7 +7,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use igait_lib::microservice::{
-    run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker,
+    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker,
 };
 use std::collections::HashMap;
 use std::time::Instant;
@@ -62,6 +62,10 @@ impl StageWorker for ReframingWorker {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("Starting Stage 3 Reframing worker...");
-    run_stage_worker(ReframingWorker).await
+    if std::env::var("IGAIT_JOB_PAYLOAD").is_ok() {
+        run_stage_job(ReframingWorker).await
+    } else {
+        println!("Starting Stage 3 Reframing worker...");
+        run_stage_worker(ReframingWorker).await
+    }
 }

@@ -17,9 +17,9 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
@@ -50,8 +50,30 @@ jobs:
         with:
           context: .
           file: ./igait-backend/Dockerfile
+          platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Set up deploy key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Update deployment image tag
+        run: |
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          sed -i "s|image: ghcr.io/igait-niu/igait/igait-backend:.*|image: ghcr.io/igait-niu/igait/igait-backend:sha-${SHA_SHORT}|" igait-kubernetes-configs/igait-backend/deployment.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin git@github.com:igait-niu/igait.git
+          git add igait-kubernetes-configs/
+          git diff --cached --quiet && exit 0
+          git commit -m "deploy: igait-backend:sha-${SHA_SHORT}"
+          for i in 1 2 3 4 5; do
+            git push && exit 0
+            git pull --rebase
+          done
+          echo "Failed to push after 5 attempts" && exit 1

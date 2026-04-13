@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { Loader2, FileText, FileQuestion, Download } from '@lucide/svelte';
+	import { Loader2, FileText, FileQuestion, Video, Download } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import JsonTree from './JsonTree.svelte';
 	import type { FileEntry } from '$lib/api';
+	import { VALID_VIDEO_EXTENSIONS } from '$lib/api/config';
 
 	interface Props {
 		/** The file to display (null = closed) */
@@ -64,8 +65,11 @@
 			});
 	});
 
+	const VIDEO_EXTS = new Set(VALID_VIDEO_EXTENSIONS.map((e) => e.slice(1)));
+
 	const isOpen = $derived(file !== null);
 	const ext = $derived(file ? getExtension(file.name) : '');
+	const isVideo = $derived(VIDEO_EXTS.has(ext));
 </script>
 
 <Dialog.Root
@@ -78,6 +82,8 @@
 				<Dialog.Title class="file-modal-title">
 					{#if ext === 'json'}
 						<FileText class="file-modal-icon file-modal-icon--json" />
+					{:else if isVideo}
+						<Video class="file-modal-icon file-modal-icon--video" />
 					{:else}
 						<FileQuestion class="file-modal-icon" />
 					{/if}
@@ -102,6 +108,14 @@
 					{:else}
 						<pre class="file-modal-code">{textContent}</pre>
 					{/if}
+				{:else if isVideo}
+					<!-- svelte-ignore a11y_media_has_caption -->
+					<video
+						src={file.url}
+						controls
+						preload="metadata"
+						class="file-modal-video"
+					></video>
 				{:else}
 					<div class="file-modal-placeholder">
 						<p class="placeholder-face">:3</p>
@@ -143,6 +157,10 @@
 	}
 
 	:global(.file-modal-icon--json) {
+		color: hsl(var(--primary));
+	}
+
+	:global(.file-modal-icon--video) {
 		color: hsl(var(--primary));
 	}
 
@@ -214,6 +232,14 @@
 		font-size: 0.8125rem;
 		margin: 0;
 		opacity: 0.7;
+	}
+
+	.file-modal-video {
+		width: 100%;
+		max-height: 55vh;
+		display: block;
+		border-radius: var(--radius-sm);
+		background: hsl(var(--muted) / 0.4);
 	}
 
 	.file-modal-footer {

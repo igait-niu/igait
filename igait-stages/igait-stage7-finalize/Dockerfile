@@ -1,30 +1,31 @@
-FROM rust:1.93-alpine AS builder
+FROM rust:1.93-alpine AS chef
 
 RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig
+RUN cargo install cargo-chef
 
 WORKDIR /app
 
-# Copy Cargo manifests for dependency caching
-COPY igait-lib/Cargo.toml ./igait-lib/Cargo.toml
-COPY igait-stages/igait-stage7-finalize/Cargo.toml ./igait-stages/igait-stage7-finalize/Cargo.toml
+FROM chef AS planner
 
-# Create dummy source files to cache dependencies
-RUN mkdir -p igait-lib/src && echo "pub fn dummy() {}" > igait-lib/src/lib.rs
-RUN mkdir -p igait-stages/igait-stage7-finalize/src && echo "fn main() {}" > igait-stages/igait-stage7-finalize/src/main.rs
+COPY igait-lib ./igait-lib
+COPY igait-stages/igait-stage7-finalize ./igait-stages/igait-stage7-finalize
 
-# Build dependencies only (this layer will be cached)
 WORKDIR /app/igait-stages/igait-stage7-finalize
-RUN cargo build --release 2>/dev/null || true
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Now copy actual source files
+FROM chef AS builder
+
+COPY igait-lib ./igait-lib
+
+COPY --from=planner /app/igait-stages/igait-stage7-finalize/recipe.json ./igait-stages/igait-stage7-finalize/recipe.json
+WORKDIR /app/igait-stages/igait-stage7-finalize
+RUN cargo chef cook --release --recipe-path recipe.json
+
 WORKDIR /app
 COPY igait-lib ./igait-lib
 COPY igait-stages/igait-stage7-finalize ./igait-stages/igait-stage7-finalize
 
-# Build with actual source
 WORKDIR /app/igait-stages/igait-stage7-finalize
-# Clean the dummy build artifacts first
-RUN cargo clean --release
 RUN cargo build --release
 
 FROM alpine:latest
