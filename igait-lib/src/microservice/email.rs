@@ -156,12 +156,11 @@ impl EmailTemplates {
         (subject, body)
     }
 
-    /// Builds a success email with the prediction score.
+    /// Builds a success email with the binary ASD/no-ASD result.
     ///
     /// Sent when the pipeline completes successfully with a prediction.
     pub fn prediction_success(
         datetime: &str,
-        score: f64,
         is_asd: bool,
         age: Option<i16>,
         ethnicity: Option<&str>,
@@ -172,15 +171,18 @@ impl EmailTemplates {
         job_id: &str,
     ) -> (String, String) {
         let subject = "Your recent submission to iGait App has completed!".to_string();
-        
+
         let result_text = if is_asd {
-            "Our analysis indicates markers consistent with ASD gait patterns."
+            "Submitted videos show walking pattern more similar to autistic children \
+             than non-autistic children."
         } else {
-            "Our analysis indicates typical gait patterns."
+            "Submitted videos show walking pattern more similar to non-autistic children \
+             than autistic children."
         };
-        
+
         let body = format!(
-            "We determined a likelihood score of {:.2} for your submission on {}!<br><br>\
+            "Dear iGAIT user,<br><br>\
+             Your submission on {} has been processed!<br><br>\
              {}<br><br>\
              Submission information:<br>\
              Age: {}<br>\
@@ -191,7 +193,6 @@ impl EmailTemplates {
              User ID: {}<br>\
              Job ID: {}<br><br>\
              If you have questions about your results, please contact GaitStudy@niu.edu.",
-            score,
             datetime,
             result_text,
             age.map(|a| a.to_string()).unwrap_or_else(|| "N/A".to_string()),
