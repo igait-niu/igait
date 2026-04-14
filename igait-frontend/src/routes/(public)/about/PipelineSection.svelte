@@ -120,7 +120,7 @@
 	}
 
 	.stage-visual {
-		background: var(--muted);
+		background: oklch(0.15 0.02 265);
 		overflow: hidden;
 		height: 14rem;
 		display: flex;
@@ -131,7 +131,7 @@
 	.stage-visual img {
 		width: 100%;
 		height: 100%;
-		object-fit: cover;
+		object-fit: contain;
 		display: block;
 	}
 

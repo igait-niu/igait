@@ -87,7 +87,7 @@
 		padding: 1rem 1.25rem;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-md);
-		background: var(--card);
+		background: oklch(from var(--muted) l c h / 0.4);
 	}
 
 	.point-icon-wrap {
