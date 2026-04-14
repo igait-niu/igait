@@ -134,20 +134,19 @@ export function subscribeToAllJobs(onUpdate: (state: AllJobsState) => void): Uns
 
 			// Iterate through all users
 			for (const [userId, userData] of Object.entries(data)) {
-				const user = userData as { jobs?: Job[]; administrator?: boolean };
+				const user = userData as { jobs?: Record<string, Job>; administrator?: boolean };
 				if (!user.jobs) continue;
 
-				// Handle both array and object formats
-				const jobs: Job[] = Array.isArray(user.jobs) ? user.jobs : Object.values(user.jobs);
-
-				jobs.forEach((job, index) => {
-					if (!job || !job.email) return;
+				// Jobs are stored as key-value objects in RTDB
+				const jobsObj = user.jobs;
+				for (const [key, job] of Object.entries(jobsObj)) {
+					if (!job || !job.email) continue;
 
 					allJobs.push({
 						...job,
-						id: `${userId}_${index}`
+						id: `${userId}_${key}`
 					});
-				});
+				}
 			}
 
 			// Sort by timestamp (newest first)

@@ -41,38 +41,36 @@ impl Database {
         })
     }
 
-    /// Fetches the jobs array for a user, returning an empty vec if the
-    /// path doesn't exist (Firebase RTDB deletes keys with empty arrays).
+    /// Fetches all jobs for a user as a Vec, reading from an RTDB object
+    /// keyed by string indices (e.g. `{"0": {...}, "1": {...}}`).
     ///
-    /// Uses `serde_json::Value` as an intermediate step so that individual
-    /// malformed or null entries don't cause the entire array to fail.
     /// Logs a warning for each entry that fails to deserialize.
     async fn get_jobs(&self, uid: &str) -> Result<Vec<Job>> {
         let raw = match self._state.at(uid).at("jobs").get::<serde_json::Value>().await {
             Ok(v) => v,
             Err(e) if is_not_found(&e) => return Ok(vec![]),
             Err(e) => return Err(anyhow!("{e:?}"))
-                .context(format!("Failed to fetch jobs array for user {uid}")),
+                .context(format!("Failed to fetch jobs for user {uid}")),
         };
 
-        let arr = match raw.as_array() {
-            Some(a) => a,
+        let obj = match raw.as_object() {
+            Some(o) => o,
             None => {
-                eprintln!("WARNING: jobs path for user {uid} is not an array: {raw}");
+                eprintln!("WARNING: jobs path for user {uid} is not an object: {raw}");
                 return Ok(vec![]);
             }
         };
 
-        let mut jobs = Vec::with_capacity(arr.len());
-        for (i, v) in arr.iter().enumerate() {
+        let mut jobs = Vec::with_capacity(obj.len());
+        for (key, v) in obj {
             if v.is_null() {
-                continue; // null gaps are normal in Firebase RTDB arrays
+                continue;
             }
             match serde_json::from_value::<Job>(v.clone()) {
                 Ok(job) => jobs.push(job),
                 Err(e) => {
                     eprintln!(
-                        "WARNING: failed to deserialize job at index {i} for user {uid}: {e}"
+                        "WARNING: failed to deserialize job '{key}' for user {uid}: {e}"
                     );
                 }
             }
@@ -80,25 +78,26 @@ impl Database {
         Ok(jobs)
     }
 
-    /// Returns the total number of job slots (including null gaps) for a user.
-    ///
-    /// Unlike `get_jobs()` which skips malformed entries, this counts every
-    /// index in the RTDB array so that `new_job` can append at the correct offset.
-    async fn count_job_slots(&self, uid: &str) -> Result<usize> {
+    /// Returns the next available job index for a user by finding the
+    /// highest existing numeric key and adding 1.
+    async fn next_job_index(&self, uid: &str) -> Result<usize> {
         let raw = match self._state.at(uid).at("jobs").get::<serde_json::Value>().await {
             Ok(v) => v,
             Err(e) if is_not_found(&e) => return Ok(0),
             Err(e) => return Err(anyhow!("{e:?}"))
-                .context(format!("Failed to fetch jobs array for user {uid}")),
+                .context(format!("Failed to fetch jobs for user {uid}")),
         };
 
-        match raw.as_array() {
-            Some(a) => Ok(a.len()),
-            None => {
-                eprintln!("WARNING: jobs path for user {uid} is not an array: {raw}");
-                Ok(0)
-            }
-        }
+        let obj = match raw.as_object() {
+            Some(o) => o,
+            None => return Ok(0),
+        };
+
+        let max_index = obj.keys()
+            .filter_map(|k| k.parse::<usize>().ok())
+            .max();
+
+        Ok(max_index.map(|m| m + 1).unwrap_or(0))
     }
 
     /// Checks whether a specific job index exists in Firebase RTDB
@@ -151,7 +150,7 @@ impl Database {
                 // an existing admin flag if this ever runs against a partial record.
                 user_handle.update(&serde_json::json!({
                     "uid": uid,
-                    "jobs": []
+                    "jobs": {}
                 })).await
                     .map_err(|e| anyhow!("{e:?}"))
                     .context("Failed to create a new user while ensuring they existed!")?;
@@ -231,9 +230,9 @@ impl Database {
         // First double check that the user actually exists
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
-        // Count total slots (including null gaps) so new jobs append correctly
-        self.count_job_slots(uid).await
-            .context("Failed to count job slots!")
+        // Next index == total count of jobs so far
+        self.next_job_index(uid).await
+            .context("Failed to count jobs!")
     }
 
     /// Adds a new job to the user's job list.
@@ -261,10 +260,9 @@ impl Database {
         // First double check that the user actually exists
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
-        // Count total slots to find the next index — avoids deserializing
-        // every job which could fail on legacy/malformed entries
-        let next_index = self.count_job_slots(uid).await
-            .context("Failed to count job slots!")?;
+        // Find the next available index
+        let next_index = self.next_job_index(uid).await
+            .context("Failed to determine next job index!")?;
 
         // Write the new job at the next index — never rewrite the whole array
         self._state.at(uid).at("jobs").at(&next_index.to_string())

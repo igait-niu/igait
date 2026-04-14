@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::SystemTime};
+use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
 use anyhow::{ Result, Context };
 use axum::{
@@ -59,7 +59,7 @@ where
 pub struct User {
     pub uid: String,
     #[serde(default, deserialize_with = "null_as_default")]
-    pub jobs: Vec<Job>,
+    pub jobs: HashMap<String, Job>,
     #[serde(default, deserialize_with = "null_as_default")]
     pub administrator: bool,
 }
