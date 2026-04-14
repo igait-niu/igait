@@ -6,7 +6,14 @@
 import { type Result, Ok, Err, AppError, tryAsync } from '$lib/result';
 import { authStore } from '$lib/stores';
 import { API_ENDPOINTS, DEFAULT_TIMEOUT_MS } from './config';
-import type { RerunResponse, JobFilesResponse, UpdateCyclesResponse, GaitCycle, VideoEditRequest, VideoEditResponse } from './types';
+import type {
+	RerunResponse,
+	JobFilesResponse,
+	UpdateCyclesResponse,
+	GaitCycle,
+	VideoEditRequest,
+	VideoEditResponse
+} from './types';
 import type { ContributionRequest, ProgressCallback, ResearchContributionRequest } from './types';
 import { validateVideoFile, validateRequired, validateEmail } from './validation';
 
@@ -315,26 +322,19 @@ export async function rerunJob(
 
 	if (lastUnderscore === -1) {
 		return Err(
-			new AppError('Invalid job identifier format. Expected format: userId_jobIndex').withContext(
+			new AppError('Invalid job identifier format. Expected format: userId_jobKey').withContext(
 				'Failed to rerun job'
 			)
 		);
 	}
 
 	const userId = userIdJobIndex.slice(0, lastUnderscore);
-	const jobIndexStr = userIdJobIndex.slice(lastUnderscore + 1);
-	const jobIndex = parseInt(jobIndexStr, 10);
-
-	if (Number.isNaN(jobIndex) || jobIndex < 0) {
-		return Err(
-			new AppError('Invalid job index in job identifier').withContext('Failed to rerun job')
-		);
-	}
+	const jobKey = userIdJobIndex.slice(lastUnderscore + 1);
 
 	return authenticatedFetch<RerunResponse>(API_ENDPOINTS.rerun, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ user_id: userId, job_index: jobIndex, stage })
+		body: JSON.stringify({ user_id: userId, job_key: jobKey, stage })
 	});
 }
 
@@ -342,9 +342,7 @@ export async function rerunJob(
  * Fetch presigned download URLs for all files belonging to a job.
  * Returns files grouped by stage.
  */
-export async function getJobFiles(
-	jobId: string
-): Promise<Result<JobFilesResponse, AppError>> {
+export async function getJobFiles(jobId: string): Promise<Result<JobFilesResponse, AppError>> {
 	return authenticatedFetch<JobFilesResponse>(API_ENDPOINTS.files(jobId));
 }
 

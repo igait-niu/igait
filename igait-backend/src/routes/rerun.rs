@@ -26,8 +26,8 @@ pub struct RerunRequest {
     /// The UID of the user who owns the job.
     /// Admins must specify this to indicate whose job to rerun.
     pub user_id: String,
-    /// The index of the job in the user's job list (0-indexed).
-    pub job_index: usize,
+    /// The key of the job in the user's job list.
+    pub job_key: String,
     /// The stage number to restart from (1–7).
     pub stage: u8,
 }
@@ -58,7 +58,7 @@ pub struct RerunResponse {
 /// # Arguments
 /// * `current_user` – The Firebase-authenticated user (extracted from Bearer token).
 /// * `app` – The shared application state.
-/// * `request` – JSON body with `user_id`, `job_index`, and `stage`.
+/// * `request` – JSON body with `user_id`, `job_key`, and `stage`.
 pub async fn rerun_entrypoint(
     current_user: FirebaseUser,
     State(app): State<AppStatePtr>,
@@ -68,7 +68,7 @@ pub async fn rerun_entrypoint(
     let caller_uid = &current_user.user_id;
     let target_uid = &request.user_id;
     let stage = request.stage;
-    let job_index = request.job_index;
+    let job_key = &request.job_key;
 
     // ── 0. Verify the caller is an administrator ────────────────────
     let is_admin = app
@@ -103,11 +103,11 @@ pub async fn rerun_entrypoint(
         .db
         .lock()
         .await
-        .get_job(target_uid, job_index)
+        .get_job(target_uid, job_key)
         .await
         .context("Failed to fetch the job — does it exist?")?;
 
-    let job_id = format!("{}_{}", target_uid, job_index);
+    let job_id = format!("{}_{}", target_uid, job_key);
     println!("Rerun requested by admin {}: job={}, stage={}", caller_uid, job_id, stage);
 
     // ── 3. Delete S3 outputs for stages `stage..=7` ─────────────────
@@ -127,7 +127,7 @@ pub async fn rerun_entrypoint(
     let rtdb_for_logs = FirebaseRtdb::from_env()
         .context("Failed to initialise Firebase RTDB client for log cleanup")?;
     for s in stage..=NUM_STAGES {
-        let log_path = format!("users/{}/jobs/{}/stage_logs/stage_{}", target_uid, job_index, s);
+        let log_path = format!("users/{}/jobs/{}/stage_logs/stage_{}", target_uid, job_key, s);
         rtdb_for_logs.delete(&log_path)
             .await
             .context(format!("Failed to delete logs for stage {}", s))?;
@@ -136,7 +136,7 @@ pub async fn rerun_entrypoint(
 
     // ── 3c. Reset stage statuses for stages `stage..=7` ────────────
     for s in stage..=NUM_STAGES {
-        let status_path = format!("users/{}/jobs/{}/stage_statuses/stage_{}", target_uid, job_index, s);
+        let status_path = format!("users/{}/jobs/{}/stage_statuses/stage_{}", target_uid, job_key, s);
         rtdb_for_logs.set(&status_path, &StageStatus::NotStarted)
             .await
             .context(format!("Failed to reset stage status for stage {}", s))?;
@@ -197,7 +197,7 @@ pub async fn rerun_entrypoint(
     app.db
         .lock()
         .await
-        .update_status(target_uid, job_index, status)
+        .update_status(target_uid, job_key, status)
         .await
         .context("Failed to update job status")?;
 

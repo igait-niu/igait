@@ -86,14 +86,12 @@ pub async fn video_edit_entrypoint(
         )));
     }
 
-    // ── 1. Parse job_id → (user_id, job_index) ─────────────────────
+    // ── 1. Parse job_id → (user_id, job_key) ──────────────────────
     let last_underscore = job_id
         .rfind('_')
-        .ok_or_else(|| anyhow!("Invalid job_id format. Expected userId_jobIndex"))?;
+        .ok_or_else(|| anyhow!("Invalid job_id format. Expected userId_jobKey"))?;
     let target_uid = &job_id[..last_underscore];
-    let job_index: usize = job_id[last_underscore + 1..]
-        .parse()
-        .context("Invalid job index in job_id")?;
+    let job_key = &job_id[last_underscore + 1..];
 
     // ── 2. Validate request ─────────────────────────────────────────
     if let Some(ref front) = request.front {
@@ -113,7 +111,7 @@ pub async fn video_edit_entrypoint(
     let job = {
         let db = app.db.lock().await;
         let mut job = db
-            .get_job(target_uid, job_index)
+            .get_job(target_uid, job_key)
             .await
             .context("Failed to fetch job — does it exist?")?;
         job.video_edit = Some(video_edit.clone());
@@ -121,7 +119,7 @@ pub async fn video_edit_entrypoint(
         // (writing the whole user would risk overwriting the administrator flag)
         drop(db);
         let rtdb = FirebaseRtdb::from_env().context("Failed to init RTDB")?;
-        rtdb.set(&format!("users/{}/jobs/{}", target_uid, job_index), &job)
+        rtdb.set(&format!("users/{}/jobs/{}", target_uid, job_key), &job)
             .await
             .context("Failed to write updated job record")?;
         job
@@ -181,7 +179,7 @@ pub async fn video_edit_entrypoint(
     for s in 1..=NUM_STAGES {
         let log_path = format!(
             "users/{}/jobs/{}/stage_logs/stage_{}",
-            target_uid, job_index, s
+            target_uid, job_key, s
         );
         rtdb.delete(&log_path)
             .await
@@ -234,7 +232,7 @@ pub async fn video_edit_entrypoint(
     app.db
         .lock()
         .await
-        .update_status(target_uid, job_index, status)
+        .update_status(target_uid, job_key, status)
         .await
         .context("Failed to update job status")?;
 

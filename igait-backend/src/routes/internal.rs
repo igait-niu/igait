@@ -18,7 +18,7 @@ use crate::helper::{
 #[derive(Debug, Deserialize)]
 pub struct UpdateStatusRequest {
     pub user_id: String,
-    pub job_index: usize,
+    pub job_key: String,
     pub status: JobStatus,
 }
 
@@ -38,7 +38,7 @@ pub async fn update_status(
 ) -> Result<Json<UpdateStatusResponse>, AppError> {
     println!(
         "Received status update for user {} job {}: {:?}",
-        request.user_id, request.job_index, request.status.code()
+        request.user_id, request.job_key, request.status.code()
     );
 
     // Update the status in the database
@@ -46,7 +46,7 @@ pub async fn update_status(
         .db
         .lock()
         .await
-        .update_status(&request.user_id, request.job_index, request.status)
+        .update_status(&request.user_id, &request.job_key, request.status)
         .await
         .context("Failed to update job status")?;
 

@@ -416,41 +416,38 @@ impl QueueOps {
     /// Updates the job status directly in Firebase RTDB.
     /// 
     /// This writes to `users/{user_id}/jobs/{job_index}/status`
-    pub async fn update_job_status(&self, user_id: &str, job_index: usize, status: &JobStatus) -> Result<()> {
-        let path = format!("users/{}/jobs/{}/status", user_id, job_index);
+    pub async fn update_job_status(&self, user_id: &str, job_key: &str, status: &JobStatus) -> Result<()> {
+        let path = format!("users/{}/jobs/{}/status", user_id, job_key);
         self.db.set(&path, status).await
     }
 
     /// Updates the per-stage status in Firebase RTDB.
     ///
-    /// This writes to `users/{user_id}/jobs/{job_index}/stage_statuses/stage_{n}`
-    pub async fn update_stage_status(&self, user_id: &str, job_index: usize, stage: u8, status: &StageStatus) -> Result<()> {
-        let path = format!("users/{}/jobs/{}/stage_statuses/stage_{}", user_id, job_index, stage);
+    /// This writes to `users/{user_id}/jobs/{job_key}/stage_statuses/stage_{n}`
+    pub async fn update_stage_status(&self, user_id: &str, job_key: &str, stage: u8, status: &StageStatus) -> Result<()> {
+        let path = format!("users/{}/jobs/{}/stage_statuses/stage_{}", user_id, job_key, stage);
         self.db.set(&path, status).await
     }
 
     /// Uploads stage logs to Firebase RTDB.
     ///
-    /// This writes to `users/{user_id}/jobs/{job_index}/stage_logs/stage_{n}`
-    pub async fn update_stage_logs(&self, user_id: &str, job_index: usize, stage: u8, logs: &str) -> Result<()> {
-        let path = format!("users/{}/jobs/{}/stage_logs/stage_{}", user_id, job_index, stage);
+    /// This writes to `users/{user_id}/jobs/{job_key}/stage_logs/stage_{n}`
+    pub async fn update_stage_logs(&self, user_id: &str, job_key: &str, stage: u8, logs: &str) -> Result<()> {
+        let path = format!("users/{}/jobs/{}/stage_logs/stage_{}", user_id, job_key, stage);
         self.db.set(&path, &logs).await
     }
 
-    /// Parses a job_id string into (user_id, job_index).
-    /// 
-    /// Job IDs are formatted as "{user_id}_{job_index}"
-    pub fn parse_job_id(job_id: &str) -> Result<(String, usize)> {
-        let parts: Vec<&str> = job_id.rsplitn(2, '_').collect();
-        if parts.len() != 2 {
-            anyhow::bail!("Invalid job_id format: {}", job_id);
-        }
-        
-        let job_index: usize = parts[0].parse()
-            .context("Failed to parse job index from job_id")?;
-        let user_id = parts[1].to_string();
-        
-        Ok((user_id, job_index))
+    /// Parses a job_id string into (user_id, job_key).
+    ///
+    /// Job IDs are formatted as "{user_id}_{job_key}"
+    pub fn parse_job_id(job_id: &str) -> Result<(String, String)> {
+        let last_underscore = job_id.rfind('_')
+            .ok_or_else(|| anyhow::anyhow!("Invalid job_id format: {}", job_id))?;
+
+        let user_id = job_id[..last_underscore].to_string();
+        let job_key = job_id[last_underscore + 1..].to_string();
+
+        Ok((user_id, job_key))
     }
 }
 
@@ -733,7 +730,7 @@ impl<W: StageWorker> WorkerRunner<W> {
     async fn upload_stage_logs(&self, job_id: &str, stage: u8, logs: &str) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_stage_logs(&user_id, job_index, stage, logs).await {
+                if let Err(e) = self.queue_ops.update_stage_logs(&user_id, &job_index, stage, logs).await {
                     eprintln!("Failed to upload stage {} logs to RTDB: {:?}", stage, e);
                 }
             }
@@ -747,7 +744,7 @@ impl<W: StageWorker> WorkerRunner<W> {
     async fn update_job_status(&self, job_id: &str, status: JobStatus) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_job_status(&user_id, job_index, &status).await {
+                if let Err(e) = self.queue_ops.update_job_status(&user_id, &job_index, &status).await {
                     eprintln!("Failed to update job status in RTDB: {:?}", e);
                 }
             }
@@ -761,7 +758,7 @@ impl<W: StageWorker> WorkerRunner<W> {
     async fn update_stage_status(&self, job_id: &str, stage: u8, status: StageStatus) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_stage_status(&user_id, job_index, stage, &status).await {
+                if let Err(e) = self.queue_ops.update_stage_status(&user_id, &job_index, stage, &status).await {
                     eprintln!("Failed to update stage {} status in RTDB: {:?}", stage, e);
                 }
             }
@@ -901,8 +898,8 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
 
     // Update job status to Processing
     if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
-        let _ = queue_ops.update_job_status(&user_id, job_index, &JobStatus::processing(stage_num)).await;
-        let _ = queue_ops.update_stage_status(&user_id, job_index, stage_num, &StageStatus::Running).await;
+        let _ = queue_ops.update_job_status(&user_id, &job_index, &JobStatus::processing(stage_num)).await;
+        let _ = queue_ops.update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Running).await;
     }
 
     // Process the job
@@ -915,8 +912,8 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
 
             // Update stage status
             if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
-                let _ = queue_ops.update_stage_status(&user_id, job_index, stage_num, &StageStatus::Complete).await;
-                let _ = queue_ops.update_stage_logs(&user_id, job_index, stage_num, logs).await;
+                let _ = queue_ops.update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Complete).await;
+                let _ = queue_ops.update_stage_logs(&user_id, &job_index, stage_num, logs).await;
             }
 
             JobResult {
@@ -939,9 +936,9 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
 
             // Update stage status
             if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
-                let _ = queue_ops.update_stage_status(&user_id, job_index, stage_num, &StageStatus::Error).await;
-                let _ = queue_ops.update_job_status(&user_id, job_index, &JobStatus::error(logs.clone())).await;
-                let _ = queue_ops.update_stage_logs(&user_id, job_index, stage_num, logs).await;
+                let _ = queue_ops.update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Error).await;
+                let _ = queue_ops.update_job_status(&user_id, &job_index, &JobStatus::error(logs.clone())).await;
+                let _ = queue_ops.update_stage_logs(&user_id, &job_index, stage_num, logs).await;
             }
 
             JobResult {

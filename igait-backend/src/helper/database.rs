@@ -2,6 +2,7 @@ use crate::helper::lib::User;
 
 use firebase_rs::*;
 use anyhow::{ Context, Result, anyhow };
+use uuid::Uuid;
 
 use super::lib::{Job, JobStatus};
 
@@ -78,9 +79,9 @@ impl Database {
         Ok(jobs)
     }
 
-    /// Returns the next available job index for a user by finding the
-    /// highest existing numeric key and adding 1.
-    async fn next_job_index(&self, uid: &str) -> Result<usize> {
+    /// Returns the number of jobs a user has by counting keys in the
+    /// RTDB jobs object.
+    async fn job_count(&self, uid: &str) -> Result<usize> {
         let raw = match self._state.at(uid).at("jobs").get::<serde_json::Value>().await {
             Ok(v) => v,
             Err(e) if is_not_found(&e) => return Ok(0),
@@ -93,17 +94,12 @@ impl Database {
             None => return Ok(0),
         };
 
-        let max_index = obj.keys()
-            .filter_map(|k| k.parse::<usize>().ok())
-            .max();
-
-        Ok(max_index.map(|m| m + 1).unwrap_or(0))
+        Ok(obj.len())
     }
 
-    /// Checks whether a specific job index exists in Firebase RTDB
-    /// without deserializing the entire jobs array.
-    async fn job_exists(&self, uid: &str, job_id: usize) -> Result<bool> {
-        match self._state.at(uid).at("jobs").at(&job_id.to_string()).get::<serde_json::Value>().await {
+    /// Checks whether a specific job key exists in Firebase RTDB.
+    async fn job_exists(&self, uid: &str, job_id: &str) -> Result<bool> {
+        match self._state.at(uid).at("jobs").at(job_id).get::<serde_json::Value>().await {
             Ok(v) => Ok(!v.is_null()),
             Err(e) if is_not_found(&e) => Ok(false),
             Err(e) => Err(anyhow!("{e:?}"))
@@ -230,8 +226,7 @@ impl Database {
         // First double check that the user actually exists
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
-        // Next index == total count of jobs so far
-        self.next_job_index(uid).await
+        self.job_count(uid).await
             .context("Failed to count jobs!")
     }
 
@@ -256,24 +251,22 @@ impl Database {
         &self,
         uid:         &str,
         job:         Job
-    ) -> Result<()> {
+    ) -> Result<String> {
         // First double check that the user actually exists
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
-        // Find the next available index
-        let next_index = self.next_job_index(uid).await
-            .context("Failed to determine next job index!")?;
+        // Generate a unique key for this job
+        let job_key = Uuid::new_v4().to_string();
 
-        // Write the new job at the next index — never rewrite the whole array
-        self._state.at(uid).at("jobs").at(&next_index.to_string())
+        // Write the new job at the generated key
+        self._state.at(uid).at("jobs").at(&job_key)
             .update(&job)
             .await
             .map_err(|e| anyhow!("{e:?}"))
             .context("Failed to write new job to database!")?;
 
-        // Return as successful
-        println!("Added new job!");
-        Ok(())
+        println!("Added new job with key '{job_key}'!");
+        Ok(job_key)
     }
 
     /// Updates the status of a job.
@@ -297,7 +290,7 @@ impl Database {
     pub async fn update_status (
         &self,
         uid:         &str,
-        job_id:      usize,
+        job_key:     &str,
         status:      JobStatus
     ) -> Result<()> {
         println!("Updating status...");
@@ -305,13 +298,13 @@ impl Database {
         // First double check that the user actually exists
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
-        // Verify the job index exists without deserializing the entire array
-        if !self.job_exists(uid, job_id).await? {
-            return Err(anyhow!("Job ID {} does not exist!", job_id));
+        // Verify the job key exists
+        if !self.job_exists(uid, job_key).await? {
+            return Err(anyhow!("Job key '{}' does not exist!", job_key));
         }
 
         // Write only the specific job's status — never touch the administrator field
-        self._state.at(uid).at("jobs").at(&job_id.to_string()).at("status")
+        self._state.at(uid).at("jobs").at(job_key).at("status")
             .update(&status)
             .await
             .map_err(|e| anyhow!("{e:?}"))
@@ -343,7 +336,7 @@ impl Database {
     pub async fn _get_status (
         &self,
         uid:         &str,
-        job_id:      usize
+        job_key:     &str
     ) -> Result<JobStatus> {
         println!("Getting status...");
 
@@ -351,11 +344,11 @@ impl Database {
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
         // Read just this job's status directly
-        self._state.at(uid).at("jobs").at(&job_id.to_string()).at("status")
+        self._state.at(uid).at("jobs").at(job_key).at("status")
             .get::<JobStatus>()
             .await
             .map_err(|e| anyhow!("{e:?}"))
-            .context(format!("Failed to get status for job {}", job_id))
+            .context(format!("Failed to get status for job {}", job_key))
     }
 
     /// Gets a job given a user ID and a job ID.
@@ -377,7 +370,7 @@ impl Database {
     pub async fn get_job (
         &self,
         uid:         &str,
-        job_id:      usize
+        job_key:     &str
     ) -> Result<Job> {
         println!("Getting job...");
 
@@ -385,11 +378,11 @@ impl Database {
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
         // Read just this specific job directly
-        self._state.at(uid).at("jobs").at(&job_id.to_string())
+        self._state.at(uid).at("jobs").at(job_key)
             .get::<Job>()
             .await
             .map_err(|e| anyhow!("{e:?}"))
-            .context(format!("Failed to get job {}", job_id))
+            .context(format!("Failed to get job {}", job_key))
     }
 
     /// Gets all jobs of a user.
