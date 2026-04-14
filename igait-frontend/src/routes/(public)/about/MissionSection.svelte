@@ -1,78 +1,133 @@
 <script lang="ts">
-	import * as Card from '$lib/components/ui/card';
-	import { Sparkles, Users, Heart } from '@lucide/svelte';
-
-	const missions = [
-		{
-			icon: Sparkles,
-			title: 'Our Mission',
-			description:
-				'To make advanced gait analysis accessible to everyone through cutting-edge AI technology and user-friendly interfaces.'
-		},
-		{
-			icon: Users,
-			title: 'Our Team',
-			description:
-				'A dedicated team of researchers, engineers, and healthcare professionals working across multiple Illinois universities.'
-		},
-		{
-			icon: Heart,
-			title: 'Our Impact',
-			description:
-				'Helping identify gait patterns for early intervention and improved outcomes for individuals and families.'
-		}
-	];
+	import { Crosshair, Brain, Accessibility } from '@lucide/svelte';
 </script>
 
 <section class="mission-section">
-	<div class="mission-grid">
-		{#each missions as mission}
-			<Card.Root class="mission-card">
-				<Card.Header>
-					<div class="mission-icon">
-						<svelte:component this={mission.icon} class="h-6 w-6 text-primary" />
-					</div>
-					<Card.Title>{mission.title}</Card.Title>
-					<Card.Description class="mission-description">
-						{mission.description}
-					</Card.Description>
-				</Card.Header>
-			</Card.Root>
-		{/each}
+	<div class="mission-header">
+		<Crosshair class="section-icon" />
+		<h2 class="section-title">Our Mission</h2>
+	</div>
+	<p class="mission-lead">
+		iGait makes gait-based autism screening accessible to every family — regardless of location,
+		income, or proximity to specialists.
+	</p>
+
+	<div class="mission-points">
+		<div class="mission-point">
+			<div class="point-icon-wrap">
+				<Brain class="point-icon" />
+			</div>
+			<div>
+				<h3 class="point-title">AI-Powered Analysis</h3>
+				<p class="point-desc">
+					Our pipeline uses computer vision and machine learning to detect subtle biomechanical
+					markers in walking patterns that may indicate autism spectrum characteristics.
+				</p>
+			</div>
+		</div>
+
+		<div class="mission-point">
+			<div class="point-icon-wrap">
+				<Accessibility class="point-icon" />
+			</div>
+			<div>
+				<h3 class="point-title">Accessible to All</h3>
+				<p class="point-desc">
+					Families record short walking videos at home with a smartphone. No travel to specialists,
+					no long waitlists — just fast, preliminary screening results.
+				</p>
+			</div>
+		</div>
 	</div>
 </section>
 
 <style>
 	.mission-section {
-		margin-bottom: var(--spacing-xl);
+		margin-bottom: 3rem;
 	}
 
-	.mission-grid {
-		display: grid;
-		gap: var(--grid-gap);
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+	.mission-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
 	}
 
-	:global(.mission-card) {
-		transition: transform 0.2s;
+	:global(.section-icon) {
+		width: 1.125rem;
+		height: 1.125rem;
+		color: hsl(var(--primary));
+		flex-shrink: 0;
 	}
 
-	:global(.mission-card:hover) {
-		transform: translateY(-4px);
+	.section-title {
+		font-size: 1.25rem;
+		font-weight: 600;
+		margin: 0;
 	}
 
-	.mission-icon {
-		display: inline-flex;
-		height: 3rem;
-		width: 3rem;
+	.mission-lead {
+		font-size: 1rem;
+		color: hsl(var(--muted-foreground));
+		line-height: 1.7;
+		max-width: 42rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.mission-points {
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+	}
+
+	.mission-point {
+		display: flex;
+		gap: 1rem;
+		align-items: flex-start;
+		padding: 1rem 1.25rem;
+		border: 1px solid hsl(var(--border));
+		border-radius: var(--radius-md);
+		background: hsl(var(--card));
+	}
+
+	.point-icon-wrap {
+		flex-shrink: 0;
+		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: var(--radius-md);
-		background-color: hsl(var(--primary) / 0.1);
-		margin-bottom: var(--spacing-md);
+		width: 2.25rem;
+		height: 2.25rem;
+		border-radius: var(--radius-sm);
+		background: hsl(var(--primary) / 0.08);
+		margin-top: 0.125rem;
 	}
 
-	:global(.mission-description) {
+	:global(.point-icon) {
+		width: 1rem;
+		height: 1rem;
+		color: hsl(var(--primary));
+	}
+
+	.point-title {
+		font-size: 0.9375rem;
+		font-weight: 600;
+		margin: 0 0 0.25rem;
+	}
+
+	.point-desc {
+		font-size: 0.875rem;
+		color: hsl(var(--muted-foreground));
 		line-height: 1.6;
+		margin: 0;
+	}
+
+	@media (min-width: 640px) {
+		.mission-points {
+			flex-direction: row;
+		}
+
+		.mission-point {
+			flex: 1;
+		}
 	}
 </style>
