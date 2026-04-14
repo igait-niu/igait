@@ -149,7 +149,9 @@
 				setTimeout(() => goto('/dashboard'), 1500);
 			}
 		} catch (err) {
-			error = Some(new AppError(err instanceof Error ? err.message : 'An unexpected error occurred'));
+			error = Some(
+				new AppError(err instanceof Error ? err.message : 'An unexpected error occurred')
+			);
 			isSubmitting = false;
 			progress = 0;
 			statusMessage = '';
@@ -327,14 +329,11 @@
 				<div class="submit-button-area">
 					<div class="submit-button-container">
 						{#if isSubmitting}
-							<div 
-								class="button-progress-fill"
-								style="width: {Math.min(progress, 100)}%"
-							></div>
+							<div class="button-progress-fill" style="width: {Math.min(progress, 100)}%"></div>
 						{/if}
-						<Button 
-							type="submit" 
-							class="submit-button {isSubmitting ? 'is-uploading' : ''}" 
+						<Button
+							type="submit"
+							class="submit-button {isSubmitting ? 'is-uploading' : ''}"
 							disabled={isSubmitting || !isFormValid}
 						>
 							{#if isSubmitting}

@@ -1,5 +1,15 @@
 <script lang="ts">
-	import { Loader2, Plus, Trash2, Save, X, Play, Pause, SkipBack, SkipForward } from '@lucide/svelte';
+	import {
+		Loader2,
+		Plus,
+		Trash2,
+		Save,
+		X,
+		Play,
+		Pause,
+		SkipBack,
+		SkipForward
+	} from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Badge } from '$lib/components/ui/badge';
@@ -24,7 +34,8 @@
 		sideJsonFile: FileEntry | null;
 	}
 
-	let { open, onclose, jobId, frontVideo, sideVideo, frontJsonFile, sideJsonFile }: Props = $props();
+	let { open, onclose, jobId, frontVideo, sideVideo, frontJsonFile, sideJsonFile }: Props =
+		$props();
 
 	// ── State ─────────────────────────────────────────────
 	let loading = $state(true);
@@ -249,9 +260,7 @@
 				i === selectedCycleIndex ? { ...editingCycle! } : c
 			);
 		} else {
-			sideCycles = sideCycles.map((c, i) =>
-				i === selectedCycleIndex ? { ...editingCycle! } : c
-			);
+			sideCycles = sideCycles.map((c, i) => (i === selectedCycleIndex ? { ...editingCycle! } : c));
 		}
 
 		hasChanges = true;
@@ -358,10 +367,12 @@
 </script>
 
 <Dialog.Root
-	open={open}
-	onOpenChange={(o) => { if (!o) handleClose(); }}
+	{open}
+	onOpenChange={(o) => {
+		if (!o) handleClose();
+	}}
 >
-	<Dialog.Content class="cycle-editor-dialog sm:max-w-[95vw] max-h-[95vh]">
+	<Dialog.Content class="cycle-editor-dialog max-h-[95vh] sm:max-w-[95vw]">
 		<Dialog.Header>
 			<Dialog.Title class="cycle-editor-title">
 				Cycle Editor
@@ -393,7 +404,7 @@
 								onclick={() => handleTabSwitch('front')}
 							>
 								Front View
-								<Badge variant="outline" class="ml-1.5 video-tab-badge">{frontCycles.length}</Badge>
+								<Badge variant="outline" class="video-tab-badge ml-1.5">{frontCycles.length}</Badge>
 							</button>
 						{/if}
 						{#if hasSideTab}
@@ -403,7 +414,7 @@
 								onclick={() => handleTabSwitch('side')}
 							>
 								Side View
-								<Badge variant="outline" class="ml-1.5 video-tab-badge">{sideCycles.length}</Badge>
+								<Badge variant="outline" class="video-tab-badge ml-1.5">{sideCycles.length}</Badge>
 							</button>
 						{/if}
 					</div>
@@ -444,8 +455,13 @@
 									class:cycle-block--right={cycle.side === 'R'}
 									class:cycle-block--selected={selectedCycleIndex === i}
 									style="left: {pos.left}; width: {pos.width}"
-									onclick={(e) => { e.stopPropagation(); selectCycle(i); }}
-									onkeydown={(e) => { if (e.key === 'Enter') selectCycle(i); }}
+									onclick={(e) => {
+										e.stopPropagation();
+										selectCycle(i);
+									}}
+									onkeydown={(e) => {
+										if (e.key === 'Enter') selectCycle(i);
+									}}
 									role="button"
 									tabindex="0"
 									title="Cycle {i + 1}: {cycle.side} ({cycle.start}–{cycle.end})"
@@ -476,7 +492,11 @@
 							<button class="control-btn" onclick={() => stepFrame(-5)} title="Back 5 frames">
 								<SkipBack class="h-4 w-4" />
 							</button>
-							<button class="control-btn control-btn--play" onclick={togglePlayback} title={isPlaying ? 'Pause' : 'Play'}>
+							<button
+								class="control-btn control-btn--play"
+								onclick={togglePlayback}
+								title={isPlaying ? 'Pause' : 'Play'}
+							>
 								{#if isPlaying}
 									<Pause class="h-5 w-5" />
 								{:else}
@@ -508,7 +528,9 @@
 								class="cycle-item"
 								class:cycle-item--selected={selectedCycleIndex === i}
 								onclick={() => selectCycle(i)}
-								onkeydown={(e) => { if (e.key === 'Enter') selectCycle(i); }}
+								onkeydown={(e) => {
+									if (e.key === 'Enter') selectCycle(i);
+								}}
 								role="button"
 								tabindex="0"
 							>
@@ -528,7 +550,10 @@
 								</div>
 								<button
 									class="cycle-delete-btn"
-									onclick={(e) => { e.stopPropagation(); deleteCycle(i); }}
+									onclick={(e) => {
+										e.stopPropagation();
+										deleteCycle(i);
+									}}
 									title="Delete cycle"
 								>
 									<Trash2 class="h-3.5 w-3.5" />
@@ -582,16 +607,38 @@
 								</div>
 							</div>
 							<div class="edit-actions">
-								<Button variant="outline" size="sm" onclick={() => seekToFrame(editingCycle!.start)}>
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => seekToFrame(editingCycle!.start)}
+								>
 									Go to Start
 								</Button>
 								<Button variant="outline" size="sm" onclick={() => seekToFrame(editingCycle!.end)}>
 									Go to End
 								</Button>
-								<Button variant="outline" size="sm" onclick={() => { if (editingCycle) { editingCycle = { ...editingCycle, start: currentFrame }; updateSelectedCycle(); } }}>
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => {
+										if (editingCycle) {
+											editingCycle = { ...editingCycle, start: currentFrame };
+											updateSelectedCycle();
+										}
+									}}
+								>
 									Set Start to Current
 								</Button>
-								<Button variant="outline" size="sm" onclick={() => { if (editingCycle) { editingCycle = { ...editingCycle, end: currentFrame }; updateSelectedCycle(); } }}>
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => {
+										if (editingCycle) {
+											editingCycle = { ...editingCycle, end: currentFrame };
+											updateSelectedCycle();
+										}
+									}}
+								>
 									Set End to Current
 								</Button>
 							</div>
@@ -601,7 +648,7 @@
 					<!-- Add button -->
 					<div class="panel-actions">
 						<Button variant="outline" size="sm" class="w-full" onclick={addCycle}>
-							<Plus class="h-4 w-4 mr-1" />
+							<Plus class="mr-1 h-4 w-4" />
 							Add Cycle at Current Frame
 						</Button>
 					</div>
@@ -611,17 +658,12 @@
 
 		<div class="editor-footer">
 			<div></div>
-			<Button
-				variant="default"
-				size="sm"
-				onclick={handleSave}
-				disabled={saving || !hasChanges}
-			>
+			<Button variant="default" size="sm" onclick={handleSave} disabled={saving || !hasChanges}>
 				{#if saving}
-					<Loader2 class="h-4 w-4 mr-1 animate-spin" />
+					<Loader2 class="mr-1 h-4 w-4 animate-spin" />
 					Saving…
 				{:else}
-					<Save class="h-4 w-4 mr-1" />
+					<Save class="mr-1 h-4 w-4" />
 					Save Changes
 				{/if}
 			</Button>
@@ -808,7 +850,9 @@
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		transition: opacity 0.15s ease, filter 0.15s ease;
+		transition:
+			opacity 0.15s ease,
+			filter 0.15s ease;
 		z-index: 1;
 	}
 
@@ -870,7 +914,9 @@
 		background: var(--primary);
 		border-radius: 50%;
 		border: 2px solid var(--background);
-		box-shadow: 0 0 0 1px color-mix(in oklch, var(--primary) 30%, transparent), 0 1px 4px rgba(0, 0, 0, 0.25);
+		box-shadow:
+			0 0 0 1px color-mix(in oklch, var(--primary) 30%, transparent),
+			0 1px 4px rgba(0, 0, 0, 0.25);
 		flex-shrink: 0;
 		transition: transform 0.1s ease;
 	}

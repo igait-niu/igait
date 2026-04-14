@@ -13,7 +13,24 @@ export {
 } from './config';
 
 // Types
-export type { Job, JobStatus, ContributionRequest, ResearchContributionRequest, AssistantMessage, AssistantMessageType, ProgressCallback, RerunResponse, FileEntry, JobFilesResponse, GaitCycle, UpdateCyclesRequest, UpdateCyclesResponse, VideoTransform, VideoEditRequest, VideoEditResponse } from './types';
+export type {
+	Job,
+	JobStatus,
+	ContributionRequest,
+	ResearchContributionRequest,
+	AssistantMessage,
+	AssistantMessageType,
+	ProgressCallback,
+	RerunResponse,
+	FileEntry,
+	JobFilesResponse,
+	GaitCycle,
+	UpdateCyclesRequest,
+	UpdateCyclesResponse,
+	VideoTransform,
+	VideoEditRequest,
+	VideoEditResponse
+} from './types';
 
 // Validation
 export {
@@ -25,4 +42,12 @@ export {
 } from './validation';
 
 // Client
-export { submitContribution, submitResearchContribution, authenticatedFetch, rerunJob, getJobFiles, updateCycles, saveVideoEdit } from './client';
+export {
+	submitContribution,
+	submitResearchContribution,
+	authenticatedFetch,
+	rerunJob,
+	getJobFiles,
+	updateCycles,
+	saveVideoEdit
+} from './client';

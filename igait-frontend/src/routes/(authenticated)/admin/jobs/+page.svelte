@@ -53,13 +53,16 @@
 			<div class="empty-state">
 				<Inbox class="empty-icon" />
 				<p class="empty-title">No jobs found</p>
-				<p class="empty-description">
-					There are no submissions in the system yet.
-				</p>
+				<p class="empty-description">There are no submissions in the system yet.</p>
 			</div>
 		{:else}
 			<div class="table-area">
-				<JobsDataTable data={jobsState.jobs} uid="" showEmail={true} onRowClick={handleViewDetails} />
+				<JobsDataTable
+					data={jobsState.jobs}
+					uid=""
+					showEmail={true}
+					onRowClick={handleViewDetails}
+				/>
 			</div>
 		{/if}
 	</div>

@@ -79,12 +79,7 @@
 		{#if open}
 			<div class="json-children">
 				{#each entries as [key, value] (key)}
-					<JsonTree
-						data={value}
-						depth={depth + 1}
-						keyName={key}
-						defaultCollapsed={depth >= 0}
-					/>
+					<JsonTree data={value} depth={depth + 1} keyName={key} defaultCollapsed={depth >= 0} />
 				{/each}
 			</div>
 			<span class="json-bracket json-bracket--close">{isArray ? ']' : '}'}</span>

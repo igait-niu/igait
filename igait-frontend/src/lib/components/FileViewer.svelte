@@ -186,5 +186,4 @@
 	.file-row:hover :global(.file-row-action) {
 		opacity: 1;
 	}
-
 </style>

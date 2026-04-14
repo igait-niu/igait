@@ -45,20 +45,20 @@ export function subscribeToJobs(uid: string, onUpdate: (state: JobsState) => voi
 
 			// Data is stored as an array in RTDB
 			// Filter out any placeholder/null entries and attach original index as ID
-			const jobs: JobWithId[] = Array.isArray(data) 
+			const jobs: JobWithId[] = Array.isArray(data)
 				? data
-					.map((job, index): JobWithId | null => {
-						if (job === null || job.email === 'placeholder@placeholder.com') return null;
-						return { ...job, id: `${uid}_${index}` };
-					})
-					.filter((job): job is JobWithId => job !== null)
+						.map((job, index): JobWithId | null => {
+							if (job === null || job.email === 'placeholder@placeholder.com') return null;
+							return { ...job, id: `${uid}_${index}` };
+						})
+						.filter((job): job is JobWithId => job !== null)
 				: Object.entries(data)
-					.map(([key, job]): JobWithId | null => {
-						if (job === null || (job as Job).email === 'placeholder@placeholder.com') return null;
-						return { ...(job as Job), id: `${uid}_${key}` };
-					})
-					.filter((job): job is JobWithId => job !== null);
-			
+						.map(([key, job]): JobWithId | null => {
+							if (job === null || (job as Job).email === 'placeholder@placeholder.com') return null;
+							return { ...(job as Job), id: `${uid}_${key}` };
+						})
+						.filter((job): job is JobWithId => job !== null);
+
 			// Sort by timestamp (newest first)
 			jobs.sort((a, b) => b.timestamp - a.timestamp);
 
