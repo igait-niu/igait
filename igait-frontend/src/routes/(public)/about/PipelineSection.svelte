@@ -80,7 +80,7 @@
 	:global(.pipeline-header .section-icon) {
 		width: 1.125rem;
 		height: 1.125rem;
-		color: hsl(var(--primary));
+		color: var(--primary);
 	}
 
 	.section-title {
@@ -91,7 +91,7 @@
 
 	.pipeline-lead {
 		font-size: 1rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		line-height: 1.7;
 		max-width: 42rem;
 		margin-bottom: 1.5rem;
@@ -113,14 +113,14 @@
 
 	.stage {
 		flex: 1;
-		border: 1px solid hsl(var(--border));
+		border: 1px solid var(--border);
 		border-radius: var(--radius-md);
 		overflow: hidden;
-		background: hsl(var(--card));
+		background: var(--card);
 	}
 
 	.stage-visual {
-		background: hsl(var(--muted));
+		background: var(--muted);
 		overflow: hidden;
 		height: 14rem;
 		display: flex;
@@ -149,7 +149,7 @@
 	:global(.stage-label-icon) {
 		width: 0.8125rem;
 		height: 0.8125rem;
-		color: hsl(var(--primary));
+		color: var(--primary);
 	}
 
 	.stage-number {
@@ -157,7 +157,7 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		color: hsl(var(--primary));
+		color: var(--primary);
 	}
 
 	.stage-name {
@@ -168,7 +168,7 @@
 
 	.stage-desc {
 		font-size: 0.8125rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		line-height: 1.5;
 		margin: 0;
 	}
@@ -190,7 +190,7 @@
 		:global(.arrow-icon) {
 			width: 1.25rem;
 			height: 1.25rem;
-			color: hsl(var(--muted-foreground) / 0.4);
+			color: oklch(from var(--muted-foreground) l c h / 0.4);
 		}
 	}
 </style>

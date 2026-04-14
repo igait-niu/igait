@@ -90,7 +90,7 @@
 	:global(.team-header .section-icon) {
 		width: 1.125rem;
 		height: 1.125rem;
-		color: hsl(var(--primary));
+		color: var(--primary);
 	}
 
 	.section-title {
@@ -101,7 +101,7 @@
 
 	.team-lead {
 		font-size: 1rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		line-height: 1.7;
 		max-width: 42rem;
 		margin-bottom: 1.5rem;
@@ -120,9 +120,9 @@
 	}
 
 	.university-card {
-		border: 1px solid hsl(var(--border));
+		border: 1px solid var(--border);
 		border-radius: var(--radius-md);
-		background: hsl(var(--card));
+		background: var(--card);
 		padding: 1.25rem;
 	}
 
@@ -132,13 +132,13 @@
 		gap: 0.625rem;
 		margin-bottom: 1rem;
 		padding-bottom: 0.75rem;
-		border-bottom: 1px solid hsl(var(--border));
+		border-bottom: 1px solid var(--border);
 	}
 
 	:global(.uni-icon) {
 		width: 1rem;
 		height: 1rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		flex-shrink: 0;
 	}
 
@@ -151,7 +151,7 @@
 
 	.uni-abbr {
 		font-size: 0.75rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 	}
 
 	.uni-groups {
@@ -165,7 +165,7 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		margin: 0 0 0.5rem;
 	}
 
@@ -180,7 +180,7 @@
 
 	.name-list li {
 		font-size: 0.8125rem;
-		color: hsl(var(--foreground));
+		color: var(--foreground);
 		line-height: 1.6;
 	}
 </style>

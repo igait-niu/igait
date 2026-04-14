@@ -56,7 +56,7 @@
 	:global(.section-icon) {
 		width: 1.125rem;
 		height: 1.125rem;
-		color: hsl(var(--primary));
+		color: var(--primary);
 		flex-shrink: 0;
 	}
 
@@ -68,7 +68,7 @@
 
 	.mission-lead {
 		font-size: 1rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		line-height: 1.7;
 		max-width: 42rem;
 		margin-bottom: 1.5rem;
@@ -85,9 +85,9 @@
 		gap: 1rem;
 		align-items: flex-start;
 		padding: 1rem 1.25rem;
-		border: 1px solid hsl(var(--border));
+		border: 1px solid var(--border);
 		border-radius: var(--radius-md);
-		background: hsl(var(--card));
+		background: var(--card);
 	}
 
 	.point-icon-wrap {
@@ -98,14 +98,14 @@
 		width: 2.25rem;
 		height: 2.25rem;
 		border-radius: var(--radius-sm);
-		background: hsl(var(--primary) / 0.08);
+		background: oklch(from var(--primary) l c h / 0.08);
 		margin-top: 0.125rem;
 	}
 
 	:global(.point-icon) {
 		width: 1rem;
 		height: 1rem;
-		color: hsl(var(--primary));
+		color: var(--primary);
 	}
 
 	.point-title {
@@ -116,7 +116,7 @@
 
 	.point-desc {
 		font-size: 0.875rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		line-height: 1.6;
 		margin: 0;
 	}

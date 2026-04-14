@@ -45,7 +45,7 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		color: hsl(var(--primary));
+		color: var(--primary);
 		margin-bottom: 0.5rem;
 	}
 
@@ -68,7 +68,7 @@
 		margin-left: auto;
 		margin-right: auto;
 		font-size: 1.0625rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		line-height: 1.6;
 	}
 </style>

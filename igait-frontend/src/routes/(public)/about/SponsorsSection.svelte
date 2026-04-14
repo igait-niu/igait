@@ -71,7 +71,7 @@
 	:global(.sponsors-section .section-icon) {
 		width: 1.125rem;
 		height: 1.125rem;
-		color: hsl(var(--primary));
+		color: var(--primary);
 	}
 
 	.section-title {
@@ -82,15 +82,15 @@
 
 	.section-lead {
 		font-size: 1rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		line-height: 1.7;
 		margin-bottom: 1rem;
 	}
 
 	.org-card {
-		border: 1px solid hsl(var(--border));
+		border: 1px solid var(--border);
 		border-radius: var(--radius-md);
-		background: hsl(var(--card));
+		background: var(--card);
 		overflow: hidden;
 	}
 
@@ -111,9 +111,9 @@
 
 	.org-item {
 		font-size: 0.875rem;
-		color: hsl(var(--foreground));
+		color: var(--foreground);
 		padding: 0.5rem 0.75rem;
-		border-bottom: 1px solid hsl(var(--border) / 0.5);
+		border-bottom: 1px solid oklch(from var(--border) l c h / 0.5);
 		line-height: 1.5;
 	}
 
@@ -127,7 +127,7 @@
 		}
 
 		.org-item:nth-child(odd) {
-			border-right: 1px solid hsl(var(--border) / 0.5);
+			border-right: 1px solid oklch(from var(--border) l c h / 0.5);
 		}
 	}
 </style>
