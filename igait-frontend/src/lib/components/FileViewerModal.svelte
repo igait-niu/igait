@@ -74,9 +74,11 @@
 
 <Dialog.Root
 	open={isOpen}
-	onOpenChange={(open) => { if (!open) onclose(); }}
+	onOpenChange={(open) => {
+		if (!open) onclose();
+	}}
 >
-	<Dialog.Content class="file-modal-content sm:max-w-[700px] max-h-[85vh]">
+	<Dialog.Content class="file-modal-content max-h-[85vh] sm:max-w-[700px]">
 		{#if file}
 			<Dialog.Header>
 				<Dialog.Title class="file-modal-title">
@@ -110,12 +112,7 @@
 					{/if}
 				{:else if isVideo}
 					<!-- svelte-ignore a11y_media_has_caption -->
-					<video
-						src={file.url}
-						controls
-						preload="metadata"
-						class="file-modal-video"
-					></video>
+					<video src={file.url} controls preload="metadata" class="file-modal-video"></video>
 				{:else}
 					<div class="file-modal-placeholder">
 						<p class="placeholder-face">:3</p>
@@ -126,7 +123,7 @@
 
 			<div class="file-modal-footer">
 				<Button variant="outline" size="sm" href={file.url} target="_blank" rel="noopener">
-					<Download class="h-4 w-4 mr-1" />
+					<Download class="mr-1 h-4 w-4" />
 					Download
 				</Button>
 			</div>

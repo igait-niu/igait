@@ -120,13 +120,13 @@ export interface UpdateCyclesResponse {
  * Per-video transformation parameters for video editing.
  */
 export interface VideoTransform {
-	rotation?: number;      // 0, 90, 180, 270 degrees
-	trim_start?: number;    // seconds
-	trim_end?: number;      // seconds
-	crop_x?: number;        // pixels
-	crop_y?: number;        // pixels
-	crop_width?: number;    // pixels
-	crop_height?: number;   // pixels
+	rotation?: number; // 0, 90, 180, 270 degrees
+	trim_start?: number; // seconds
+	trim_end?: number; // seconds
+	crop_x?: number; // pixels
+	crop_y?: number; // pixels
+	crop_width?: number; // pixels
+	crop_height?: number; // pixels
 }
 
 /**

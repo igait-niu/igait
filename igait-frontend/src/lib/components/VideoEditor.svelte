@@ -411,10 +411,12 @@
 </script>
 
 <Dialog.Root
-	open={open}
-	onOpenChange={(o) => { if (!o) handleClose(); }}
+	{open}
+	onOpenChange={(o) => {
+		if (!o) handleClose();
+	}}
 >
-	<Dialog.Content class="video-editor-dialog sm:max-w-[95vw] max-h-[95vh]">
+	<Dialog.Content class="video-editor-dialog max-h-[95vh] sm:max-w-[95vw]">
 		<Dialog.Header>
 			<Dialog.Title class="video-editor-title">
 				Video Editor
@@ -441,7 +443,7 @@
 						>
 							Front View
 							{#if hasTransformEdits(frontTransform)}
-								<Badge variant="secondary" class="ml-1.5 video-tab-badge">edited</Badge>
+								<Badge variant="secondary" class="video-tab-badge ml-1.5">edited</Badge>
 							{/if}
 						</button>
 					{/if}
@@ -453,7 +455,7 @@
 						>
 							Side View
 							{#if hasTransformEdits(sideTransform)}
-								<Badge variant="secondary" class="ml-1.5 video-tab-badge">edited</Badge>
+								<Badge variant="secondary" class="video-tab-badge ml-1.5">edited</Badge>
 							{/if}
 						</button>
 					{/if}
@@ -573,9 +575,7 @@
 						</button>
 					</div>
 					<div class="time-display">
-						<span class="time-indicator"
-							>{formatTime(currentTime)} / {formatTime(duration)}</span
-						>
+						<span class="time-indicator">{formatTime(currentTime)} / {formatTime(duration)}</span>
 					</div>
 				</div>
 			</div>
@@ -620,12 +620,12 @@
 						<h4 class="tool-panel-title">Rotation</h4>
 						<div class="rotation-controls">
 							<Button variant="outline" size="sm" onclick={rotateCCW}>
-								<RotateCcw class="h-4 w-4 mr-1" />
+								<RotateCcw class="mr-1 h-4 w-4" />
 								90° CCW
 							</Button>
 							<span class="rotation-value">{activeTransform.rotation ?? 0}°</span>
 							<Button variant="outline" size="sm" onclick={rotateCW}>
-								<RotateCw class="h-4 w-4 mr-1" />
+								<RotateCw class="mr-1 h-4 w-4" />
 								90° CW
 							</Button>
 						</div>
@@ -633,10 +633,10 @@
 							<Button
 								variant="ghost"
 								size="sm"
-								class="w-full mt-2"
+								class="mt-2 w-full"
 								onclick={() => setTransformField('rotation', 0)}
 							>
-								<X class="h-3.5 w-3.5 mr-1" /> Reset Rotation
+								<X class="mr-1 h-3.5 w-3.5" /> Reset Rotation
 							</Button>
 						{/if}
 					</div>
@@ -647,8 +647,8 @@
 					<div class="tool-panel">
 						<h4 class="tool-panel-title">Trim</h4>
 						<p class="tool-panel-hint">
-							Seek to the desired position, then click "Set Start" or "Set End". You can
-							also drag the trim handles on the timeline.
+							Seek to the desired position, then click "Set Start" or "Set End". You can also drag
+							the trim handles on the timeline.
 						</p>
 						<div class="trim-controls">
 							<Button variant="outline" size="sm" onclick={setTrimStart}>
@@ -667,14 +667,13 @@
 								</span>
 								<span class="trim-duration">
 									({formatTime(
-										(activeTransform.trim_end ?? duration) -
-											(activeTransform.trim_start ?? 0)
+										(activeTransform.trim_end ?? duration) - (activeTransform.trim_start ?? 0)
 									)}
 									kept)
 								</span>
 							</div>
-							<Button variant="ghost" size="sm" class="w-full mt-1" onclick={clearTrim}>
-								<X class="h-3.5 w-3.5 mr-1" /> Reset Trim
+							<Button variant="ghost" size="sm" class="mt-1 w-full" onclick={clearTrim}>
+								<X class="mr-1 h-3.5 w-3.5" /> Reset Trim
 							</Button>
 						{/if}
 					</div>
@@ -684,9 +683,7 @@
 				{#if editMode === 'crop'}
 					<div class="tool-panel">
 						<h4 class="tool-panel-title">Crop</h4>
-						<p class="tool-panel-hint">
-							Click and drag on the video to select the crop region.
-						</p>
+						<p class="tool-panel-hint">Click and drag on the video to select the crop region.</p>
 						{#if activeTransform.crop_width && activeTransform.crop_height}
 							<div class="crop-info">
 								<div class="crop-info-row">
@@ -698,8 +695,8 @@
 									<span>{activeTransform.crop_width} × {activeTransform.crop_height}</span>
 								</div>
 							</div>
-							<Button variant="ghost" size="sm" class="w-full mt-1" onclick={clearCrop}>
-								<X class="h-3.5 w-3.5 mr-1" /> Reset Crop
+							<Button variant="ghost" size="sm" class="mt-1 w-full" onclick={clearCrop}>
+								<X class="mr-1 h-3.5 w-3.5" /> Reset Crop
 							</Button>
 						{:else}
 							<div class="crop-empty">No crop set</div>
@@ -717,7 +714,9 @@
 								<span class="summary-details">
 									{#if frontTransform.rotation}R:{frontTransform.rotation}°{/if}
 									{#if frontTransform.trim_start !== undefined || frontTransform.trim_end !== undefined}
-										T:{formatTime(frontTransform.trim_start ?? 0)}-{formatTime(frontTransform.trim_end ?? frontDuration)}
+										T:{formatTime(frontTransform.trim_start ?? 0)}-{formatTime(
+											frontTransform.trim_end ?? frontDuration
+										)}
 									{/if}
 									{#if frontTransform.crop_width}C:{frontTransform.crop_width}×{frontTransform.crop_height}{/if}
 								</span>
@@ -729,7 +728,9 @@
 								<span class="summary-details">
 									{#if sideTransform.rotation}R:{sideTransform.rotation}°{/if}
 									{#if sideTransform.trim_start !== undefined || sideTransform.trim_end !== undefined}
-										T:{formatTime(sideTransform.trim_start ?? 0)}-{formatTime(sideTransform.trim_end ?? sideDuration)}
+										T:{formatTime(sideTransform.trim_start ?? 0)}-{formatTime(
+											sideTransform.trim_end ?? sideDuration
+										)}
 									{/if}
 									{#if sideTransform.crop_width}C:{sideTransform.crop_width}×{sideTransform.crop_height}{/if}
 								</span>
@@ -741,20 +742,13 @@
 		</div>
 
 		<div class="editor-footer">
-			<p class="footer-warning">
-				Saving will re-process the entire pipeline from Stage 1.
-			</p>
-			<Button
-				variant="default"
-				size="sm"
-				onclick={handleSave}
-				disabled={saving || !hasAnyEdits}
-			>
+			<p class="footer-warning">Saving will re-process the entire pipeline from Stage 1.</p>
+			<Button variant="default" size="sm" onclick={handleSave} disabled={saving || !hasAnyEdits}>
 				{#if saving}
-					<Loader2 class="h-4 w-4 mr-1 animate-spin" />
+					<Loader2 class="mr-1 h-4 w-4 animate-spin" />
 					Saving…
 				{:else}
-					<Save class="h-4 w-4 mr-1" />
+					<Save class="mr-1 h-4 w-4" />
 					Save & Re-Process
 				{/if}
 			</Button>

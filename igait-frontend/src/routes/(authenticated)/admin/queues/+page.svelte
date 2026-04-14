@@ -133,52 +133,61 @@
 		<div class="stage-content-wrapper">
 			<div class="stage-tabs-container">
 				<div class="stage-tabs">
-				{#each stageInfo as stage}
-					{@const count = getQueueItemCount(stage.key)}
-					<button
-						class="stage-tab"
-						class:active={activeStage === stage.key}
-						onclick={() => handleSelectStage(stage.key)}
-					>
-						<span class="tab-name">{stage.name}</span>
-						<span class="tab-desc">{stage.description}</span>
-						{#if count > 0}
-							<Badge variant="default" class="stage-count-badge">{count}</Badge>
-						{/if}
-					</button>
+					{#each stageInfo as stage}
+						{@const count = getQueueItemCount(stage.key)}
+						<button
+							class="stage-tab"
+							class:active={activeStage === stage.key}
+							onclick={() => handleSelectStage(stage.key)}
+						>
+							<span class="tab-name">{stage.name}</span>
+							<span class="tab-desc">{stage.description}</span>
+							{#if count > 0}
+								<Badge variant="default" class="stage-count-badge">{count}</Badge>
+							{/if}
+						</button>
 					{/each}
 				</div>
 			</div>
 
 			<!-- Main Content Card -->
 			<div class="main-content-card">
-			<!-- Controls Row -->
-			<div class="controls-row">
-				<div class="controls-left">
-					<span class="active-stage-label">{activeStageInfo.description}</span>
-					<Badge variant="outline" class="queue-count-badge {activeStageCount === 0 ? 'queue-count-zero' : ''}">{activeStageCount} job{activeStageCount !== 1 ? 's' : ''}</Badge>
+				<!-- Controls Row -->
+				<div class="controls-row">
+					<div class="controls-left">
+						<span class="active-stage-label">{activeStageInfo.description}</span>
+						<Badge
+							variant="outline"
+							class="queue-count-badge {activeStageCount === 0 ? 'queue-count-zero' : ''}"
+							>{activeStageCount} job{activeStageCount !== 1 ? 's' : ''}</Badge
+						>
+					</div>
+
+					<label class="approval-toggle">
+						<ShieldCheck class="approval-icon" />
+						<span class="toggle-label">Manual Approval</span>
+						<Switch checked={activeRequiresApproval} onCheckedChange={handleToggleApproval} />
+					</label>
 				</div>
 
-				<label class="approval-toggle">
-					<ShieldCheck class="approval-icon" />
-					<span class="toggle-label">Manual Approval</span>
-					<Switch checked={activeRequiresApproval} onCheckedChange={handleToggleApproval} />
-				</label>
-			</div>
-
-			<!-- Content -->
-			<div class="content-area">
-				{#if jobsForTable.length === 0}
-					<div class="empty-state">
-						<Inbox class="empty-icon" />
-						<p class="empty-title">No jobs in queue</p>
-						<p class="empty-description">
-							{activeStageInfo.description} has no pending items right now.
-						</p>
-					</div>
-				{:else}
-					<JobsDataTable data={jobsForTable} uid="" showEmail={true} onRowClick={handleSelectJob} />
-				{/if}
+				<!-- Content -->
+				<div class="content-area">
+					{#if jobsForTable.length === 0}
+						<div class="empty-state">
+							<Inbox class="empty-icon" />
+							<p class="empty-title">No jobs in queue</p>
+							<p class="empty-description">
+								{activeStageInfo.description} has no pending items right now.
+							</p>
+						</div>
+					{:else}
+						<JobsDataTable
+							data={jobsForTable}
+							uid=""
+							showEmail={true}
+							onRowClick={handleSelectJob}
+						/>
+					{/if}
 				</div>
 			</div>
 		</div>
