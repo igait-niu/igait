@@ -64,9 +64,9 @@ fn stage_resources(stage: StageNumber) -> StageResources {
     match stage {
         StageNumber::Stage1MediaConversion => StageResources {
             cpu_request: "250m",
-            cpu_limit: "1",
-            memory_request: "256Mi",
-            memory_limit: "1Gi",
+            cpu_limit: "2",
+            memory_request: "512Mi",
+            memory_limit: "2Gi",
             ephemeral_request: Some("256Mi"),
             ephemeral_limit: Some("1Gi"),
             active_deadline_secs: 600,
