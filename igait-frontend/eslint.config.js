@@ -34,6 +34,11 @@ export default defineConfig(
 				parser: ts.parser,
 				svelteConfig
 			}
+		},
+		rules: {
+			// All routes use absolute paths which resolve correctly without resolve().
+			// Re-enable once the codebase adopts SvelteKit's resolve() helper.
+			'svelte/no-navigation-without-resolve': 'off'
 		}
 	}
 );

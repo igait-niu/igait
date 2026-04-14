@@ -24,20 +24,32 @@
 	<title>Dashboard - iGait</title>
 </svelte:head>
 
-<div class="stack-lg">
-	<!-- Welcome Section -->
-	<section>
+<div class="dashboard">
+	<header class="dashboard-header">
 		<h1 class="dashboard-title">
 			Welcome back, {user.displayName.split(' ')[0]}!
 		</h1>
 		<p class="dashboard-subtitle">Here's an overview of your gait analysis activity.</p>
-	</section>
+	</header>
 
 	<QuickActionsSection />
 	<StatsSection {jobsState} />
+	<RecentActivitySection {jobsState} />
 </div>
 
 <style>
+	.dashboard {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.dashboard-header {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
 	.dashboard-title {
 		font-size: 1.5rem;
 		font-weight: 700;
@@ -50,7 +62,7 @@
 	}
 
 	.dashboard-subtitle {
-		margin-top: var(--spacing-xs);
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
+		font-size: 0.9375rem;
 	}
 </style>

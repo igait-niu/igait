@@ -1,6 +1,5 @@
 <script lang="ts">
-	import * as Card from '$lib/components/ui/card';
-	import { FileVideo, Activity, Clock, Loader2 } from '@lucide/svelte';
+	import { FileVideo, Activity, Clock } from '@lucide/svelte';
 	import { isJobsLoaded, type JobsState } from '$lib/hooks';
 	import type { Job } from '../../../types/Job';
 
@@ -10,7 +9,6 @@
 
 	let { jobsState }: Props = $props();
 
-	// Calculate stats from real jobs data
 	const stats = $derived.by(() => {
 		if (!isJobsLoaded(jobsState)) {
 			return [
@@ -74,19 +72,14 @@
 <section>
 	<h2 class="section-heading">Your Activity</h2>
 	<div class="stats-grid">
-		{#each stats as stat}
-			<a href={stat.href} class="stat-link">
-				<Card.Root class="stat-card">
-					<Card.Header class="stat-header">
-						<Card.Title class="stat-label">{stat.label}</Card.Title>
-						{@const Icon = stat.icon}
-						<Icon class="h-4 w-4 text-muted-foreground" />
-					</Card.Header>
-					<Card.Content>
-						<div class="stat-value">{stat.value}</div>
-						<p class="stat-description">{stat.description}</p>
-					</Card.Content>
-				</Card.Root>
+		{#each stats as stat (stat.label)}
+			<a href={stat.href} class="stat-card">
+				<div class="stat-top">
+					<span class="stat-label">{stat.label}</span>
+					<svelte:component this={stat.icon} class="stat-icon" />
+				</div>
+				<div class="stat-value">{stat.value}</div>
+				<span class="stat-desc">{stat.description}</span>
 			</a>
 		{/each}
 	</div>
@@ -94,56 +87,67 @@
 
 <style>
 	.section-heading {
-		font-size: 1.25rem;
+		font-size: 1.125rem;
 		font-weight: 600;
-		margin-bottom: var(--spacing-md);
+		margin-bottom: 0.75rem;
 	}
 
 	.stats-grid {
 		display: grid;
-		gap: var(--grid-gap);
-		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		gap: 0.5rem;
+		grid-template-columns: repeat(3, 1fr);
 	}
 
-	.stat-link {
+	@media (max-width: 640px) {
+		.stats-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	.stat-card {
+		display: flex;
+		flex-direction: column;
+		padding: 1rem 1.25rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		background: var(--card);
 		text-decoration: none;
 		color: inherit;
-		display: block;
+		transition: border-color 0.15s ease;
 	}
 
-	:global(.stat-card) {
-		transition: all 0.2s;
-		cursor: pointer;
-		height: 100%;
+	.stat-card:hover {
+		border-color: oklch(from var(--primary) l c h / 0.4);
 	}
 
-	:global(.stat-card:hover) {
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px hsl(var(--primary) / 0.1);
-	}
-
-	:global(.stat-header) {
+	.stat-top {
 		display: flex;
-		flex-direction: row;
 		align-items: center;
 		justify-content: space-between;
-		padding-bottom: var(--spacing-xs);
+		margin-bottom: 0.5rem;
 	}
 
-	:global(.stat-label) {
-		font-size: 0.875rem;
+	.stat-label {
+		font-size: 0.8125rem;
 		font-weight: 500;
+		color: var(--muted-foreground);
+	}
+
+	:global(.stat-icon) {
+		width: 0.9375rem;
+		height: 0.9375rem;
+		color: var(--muted-foreground);
 	}
 
 	.stat-value {
-		font-size: 2rem;
+		font-size: 1.75rem;
 		font-weight: 700;
 		line-height: 1;
-		margin-bottom: var(--spacing-xs);
+		margin-bottom: 0.25rem;
 	}
 
-	.stat-description {
-		font-size: 0.75rem;
-		color: hsl(var(--muted-foreground));
+	.stat-desc {
+		font-size: 0.6875rem;
+		color: var(--muted-foreground);
 	}
 </style>

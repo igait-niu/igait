@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Badge } from '$lib/components/ui/badge';
 	import MissionSection from './MissionSection.svelte';
+	import PipelineSection from './PipelineSection.svelte';
 	import TeamSection from './TeamSection.svelte';
 	import SponsorsSection from './SponsorsSection.svelte';
 </script>
@@ -15,15 +15,16 @@
 
 <div class="about-page">
 	<div class="page-container">
-		<div class="page-header">
-			<Badge variant="secondary" class="header-badge">About Us</Badge>
+		<header class="page-header">
+			<p class="page-label">About Us</p>
 			<h1 class="page-title">About iGait</h1>
 			<p class="page-subtitle">
 				Advancing early autism detection through innovative technology and collaborative research
 			</p>
-		</div>
+		</header>
 
 		<MissionSection />
+		<PipelineSection />
 		<TeamSection />
 		<SponsorsSection />
 	</div>
@@ -31,29 +32,28 @@
 
 <style>
 	.about-page {
-		padding-top: var(--spacing-lg);
-		padding-bottom: var(--spacing-lg);
+		padding: 3rem 0 4rem;
 	}
 
 	.page-header {
 		text-align: center;
+		margin-bottom: 3.5rem;
 	}
 
-	:global(.header-badge) {
-		margin-bottom: 1rem;
+	.page-label {
+		font-size: 0.8125rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--primary);
+		margin-bottom: 0.5rem;
 	}
 
 	.page-title {
-		font-size: 1.875rem;
+		font-size: 2.25rem;
 		font-weight: 700;
 		line-height: 1.1;
 		letter-spacing: -0.025em;
-	}
-
-	@media (min-width: 640px) {
-		.page-title {
-			font-size: 2.25rem;
-		}
 	}
 
 	@media (min-width: 768px) {
@@ -63,11 +63,12 @@
 	}
 
 	.page-subtitle {
+		margin-top: 0.75rem;
+		max-width: 36rem;
 		margin-left: auto;
 		margin-right: auto;
-		margin-top: 1rem;
-		max-width: var(--container-medium);
-		font-size: 1.125rem;
-		color: hsl(var(--muted-foreground));
+		font-size: 1.0625rem;
+		color: var(--muted-foreground);
+		line-height: 1.6;
 	}
 </style>
