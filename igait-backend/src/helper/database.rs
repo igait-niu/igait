@@ -266,7 +266,7 @@ impl Database {
 
         // Write the new job at the next index — never rewrite the whole array
         self._state.at(uid).at("jobs").at(&next_index.to_string())
-            .set(&job)
+            .update(&job)
             .await
             .map_err(|e| anyhow!("{e:?}"))
             .context("Failed to write new job to database!")?;
@@ -312,7 +312,7 @@ impl Database {
 
         // Write only the specific job's status — never touch the administrator field
         self._state.at(uid).at("jobs").at(&job_id.to_string()).at("status")
-            .set(&status)
+            .update(&status)
             .await
             .map_err(|e| anyhow!("{e:?}"))
             .context("Failed to update the job status in the database!")?;
