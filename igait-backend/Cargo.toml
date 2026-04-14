@@ -38,4 +38,5 @@ rand = "0.8"
 time-util = { version = "0.3", features = ["chrono", "serde"] }
 tokio-tungstenite = "0.24"
 rustls = { version = "0.23", features = ["aws-lc-rs"] }
+uuid = { version = "1", features = ["v4"] }
 ts-rs = "12.0.1"

@@ -183,7 +183,7 @@ impl FinalizeStageWorker {
     async fn update_job_status(&self, job_id: &str, status: JobStatus) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_job_status(&user_id, job_index, &status).await {
+                if let Err(e) = self.queue_ops.update_job_status(&user_id, &job_index, &status).await {
                     eprintln!("Failed to update job status in RTDB: {:?}", e);
                 }
             }
@@ -197,7 +197,7 @@ impl FinalizeStageWorker {
     async fn upload_stage_logs(&self, job_id: &str, logs: &str) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_stage_logs(&user_id, job_index, 7, logs).await {
+                if let Err(e) = self.queue_ops.update_stage_logs(&user_id, &job_index, 7, logs).await {
                     eprintln!("Failed to upload stage 7 logs to RTDB: {:?}", e);
                 }
             }
@@ -211,7 +211,7 @@ impl FinalizeStageWorker {
     async fn update_stage_status(&self, job_id: &str, stage: u8, status: StageStatus) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_stage_status(&user_id, job_index, stage, &status).await {
+                if let Err(e) = self.queue_ops.update_stage_status(&user_id, &job_index, stage, &status).await {
                     eprintln!("Failed to update stage {} status in RTDB: {:?}", stage, e);
                 }
             }

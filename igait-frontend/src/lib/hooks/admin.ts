@@ -253,8 +253,8 @@ export async function approveQueueItem(
 	await set(queueRef, true);
 
 	// Also update user's job record
-	const jobIndex = parseInt(item.job_id.split('_').pop() ?? '0', 10);
-	const userJobRef = ref(db, `users/${item.user_id}/jobs/${jobIndex}/approved`);
+	const jobKey = item.job_id.slice(item.job_id.lastIndexOf('_') + 1);
+	const userJobRef = ref(db, `users/${item.user_id}/jobs/${jobKey}/approved`);
 	await set(userJobRef, true);
 }
 

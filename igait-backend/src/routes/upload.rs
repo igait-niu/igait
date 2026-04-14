@@ -225,19 +225,6 @@ pub async fn upload_entrypoint(
     // Build a new status object
     let mut status = JobStatus::submitted();
 
-    // Generate the new job ID (0-indexed)
-    let job_index = app
-        .db
-        .lock()
-        .await
-        .count_jobs(&uid)
-        .await
-        .context("Failed to count the number of jobs!")?;
-
-    // Build job ID string (format: "{user_id}_{job_index}")
-    let job_id = format!("{}_{}", uid, job_index);
-    println!("Created job ID: {}", job_id);
-
     // Build the new job object
     let job = Job {
         age:       arguments.age,
@@ -257,13 +244,17 @@ pub async fn upload_entrypoint(
         video_edit: None,
     };
 
-    // Add the job to the database
-    app.db
+    // Add the job to the database — returns the generated UUID key
+    let job_key = app.db
         .lock()
         .await
         .new_job(&uid, job.clone())
         .await
         .context("Failed to add the new job to the database!")?;
+
+    // Build job ID string (format: "{user_id}_{job_key}")
+    let job_id = format!("{}_{}", uid, job_key);
+    println!("Created job ID: {}", job_id);
 
     // Upload files to AWS S3 and dispatch to Stage 1
     if let Err(err) = upload_and_dispatch(
@@ -283,7 +274,7 @@ pub async fn upload_entrypoint(
         app.db
             .lock()
             .await
-            .update_status(&uid, job_index, status)
+            .update_status(&uid, &job_key, status)
             .await
             .context("Failed to update the status of the job!")?;
 
@@ -294,7 +285,7 @@ pub async fn upload_entrypoint(
     status = JobStatus::submitted();
 
     // Send the welcome email
-    send_welcome_email(app.clone(), &job, &uid, job_index)
+    send_welcome_email(app.clone(), &job, &uid, &job_key)
         .await
         .context("Failed to send welcome email!")?;
 
@@ -302,7 +293,7 @@ pub async fn upload_entrypoint(
     app.db
         .lock()
         .await
-        .update_status(&uid, job_index, status)
+        .update_status(&uid, &job_key, status)
         .await
         .context("Failed to update the status of the job!")?;
 

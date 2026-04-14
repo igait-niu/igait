@@ -27,7 +27,7 @@ pub async fn send_welcome_email(
     app: Arc<AppState>,
     job: &Job,
     uid: &str,
-    job_id: usize,
+    job_key: &str,
 ) -> Result<()> {
     let dt_now_utc: DateTime<Utc> = SystemTime::now().into();
     let dt_now_cst = dt_now_utc.with_timezone(&chrono_tz::US::Central);
@@ -40,7 +40,7 @@ pub async fn send_welcome_email(
         &job.height,
         job.weight,
         uid,
-        &job_id.to_string(),
+        job_key,
     );
 
     send_email(app, &job.email, &subject, &body).await
