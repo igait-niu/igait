@@ -91,23 +91,17 @@ impl JobStatus {
 
     /// Create a new Complete status with prediction results
     pub fn complete(prediction: f32, asd: bool) -> Self {
-        let value = if asd {
-            format!("Analysis complete - ASD indicators detected ({:.1}% confidence)", prediction * 100.0)
-        } else {
-            format!("Analysis complete - No ASD indicators ({:.1}% confidence)", (1.0 - prediction) * 100.0)
-        };
-        
         Self::Complete {
             prediction,
             asd,
-            value,
+            value: "Analysis completed".to_string(),
         }
     }
 
     /// Create a new Error status with logs
     pub fn error(logs: String) -> Self {
         Self::Error {
-            value: "Analysis failed - see logs for details".to_string(),
+            value: "Analysis failed".to_string(),
             logs,
         }
     }

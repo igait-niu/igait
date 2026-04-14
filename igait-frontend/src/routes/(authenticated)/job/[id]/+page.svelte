@@ -140,7 +140,8 @@
 	const stage1Files = $derived((filesData as JobFilesResponse | null)?.stages['stage_1'] ?? []);
 
 	const stage1FrontVideo = $derived(
-		stage1Files.find((f: FileEntry) => f.name.startsWith('front') && f.name.endsWith('.mp4')) ?? null
+		stage1Files.find((f: FileEntry) => f.name.startsWith('front') && f.name.endsWith('.mp4')) ??
+			null
 	);
 	const stage1SideVideo = $derived(
 		stage1Files.find((f: FileEntry) => f.name.startsWith('side') && f.name.endsWith('.mp4')) ?? null
@@ -151,7 +152,8 @@
 	const stage5Files = $derived((filesData as JobFilesResponse | null)?.stages['stage_5'] ?? []);
 
 	const frontVideoFile = $derived(
-		stage4Files.find((f: FileEntry) => f.name.startsWith('front') && f.name.endsWith('.mp4')) ?? null
+		stage4Files.find((f: FileEntry) => f.name.startsWith('front') && f.name.endsWith('.mp4')) ??
+			null
 	);
 	const sideVideoFile = $derived(
 		stage4Files.find((f: FileEntry) => f.name.startsWith('side') && f.name.endsWith('.mp4')) ?? null
@@ -178,9 +180,9 @@
 	function getStatusLabel(status: JobStatus): string {
 		switch (status.code) {
 			case 'Complete':
-				return status.asd ? 'ASD Detected' : 'No ASD';
+				return 'Analysis completed';
 			case 'Error':
-				return 'Error';
+				return 'Analysis failed';
 			case 'Processing':
 				return `Stage ${status.stage}/${status.num_stages}`;
 			case 'Submitted':
@@ -368,17 +370,11 @@
 							Results
 						</h4>
 						<div class="detail-row">
-							<span class="detail-label">ASD Detection</span>
-							<Badge variant={job.status.asd ? 'destructive' : 'default'} class="detail-badge">
-								{job.status.asd ? 'ASD Indicators Detected' : 'No ASD Indicators'}
-							</Badge>
-						</div>
-						<div class="detail-row">
-							<span class="detail-label">Confidence</span>
+							<span class="detail-label">Result</span>
 							<span class="detail-value">
 								{job.status.asd
-									? (job.status.prediction * 100).toFixed(1)
-									: ((1 - job.status.prediction) * 100).toFixed(1)}%
+									? 'Submitted videos show walking pattern more similar to autistic children than non-autistic children.'
+									: 'Submitted videos show walking pattern more similar to non-autistic children than autistic children.'}
 							</span>
 						</div>
 					</div>
@@ -396,7 +392,14 @@
 							<XCircle class="section-icon" />
 							Error
 						</h4>
-						<pre class="error-preview">{job.status.logs}</pre>
+						{#if isAdmin}
+							<pre class="error-preview">{job.status.logs}</pre>
+						{:else}
+							<p class="text-sm text-muted-foreground">
+								Something went wrong processing your submission. Please contact GaitStudy@niu.edu
+								for assistance.
+							</p>
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -445,7 +448,11 @@
 								<FileOutput class="sub-tab-icon" />
 								Output Files
 								{#if !filesLoading}
-									<Badge variant="outline" class="sub-tab-badge {outputFileCount === 0 ? 'sub-tab-badge-zero' : ''}">{outputFileCount}</Badge>
+									<Badge
+										variant="outline"
+										class="sub-tab-badge {outputFileCount === 0 ? 'sub-tab-badge-zero' : ''}"
+										>{outputFileCount}</Badge
+									>
 								{/if}
 							</button>
 							<button
@@ -455,7 +462,11 @@
 							>
 								<ScrollText class="sub-tab-icon" />
 								Logs
-								<Badge variant="outline" class="sub-tab-badge {logLineCount === 0 ? 'sub-tab-badge-zero' : ''}">{logLineCount}</Badge>
+								<Badge
+									variant="outline"
+									class="sub-tab-badge {logLineCount === 0 ? 'sub-tab-badge-zero' : ''}"
+									>{logLineCount}</Badge
+								>
 							</button>
 						</div>
 
@@ -466,7 +477,12 @@
 									Video Editor
 								</Button>
 							{:else}
-								<Button variant="outline" size="sm" disabled title="Stage 1 outputs must exist to use the Video Editor">
+								<Button
+									variant="outline"
+									size="sm"
+									disabled
+									title="Stage 1 outputs must exist to use the Video Editor"
+								>
 									<Film class="mr-1 h-4 w-4" />
 									Video Editor
 								</Button>
@@ -493,24 +509,24 @@
 
 					<!-- Tab Content -->
 					<div class="tab-content">
-					{#if activeSubTab === 'output'}
-						<FileViewer
-							files={outputFiles}
-							loading={filesLoading}
-							error={filesError}
-							label=""
-							stageNumber={activeStageNumber}
-							allFiles={filesData}
-							{isAdmin}
-							{jobId}
-						/>
-					{:else if activeSubTab === 'logs'}
-						<div class="logs-content">
-							{#if currentStageLogs}
-								<pre class="log-output">{currentStageLogs}</pre>
-							{/if}
-						</div>
-					{/if}
+						{#if activeSubTab === 'output'}
+							<FileViewer
+								files={outputFiles}
+								loading={filesLoading}
+								error={filesError}
+								label=""
+								stageNumber={activeStageNumber}
+								allFiles={filesData}
+								{isAdmin}
+								{jobId}
+							/>
+						{:else if activeSubTab === 'logs'}
+							<div class="logs-content">
+								{#if currentStageLogs}
+									<pre class="log-output">{currentStageLogs}</pre>
+								{/if}
+							</div>
+						{/if}
 					</div>
 				{:else}
 					<div class="stage-not-started">
@@ -1096,7 +1112,11 @@
 	}
 
 	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
 	}
 </style>

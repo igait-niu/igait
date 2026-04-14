@@ -1,6 +1,5 @@
 <script lang="ts">
 	import * as Dialog from '$lib/components/ui/dialog';
-	import * as Accordion from '$lib/components/ui/accordion';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Separator } from '$lib/components/ui/separator';
 	import { Button } from '$lib/components/ui/button';
@@ -12,9 +11,7 @@
 		XCircle,
 		User as UserIcon,
 		Calendar,
-		Download,
-		AlertTriangle,
-		ScrollText
+		AlertTriangle
 	} from '@lucide/svelte';
 	import type { Job } from '../../../types/Job';
 	import type { JobStatus } from '../../../types/JobStatus';
@@ -42,7 +39,7 @@
 	): 'default' | 'secondary' | 'destructive' | 'outline' {
 		switch (status.code) {
 			case 'Complete':
-				return status.asd ? 'destructive' : 'default';
+				return 'default';
 			case 'Error':
 				return 'destructive';
 			case 'Processing':
@@ -89,38 +86,6 @@
 		}
 		return null;
 	});
-
-	// Error logs
-	const errorLogs = $derived.by(() => {
-		if (job.status.code === 'Error') {
-			return job.status.logs;
-		}
-		return null;
-	});
-
-	// Stage logs - sorted entries from stage_logs HashMap
-	const STAGE_NAMES: Record<string, string> = {
-		stage_1: 'Media Conversion',
-		stage_2: 'Validity Check',
-		stage_3: 'Reframing',
-		stage_4: 'Pose Estimation',
-		stage_5: 'Cycle Detection',
-		stage_6: 'ML Prediction',
-		stage_7: 'Finalize'
-	};
-
-	const stageLogs = $derived.by(() => {
-		if (!job.stage_logs) return [];
-		return Object.entries(job.stage_logs)
-			.sort(([a], [b]) => a.localeCompare(b))
-			.map(([key, value]) => ({
-				key,
-				label: STAGE_NAMES[key] ?? key,
-				stageNum: key.replace('stage_', ''),
-				logs: value
-			}));
-	});
-	const hasStageLogs = $derived(stageLogs.length > 0);
 </script>
 
 <Dialog.Root open={true} onOpenChange={onClose}>
@@ -221,74 +186,31 @@
 				<div class="space-y-3">
 					<h3 class="flex items-center gap-2 text-sm font-medium">
 						<CheckCircle2 class="h-4 w-4" />
-						Analysis Results
+						Results
 					</h3>
-					<div class="grid gap-3 text-sm">
-						<div class="flex items-center justify-between rounded-lg bg-muted p-3">
-							<span class="text-muted-foreground">ASD Detection:</span>
-							<Badge variant={completeResult.asd ? 'destructive' : 'default'}>
-								{completeResult.asd ? 'ASD Indicators Detected' : 'No ASD Indicators'}
-							</Badge>
-						</div>
-						<div class="flex items-center justify-between rounded-lg bg-muted p-3">
-							<span class="text-muted-foreground">Confidence:</span>
-							<span class="font-medium">
-								{completeResult.asd
-									? (completeResult.prediction * 100).toFixed(1)
-									: ((1 - completeResult.prediction) * 100).toFixed(1)}%
-							</span>
-						</div>
+					<div class="rounded-lg bg-muted p-3 text-sm">
+						{completeResult.asd
+							? 'Submitted videos show walking pattern more similar to autistic children than non-autistic children.'
+							: 'Submitted videos show walking pattern more similar to non-autistic children than autistic children.'}
 					</div>
-					<Button class="w-full" size="sm">
-						<Download class="mr-2 h-4 w-4" />
-						Download Full Report
-					</Button>
 				</div>
 			{/if}
 
-			{#if isError && errorLogs}
+			{#if isError}
 				<Separator />
 
-				<!-- Error Section -->
+				<!-- Error Section (user-friendly) -->
 				<div class="space-y-3">
 					<h3 class="flex items-center gap-2 text-sm font-medium text-destructive">
 						<AlertTriangle class="h-4 w-4" />
-						Error Details
+						Analysis Failed
 					</h3>
-					<div class="rounded-lg border border-destructive/20 bg-destructive/10 p-3">
-						<pre
-							class="max-h-32 overflow-y-auto text-xs break-words whitespace-pre-wrap text-destructive">{errorLogs}</pre>
+					<div
+						class="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"
+					>
+						Something went wrong processing your submission. Please contact GaitStudy@niu.edu for
+						assistance.
 					</div>
-				</div>
-			{/if}
-
-			{#if hasStageLogs}
-				<Separator />
-
-				<!-- Stage Logs Section -->
-				<div class="space-y-3">
-					<h3 class="flex items-center gap-2 text-sm font-medium">
-						<ScrollText class="h-4 w-4" />
-						Stage Logs
-					</h3>
-					<Accordion.Root type="multiple">
-						{#each stageLogs as { key, label, stageNum, logs } (key)}
-							<Accordion.Item value={key}>
-								<Accordion.Trigger class="text-sm">
-									<span class="flex items-center gap-2">
-										<Badge variant="outline" class="px-1.5 font-mono text-xs">{stageNum}</Badge>
-										{label}
-									</span>
-								</Accordion.Trigger>
-								<Accordion.Content>
-									<div class="rounded-lg bg-muted p-3">
-										<pre
-											class="max-h-48 overflow-y-auto font-mono text-xs break-words whitespace-pre-wrap">{logs}</pre>
-									</div>
-								</Accordion.Content>
-							</Accordion.Item>
-						{/each}
-					</Accordion.Root>
 				</div>
 			{/if}
 		</div>

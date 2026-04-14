@@ -33,8 +33,6 @@ struct PredictionResult {
     error_message: Option<String>,
 }
 
-/// ASD threshold - scores >= this value indicate ASD markers.
-const ASD_THRESHOLD: f64 = 0.5;
 
 /// The finalize worker handles the final stage of the pipeline.
 pub struct FinalizeStageWorker {
@@ -65,12 +63,12 @@ impl FinalizeStageWorker {
 
     /// Attempts to read prediction.json from S3 for a given job.
     ///
-    /// Parses the full ensemble result and computes the score by averaging
-    /// the individual model probabilities. Returns `Some(score)` if found
-    /// and valid, `None` otherwise.
-    async fn get_prediction_score(&self, job_id: &str) -> Option<f64> {
+    /// Parses the ensemble result and returns the binary `class` field
+    /// (1 = ASD, 0 = no ASD). Returns `Some(is_asd)` if found and valid,
+    /// `None` otherwise.
+    async fn get_prediction_class(&self, job_id: &str) -> Option<bool> {
         let prediction_path = format!("jobs/{}/stage_6/prediction.json", job_id);
-        
+
         match self.storage.download(&prediction_path).await {
             Ok(data) => {
                 match serde_json::from_slice::<PredictionResult>(&data) {
@@ -88,28 +86,20 @@ impl FinalizeStageWorker {
                             return None;
                         }
 
-                        // Average the probabilities from all ensemble models
-                        if let Some(ref probs) = result.probabilities {
-                            if probs.is_empty() {
-                                eprintln!("Empty probabilities array for {}", job_id);
-                                return None;
+                        // Use the ensemble's binary classification directly
+                        match result.class {
+                            Some(class) => {
+                                let is_asd = class == 1;
+                                println!(
+                                    "Prediction for {}: class={}, is_asd={}",
+                                    job_id, class, is_asd
+                                );
+                                Some(is_asd)
                             }
-                            let score = probs.iter().sum::<f64>() / probs.len() as f64;
-                            println!(
-                                "Computed score for {} by averaging {} probabilities: {:.4}",
-                                job_id,
-                                probs.len(),
-                                score
-                            );
-                            Some(score)
-                        } else {
-                            // Fallback: use class value (0 or 1) as score
-                            let score = result.class.unwrap_or(0) as f64;
-                            println!(
-                                "No probabilities for {}, using class as score: {}",
-                                job_id, score
-                            );
-                            Some(score)
+                            None => {
+                                eprintln!("No class field in prediction.json for {}", job_id);
+                                None
+                            }
                         }
                     }
                     Err(e) => {
@@ -129,20 +119,17 @@ impl FinalizeStageWorker {
     async fn send_success_email(
         &self,
         job: &FinalizeQueueItem,
-        score: f64,
+        is_asd: bool,
         logs: &mut String,
     ) -> Result<()> {
         let email = job.metadata.email.as_deref()
             .ok_or_else(|| anyhow::anyhow!("No email address in job metadata"))?;
-        
+
         let dt_now_utc: DateTime<Utc> = SystemTime::now().into();
         let dt_now_cst = dt_now_utc.with_timezone(&chrono_tz::US::Central);
-        
-        let is_asd = score >= ASD_THRESHOLD;
-        
+
         let (subject, body) = EmailTemplates::prediction_success(
             &dt_now_cst.to_string(),
-            score,
             is_asd,
             job.metadata.age,
             job.metadata.ethnicity.as_deref(),
@@ -154,11 +141,11 @@ impl FinalizeStageWorker {
         );
 
         logs.push_str(&format!("Sending success email to {}\n", email));
-        logs.push_str(&format!("Score: {:.2}, ASD indicator: {}\n", score, is_asd));
-        
+        logs.push_str(&format!("ASD indicator: {}\n", is_asd));
+
         self.email_client.send(email, &subject, &body).await?;
         logs.push_str("Success email sent\n");
-        
+
         Ok(())
     }
 
@@ -264,13 +251,13 @@ impl FinalizeWorker for FinalizeStageWorker {
         self.update_stage_status(&job.job_id, 7, StageStatus::Running).await;
 
         // Check for prediction.json in S3 - this is the source of truth
-        let prediction_score = self.get_prediction_score(&job.job_id).await;
+        let prediction_class = self.get_prediction_class(&job.job_id).await;
 
-        let result = if let Some(score) = prediction_score {
+        let result = if let Some(is_asd) = prediction_class {
             // Prediction file exists - this was a successful pipeline run
-            logs.push_str(&format!("Prediction found: score = {:.4}\n", score));
-            
-            match self.send_success_email(job, score, &mut logs).await {
+            logs.push_str(&format!("Prediction found: is_asd = {}\n", is_asd));
+
+            match self.send_success_email(job, is_asd, &mut logs).await {
                 Ok(_) => {
                     logs.push_str("Job completed successfully\n");
                 }
@@ -282,17 +269,17 @@ impl FinalizeWorker for FinalizeStageWorker {
             }
             
             // Update job status to Complete
-            let is_asd = score >= ASD_THRESHOLD;
-            self.update_job_status(&job.job_id, JobStatus::complete(score as f32, is_asd)).await;
+            // prediction field kept for backward compatibility; set to 1.0/0.0 matching class
+            let prediction = if is_asd { 1.0_f32 } else { 0.0_f32 };
+            self.update_job_status(&job.job_id, JobStatus::complete(prediction, is_asd)).await;
             self.update_stage_status(&job.job_id, 7, StageStatus::Complete).await;
 
             // Upload stage 7 logs to Firebase RTDB
             self.upload_stage_logs(&job.job_id, &logs).await;
-            
+
             ProcessingResult::Success {
                 output_keys: HashMap::from([
-                    ("score".to_string(), score.to_string()),
-                    ("is_asd".to_string(), (score >= ASD_THRESHOLD).to_string()),
+                    ("is_asd".to_string(), is_asd.to_string()),
                 ]),
                 logs,
                 duration_ms: start_time.elapsed().as_millis() as u64,
