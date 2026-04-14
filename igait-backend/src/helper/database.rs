@@ -5,6 +5,14 @@ use anyhow::{ Context, Result, anyhow };
 
 use super::lib::{Job, JobStatus};
 
+/// Checks if a firebase_rs error is a "not found / null body" — meaning the
+/// RTDB path doesn't exist. This is expected for new users or empty arrays
+/// and should NOT be treated as a failure. All other errors (network, auth,
+/// deserialization) are real problems that must propagate.
+fn is_not_found(err: &RequestError) -> bool {
+    matches!(err, RequestError::NotFoundOrNullBody)
+}
+
 /// A wrapper class on the Firebase database to make it easier to interact with.
 #[derive( Debug )]
 pub struct Database {
@@ -35,10 +43,72 @@ impl Database {
 
     /// Fetches the jobs array for a user, returning an empty vec if the
     /// path doesn't exist (Firebase RTDB deletes keys with empty arrays).
+    ///
+    /// Uses `serde_json::Value` as an intermediate step so that individual
+    /// malformed or null entries don't cause the entire array to fail.
+    /// Logs a warning for each entry that fails to deserialize.
     async fn get_jobs(&self, uid: &str) -> Result<Vec<Job>> {
-        match self._state.at(uid).at("jobs").get::<Vec<Job>>().await {
-            Ok(jobs) => Ok(jobs),
-            Err(_) => Ok(vec![]),
+        let raw = match self._state.at(uid).at("jobs").get::<serde_json::Value>().await {
+            Ok(v) => v,
+            Err(e) if is_not_found(&e) => return Ok(vec![]),
+            Err(e) => return Err(anyhow!("{e:?}"))
+                .context(format!("Failed to fetch jobs array for user {uid}")),
+        };
+
+        let arr = match raw.as_array() {
+            Some(a) => a,
+            None => {
+                eprintln!("WARNING: jobs path for user {uid} is not an array: {raw}");
+                return Ok(vec![]);
+            }
+        };
+
+        let mut jobs = Vec::with_capacity(arr.len());
+        for (i, v) in arr.iter().enumerate() {
+            if v.is_null() {
+                continue; // null gaps are normal in Firebase RTDB arrays
+            }
+            match serde_json::from_value::<Job>(v.clone()) {
+                Ok(job) => jobs.push(job),
+                Err(e) => {
+                    eprintln!(
+                        "WARNING: failed to deserialize job at index {i} for user {uid}: {e}"
+                    );
+                }
+            }
+        }
+        Ok(jobs)
+    }
+
+    /// Returns the total number of job slots (including null gaps) for a user.
+    ///
+    /// Unlike `get_jobs()` which skips malformed entries, this counts every
+    /// index in the RTDB array so that `new_job` can append at the correct offset.
+    async fn count_job_slots(&self, uid: &str) -> Result<usize> {
+        let raw = match self._state.at(uid).at("jobs").get::<serde_json::Value>().await {
+            Ok(v) => v,
+            Err(e) if is_not_found(&e) => return Ok(0),
+            Err(e) => return Err(anyhow!("{e:?}"))
+                .context(format!("Failed to fetch jobs array for user {uid}")),
+        };
+
+        match raw.as_array() {
+            Some(a) => Ok(a.len()),
+            None => {
+                eprintln!("WARNING: jobs path for user {uid} is not an array: {raw}");
+                Ok(0)
+            }
+        }
+    }
+
+    /// Checks whether a specific job index exists in Firebase RTDB
+    /// without deserializing the entire jobs array.
+    async fn job_exists(&self, uid: &str, job_id: usize) -> Result<bool> {
+        match self._state.at(uid).at("jobs").at(&job_id.to_string()).get::<serde_json::Value>().await {
+            Ok(v) => Ok(!v.is_null()),
+            Err(e) if is_not_found(&e) => Ok(false),
+            Err(e) => Err(anyhow!("{e:?}"))
+                .context(format!("Failed to check existence of job {job_id} for user {uid}")),
         }
     }
 
@@ -161,10 +231,9 @@ impl Database {
         // First double check that the user actually exists
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
-        // Get the jobs (returns empty vec if none exist)
-        let jobs = self.get_jobs(uid).await
-            .context("Failed to get jobs!")?;
-        Ok(jobs.len())
+        // Count total slots (including null gaps) so new jobs append correctly
+        self.count_job_slots(uid).await
+            .context("Failed to count job slots!")
     }
 
     /// Adds a new job to the user's job list.
@@ -192,17 +261,17 @@ impl Database {
         // First double check that the user actually exists
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
-        // Get the existing jobs (returns empty vec if none exist yet)
-        let mut jobs = self.get_jobs(uid).await
-            .context("Failed to get jobs!")?;
-        jobs.push(job);
+        // Count total slots to find the next index — avoids deserializing
+        // every job which could fail on legacy/malformed entries
+        let next_index = self.count_job_slots(uid).await
+            .context("Failed to count job slots!")?;
 
-        // Write only the jobs array — never touch the administrator field
-        self._state.at(uid).at("jobs")
-            .set(&jobs)
+        // Write the new job at the next index — never rewrite the whole array
+        self._state.at(uid).at("jobs").at(&next_index.to_string())
+            .set(&job)
             .await
             .map_err(|e| anyhow!("{e:?}"))
-            .context("Failed to update database with the new job array!")?;
+            .context("Failed to write new job to database!")?;
 
         // Return as successful
         println!("Added new job!");
@@ -238,11 +307,9 @@ impl Database {
         // First double check that the user actually exists
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
-        // Verify the job index exists
-        let jobs = self.get_jobs(uid).await
-            .context("Failed to get jobs!")?;
-        if job_id >= jobs.len() {
-            return Err(anyhow!("Job ID does not exist!"));
+        // Verify the job index exists without deserializing the entire array
+        if !self.job_exists(uid, job_id).await? {
+            return Err(anyhow!("Job ID {} does not exist!", job_id));
         }
 
         // Write only the specific job's status — never touch the administrator field
@@ -276,7 +343,7 @@ impl Database {
     /// * This function creates a new user if the user doesn't exist.
     
     pub async fn _get_status (
-        &self, 
+        &self,
         uid:         &str,
         job_id:      usize
     ) -> Result<JobStatus> {
@@ -285,11 +352,12 @@ impl Database {
         // First double check that the user actually exists
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
-        // Get the jobs as a mutable vector
-        let mut jobs = self.get_jobs(uid).await
-            .context("Failed to get jobs!")?;
-
-        Ok(jobs.get_mut(job_id).ok_or(anyhow!("Job ID does not exist!"))?.status.clone())
+        // Read just this job's status directly
+        self._state.at(uid).at("jobs").at(&job_id.to_string()).at("status")
+            .get::<JobStatus>()
+            .await
+            .map_err(|e| anyhow!("{e:?}"))
+            .context(format!("Failed to get status for job {}", job_id))
     }
 
     /// Gets a job given a user ID and a job ID.
@@ -318,17 +386,12 @@ impl Database {
         // First double check that the user actually exists
         self.ensure_user(uid).await.context("Failed to ensure user!")?;
 
-        // Build a path to the job in the database
-        let job_handle = self._state.at(uid).at("jobs");
-
-        // Get the jobs as a mutable vector
-        let mut jobs = job_handle.get::<Vec<Job>>()
+        // Read just this specific job directly
+        self._state.at(uid).at("jobs").at(&job_id.to_string())
+            .get::<Job>()
             .await
             .map_err(|e| anyhow!("{e:?}"))
-            .context("Failed to get jobs!")?;
-
-        // Return the job if it exists
-        Ok(jobs.get_mut(job_id).ok_or(anyhow!("Job ID does not exist!"))?.clone())
+            .context(format!("Failed to get job {}", job_id))
     }
 
     /// Gets all jobs of a user.
