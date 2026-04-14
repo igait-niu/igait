@@ -102,7 +102,7 @@ spec:
         - name: STAGE4_IMAGE
           value: ghcr.io/igait-niu/igait/igait-stage4-pose-estimation:sha-97d00e4
         - name: STAGE5_IMAGE
-          value: ghcr.io/igait-niu/igait/igait-stage5-cycle-detection:sha-97d00e4
+          value: ghcr.io/igait-niu/igait/igait-stage5-cycle-detection:sha-4add625
         - name: STAGE6_IMAGE
           value: ghcr.io/igait-niu/igait/igait-stage6-prediction:sha-4add625
         - name: STAGE7_IMAGE
