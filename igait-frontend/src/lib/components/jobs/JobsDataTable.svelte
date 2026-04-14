@@ -2,7 +2,8 @@
 	import * as Table from '$lib/components/ui/table';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import { ArrowUpDown } from '@lucide/svelte';
+	import { ArrowUpDown, ShieldCheck } from '@lucide/svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import JobsDataTableToolbar from './JobsDataTableToolbar.svelte';
 	import type { Job } from '../../../types/Job';
 	import type { JobStatus } from '../../../types/JobStatus';
@@ -15,7 +16,9 @@
 		showEmail?: boolean;
 		initialStatusFilter?: string;
 		selectedId?: string | null;
+		selectable?: boolean;
 		onRowClick?: (job: JobWithId) => void;
+		onApprove?: (jobIds: string[]) => void;
 	}
 
 	let {
@@ -24,8 +27,24 @@
 		showEmail = false,
 		initialStatusFilter = 'all',
 		selectedId = null,
-		onRowClick
+		selectable = false,
+		onRowClick,
+		onApprove
 	}: Props = $props();
+
+	let selectedIds = new SvelteSet<string>();
+
+	function toggleSelect(id: string) {
+		if (selectedIds.has(id)) selectedIds.delete(id);
+		else selectedIds.add(id);
+	}
+
+	function handleApprove() {
+		if (onApprove && selectedIds.size > 0) {
+			onApprove([...selectedIds]);
+			selectedIds.clear();
+		}
+	}
 
 	// Create jobs with IDs - use existing id if present, otherwise generate from uid_index
 	const jobsWithIds = $derived(
@@ -122,6 +141,18 @@
 		return filtered;
 	});
 
+	const allFilteredSelected = $derived(
+		filteredData.length > 0 && filteredData.every((j) => selectedIds.has(j.id))
+	);
+
+	function toggleSelectAll() {
+		if (allFilteredSelected) {
+			selectedIds.clear();
+		} else {
+			for (const j of filteredData) selectedIds.add(j.id);
+		}
+	}
+
 	function toggleSort(column: 'date' | 'status') {
 		if (sortColumn === column) {
 			sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
@@ -164,7 +195,7 @@
 	}
 
 	const hasActiveFilters = $derived(statusFilter !== 'all' || searchQuery !== '');
-	const colCount = $derived(showEmail ? 5 : 4);
+	const colCount = $derived((showEmail ? 5 : 4) + (selectable ? 1 : 0));
 </script>
 
 <div class="data-table-wrapper">
@@ -180,10 +211,30 @@
 		placeholder={showEmail ? 'Filter by ID, email, status...' : 'Filter submissions...'}
 	/>
 
+	{#if selectable && selectedIds.size > 0}
+		<div class="selection-bar">
+			<span class="selection-count">{selectedIds.size} selected</span>
+			<Button variant="default" size="sm" class="approve-selected-btn" onclick={handleApprove}>
+				<ShieldCheck class="approve-icon" />
+				Approve Selected
+			</Button>
+		</div>
+	{/if}
+
 	<div class="table-container">
 		<Table.Root class="compact-table">
 			<Table.Header>
 				<Table.Row>
+					{#if selectable}
+						<Table.Head class="col-check">
+							<input
+								type="checkbox"
+								checked={allFilteredSelected}
+								onchange={toggleSelectAll}
+								class="row-checkbox"
+							/>
+						</Table.Head>
+					{/if}
 					<Table.Head class="col-id">Job ID</Table.Head>
 					{#if showEmail}
 						<Table.Head class="col-email">Email</Table.Head>
@@ -213,6 +264,17 @@
 								: ''}"
 							onclick={() => onRowClick?.(job)}
 						>
+							{#if selectable}
+								<Table.Cell>
+									<input
+										type="checkbox"
+										checked={selectedIds.has(job.id)}
+										onchange={() => toggleSelect(job.id)}
+										onclick={(e) => e.stopPropagation()}
+										class="row-checkbox"
+									/>
+								</Table.Cell>
+							{/if}
 							<Table.Cell>
 								<span class="job-id" title={job.id}>{formatJobId(job.id)}</span>
 							</Table.Cell>
@@ -347,5 +409,43 @@
 		text-align: center;
 		padding: 2rem !important;
 		color: hsl(var(--muted-foreground));
+	}
+
+	:global(.col-check) {
+		width: 36px;
+	}
+
+	.row-checkbox {
+		cursor: pointer;
+		width: 0.875rem;
+		height: 0.875rem;
+		accent-color: hsl(var(--primary));
+	}
+
+	.selection-bar {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.5rem 0.75rem;
+		background: hsl(var(--primary) / 0.06);
+		border: 1px solid hsl(var(--primary) / 0.2);
+		border-radius: var(--radius-sm, 0.375rem);
+	}
+
+	.selection-count {
+		font-size: 0.8125rem;
+		font-weight: 500;
+		color: hsl(var(--primary));
+	}
+
+	:global(.approve-selected-btn) {
+		height: 1.75rem !important;
+		font-size: 0.75rem !important;
+	}
+
+	:global(.approve-icon) {
+		width: 0.875rem;
+		height: 0.875rem;
+		margin-right: 0.25rem;
 	}
 </style>

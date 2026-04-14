@@ -9,6 +9,7 @@
 		isQueuesLoaded,
 		isQueueConfigLoaded,
 		setQueueRequiresApproval,
+		approveQueueItem,
 		queueItemToJob,
 		type QueuesState,
 		type QueuesData,
@@ -110,6 +111,14 @@
 	async function handleToggleApproval(value: boolean) {
 		await setQueueRequiresApproval(activeStage, value);
 	}
+
+	async function handleApproveJobs(jobIds: string[]) {
+		for (const { key, item } of activeQueueEntries) {
+			if (jobIds.includes(item.job_id)) {
+				await approveQueueItem(activeStage, key, item);
+			}
+		}
+	}
 </script>
 
 <svelte:head>
@@ -133,7 +142,7 @@
 		<div class="stage-content-wrapper">
 			<div class="stage-tabs-container">
 				<div class="stage-tabs">
-					{#each stageInfo as stage}
+					{#each stageInfo as stage (stage.key)}
 						{@const count = getQueueItemCount(stage.key)}
 						<button
 							class="stage-tab"
@@ -185,7 +194,9 @@
 							data={jobsForTable}
 							uid=""
 							showEmail={true}
+							selectable={activeRequiresApproval}
 							onRowClick={handleSelectJob}
+							onApprove={handleApproveJobs}
 						/>
 					{/if}
 				</div>
