@@ -94,7 +94,7 @@ spec:
           value: "true"
         # Stage container images (updated by CI/CD)
         - name: STAGE1_IMAGE
-          value: ghcr.io/igait-niu/igait/igait-stage1-media-conversion:sha-97d00e4
+          value: ghcr.io/igait-niu/igait/igait-stage1-media-conversion:sha-4add625
         - name: STAGE2_IMAGE
           value: ghcr.io/igait-niu/igait/igait-stage2-validity-check:sha-97d00e4
         - name: STAGE3_IMAGE
