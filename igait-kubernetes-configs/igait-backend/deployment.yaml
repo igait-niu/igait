@@ -96,7 +96,7 @@ spec:
         - name: STAGE1_IMAGE
           value: ghcr.io/igait-niu/igait/igait-stage1-media-conversion:sha-1152733
         - name: STAGE2_IMAGE
-          value: ghcr.io/igait-niu/igait/igait-stage2-validity-check:sha-4add625
+          value: ghcr.io/igait-niu/igait/igait-stage2-validity-check:sha-1152733
         - name: STAGE3_IMAGE
           value: ghcr.io/igait-niu/igait/igait-stage3-reframing:sha-1152733
         - name: STAGE4_IMAGE
