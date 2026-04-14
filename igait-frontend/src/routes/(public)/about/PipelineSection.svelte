@@ -122,11 +122,16 @@
 	.stage-visual {
 		background: hsl(var(--muted));
 		overflow: hidden;
+		height: 14rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.stage-visual img {
 		width: 100%;
-		height: auto;
+		height: 100%;
+		object-fit: cover;
 		display: block;
 	}
 
@@ -177,14 +182,15 @@
 			display: flex;
 			align-items: center;
 			justify-content: center;
-			padding-top: 4rem;
 			flex-shrink: 0;
+			/* Center on the image area (14rem) plus top border */
+			height: 14rem;
 		}
 
 		:global(.arrow-icon) {
 			width: 1.25rem;
 			height: 1.25rem;
-			color: hsl(var(--muted-foreground) / 0.5);
+			color: hsl(var(--muted-foreground) / 0.4);
 		}
 	}
 </style>

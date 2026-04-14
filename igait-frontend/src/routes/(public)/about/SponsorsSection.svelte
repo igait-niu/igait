@@ -28,11 +28,13 @@
 		</div>
 		<p class="section-lead">We are grateful to the following sponsors for their funding support.</p>
 
-		<ul class="org-list">
-			{#each sponsors as sponsor (sponsor)}
-				<li class="org-item">{sponsor}</li>
-			{/each}
-		</ul>
+		<div class="org-card">
+			<ul class="org-list">
+				{#each sponsors as sponsor (sponsor)}
+					<li class="org-item">{sponsor}</li>
+				{/each}
+			</ul>
+		</div>
 	</div>
 
 	<div class="section-block">
@@ -42,11 +44,13 @@
 		</div>
 		<p class="section-lead">We appreciate the continued support of the following partners.</p>
 
-		<ul class="org-list">
-			{#each partners as partner (partner)}
-				<li class="org-item">{partner}</li>
-			{/each}
-		</ul>
+		<div class="org-card">
+			<ul class="org-list">
+				{#each partners as partner (partner)}
+					<li class="org-item">{partner}</li>
+				{/each}
+			</ul>
+		</div>
 	</div>
 </section>
 
@@ -81,6 +85,13 @@
 		color: hsl(var(--muted-foreground));
 		line-height: 1.7;
 		margin-bottom: 1rem;
+	}
+
+	.org-card {
+		border: 1px solid hsl(var(--border));
+		border-radius: var(--radius-md);
+		background: hsl(var(--card));
+		overflow: hidden;
 	}
 
 	.org-list {
