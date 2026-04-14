@@ -36,6 +36,27 @@ spec:
             secretKeyRef:
               name: vaultwarden
               key: ADMIN_TOKEN
+        # SMTP via AWS SES for invite emails
+        - name: SMTP_HOST
+          value: "email-smtp.us-east-2.amazonaws.com"
+        - name: SMTP_PORT
+          value: "587"
+        - name: SMTP_SECURITY
+          value: "starttls"
+        - name: SMTP_FROM
+          value: "noreply@igaitapp.com"
+        - name: SMTP_FROM_NAME
+          value: "iGait Vault"
+        - name: SMTP_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: vaultwarden
+              key: SMTP_USERNAME
+        - name: SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: vaultwarden
+              key: SMTP_PASSWORD
         resources:
           limits:
             cpu: 500m
