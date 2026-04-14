@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vaultwarden
+  namespace: igait
+  labels:
+    app: vaultwarden
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vaultwarden
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: vaultwarden
+    spec:
+      containers:
+      - image: vaultwarden/server:1.33.2
+        name: vaultwarden
+        ports:
+        - containerPort: 80
+          protocol: TCP
+        env:
+        - name: DOMAIN
+          value: "https://vault.igaitapp.com"
+        - name: SIGNUPS_ALLOWED
+          value: "false"
+        - name: INVITATIONS_ALLOWED
+          value: "true"
+        - name: ADMIN_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: vaultwarden
+              key: ADMIN_TOKEN
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+            ephemeral-storage: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+            ephemeral-storage: 32Mi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: vaultwarden-data
