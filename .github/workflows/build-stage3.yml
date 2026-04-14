@@ -65,15 +65,16 @@ jobs:
       - name: Update deployment image tag
         run: |
           SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
-          sed -i "s|value: ghcr.io/igait-niu/igait/igait-stage3-reframing:.*|value: ghcr.io/igait-niu/igait/igait-stage3-reframing:sha-${SHA_SHORT}|" igait-kubernetes-configs/igait-backend/deployment.yaml
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin git@github.com:igait-niu/igait.git
-          git add igait-kubernetes-configs/
-          git diff --cached --quiet && exit 0
-          git commit -m "deploy: igait-stage3-reframing:sha-${SHA_SHORT}"
           for i in 1 2 3 4 5; do
-            git push && exit 0
-            git pull --rebase
+            git fetch origin master
+            git reset --hard origin/master
+            sed -i "s|value: ghcr.io/igait-niu/igait/igait-stage3-reframing:.*|value: ghcr.io/igait-niu/igait/igait-stage3-reframing:sha-${SHA_SHORT}|" igait-kubernetes-configs/igait-backend/deployment.yaml
+            git add igait-kubernetes-configs/
+            git diff --cached --quiet && echo "Already up to date" && exit 0
+            git commit -m "deploy: igait-stage3-reframing:sha-${SHA_SHORT}"
+            git push origin master && exit 0
           done
           echo "Failed to push after 5 attempts" && exit 1
