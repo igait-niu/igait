@@ -219,6 +219,9 @@ impl Orchestrator {
             "IGAIT_JOB_PAYLOAD",
             &payload,
             &resources,
+            stage,
+            &job.job_id,
+            &job.user_id,
         );
 
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
@@ -247,6 +250,9 @@ impl Orchestrator {
             "IGAIT_FINALIZE_PAYLOAD",
             &payload,
             &resources,
+            stage,
+            &job.job_id,
+            &job.user_id,
         );
 
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
@@ -265,6 +271,9 @@ impl Orchestrator {
         payload_env_var: &str,
         payload: &str,
         resources: &StageResources,
+        stage: StageNumber,
+        job_id: &str,
+        user_id: &str,
     ) -> Job {
         let mut resource_requests = std::collections::BTreeMap::new();
         resource_requests.insert("cpu".to_string(), Quantity(resources.cpu_request.to_string()));
@@ -287,6 +296,11 @@ impl Orchestrator {
                 labels: Some(std::collections::BTreeMap::from([
                     ("app".to_string(), "igait-pipeline".to_string()),
                     ("managed-by".to_string(), "igait-backend".to_string()),
+                    ("igait.niu.edu/stage".to_string(), stage.as_u8().to_string()),
+                ])),
+                annotations: Some(std::collections::BTreeMap::from([
+                    ("igait.niu.edu/job-id".to_string(), job_id.to_string()),
+                    ("igait.niu.edu/user-id".to_string(), user_id.to_string()),
                 ])),
                 ..Default::default()
             },
@@ -551,9 +565,58 @@ impl Orchestrator {
 
             if is_failed || is_deadline_exceeded {
                 warn!("K8s Job {} is failed/timed out, cleaning up", job_name);
-                // The TTL controller will clean up the Job object itself.
-                // We just need to ensure the in-flight tracking is updated.
-                // The job_results check will handle the RTDB side if a result was written.
+
+                // Extract job_id and stage from annotations/labels so we can
+                // write a synthetic failure result for the completion monitor.
+                let annotations = k8s_job.metadata.annotations.as_ref();
+                let labels = k8s_job.metadata.labels.as_ref();
+
+                let job_id = annotations.and_then(|a| a.get("igait.niu.edu/job-id"));
+                let stage_str = labels.and_then(|l| l.get("igait.niu.edu/stage"));
+
+                if let (Some(job_id), Some(stage_str)) = (job_id, stage_str) {
+                    let stage_num: u8 = stage_str.parse().unwrap_or(0);
+
+                    // Only write a failure result if one doesn't already exist
+                    let result_path = job_result_path(job_id);
+                    let existing: Option<serde_json::Value> = self.rtdb.get(&result_path).await.unwrap_or(None);
+
+                    if existing.is_none() {
+                        let reason = if is_deadline_exceeded { "timed out" } else { "crashed" };
+                        warn!("Writing synthetic failure result for job {} stage {} ({})", job_id, stage_num, reason);
+
+                        let user_id = annotations
+                            .and_then(|a| a.get("igait.niu.edu/user-id"))
+                            .cloned()
+                            .unwrap_or_default();
+
+                        let failure_result = JobResult {
+                            stage: stage_num,
+                            success: false,
+                            output_keys: HashMap::new(),
+                            error: Some(format!("K8s Job {}: pod {}", reason, job_name)),
+                            logs: format!("Stage {} pod {} without writing a result", stage_num, reason),
+                            duration_ms: 0,
+                            job_id: job_id.clone(),
+                            user_id,
+                            metadata: JobMetadata::default(),
+                            input_keys: HashMap::new(),
+                            requires_approval: false,
+                            approved: false,
+                        };
+
+                        if let Err(e) = self.rtdb.set(&result_path, &failure_result).await {
+                            error!("Failed to write synthetic failure result for {}: {}", job_id, e);
+                        }
+                    }
+                } else {
+                    warn!("K8s Job {} missing igait annotations, cannot recover — will be cleaned up by TTL", job_name);
+                }
+
+                // Remove from in-flight tracking regardless
+                if let Some(job_id) = annotations.and_then(|a| a.get("igait.niu.edu/job-id")) {
+                    self.in_flight.write().await.remove(job_id);
+                }
             }
         }
 

@@ -368,6 +368,7 @@ pub struct JobResult {
     /// The original user ID.
     pub user_id: String,
     /// The original job metadata (needed for stage transitions).
+    #[serde(default)]
     pub metadata: JobMetadata,
     /// The original input keys (needed for reconstructing QueueItem).
     #[serde(default)]
