@@ -148,7 +148,12 @@ pub async fn rerun_entrypoint(
     )
     .await;
 
-    let _ = queue_ops.release_job_lease(target_uid, job_key, &lease_id).await;
+    if let Err(e) = queue_ops.release_job_lease(target_uid, job_key, &lease_id).await {
+        eprintln!(
+            "Warning: failed to release rerun lease for {}_{} ({}): {:?} — lease will TTL in {}ms",
+            target_uid, job_key, lease_id, e, RERUN_LEASE_TTL_MS
+        );
+    }
 
     let total_deleted = result?;
 

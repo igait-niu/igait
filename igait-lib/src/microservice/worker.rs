@@ -1090,7 +1090,12 @@ impl<W: StageWorker> WorkerRunner<W> {
                     self.worker_id, job.job_id
                 );
                 heartbeat_handle.abort();
-                let _ = self.queue_ops.release_job(stage, &job.job_id, job.epoch).await;
+                if let Err(e) = self.queue_ops.release_job(stage, &job.job_id, job.epoch).await {
+                    eprintln!(
+                        "[{}] Failed to release claim on job {} during shutdown: {:?} — reclaim via TTL",
+                        self.worker_id, job.job_id, e
+                    );
+                }
                 return Ok(false);
             }
         };
@@ -1327,10 +1332,28 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
     let db = FirebaseRtdb::from_env()?;
     let queue_ops = QueueOps::new(db.clone(), format!("job-{}", job.job_id));
 
-    // Update job status to Processing
+    // Update job status to Processing. These writes are best-effort: a stuck
+    // status is cosmetic compared to a failed stage run, so we log and proceed
+    // rather than aborting the stage for a transient write failure.
     if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
-        let _ = queue_ops.update_job_status(&user_id, &job_index, &JobStatus::processing(stage_num)).await;
-        let _ = queue_ops.update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Running).await;
+        if let Err(e) = queue_ops
+            .update_job_status(&user_id, &job_index, &JobStatus::processing(stage_num))
+            .await
+        {
+            eprintln!(
+                "[job-mode] Failed to mark job {} as Processing: {:?}",
+                job.job_id, e
+            );
+        }
+        if let Err(e) = queue_ops
+            .update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Running)
+            .await
+        {
+            eprintln!(
+                "[job-mode] Failed to mark stage {} Running for {}: {:?}",
+                stage_num, job.job_id, e
+            );
+        }
     }
 
     let job_epoch: u64 = std::env::var("IGAIT_JOB_EPOCH")

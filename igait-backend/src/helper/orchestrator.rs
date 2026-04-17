@@ -428,7 +428,15 @@ impl Orchestrator {
             }
             Err(e) => {
                 error!("Failed to create K8s Job for job {}: {}", job.job_id, e);
-                let _ = queue_ops.release_job(stage, &job.job_id, job.epoch).await;
+                if let Err(release_err) = queue_ops
+                    .release_job(stage, &job.job_id, job.epoch)
+                    .await
+                {
+                    warn!(
+                        "Failed to release claim on job {} after K8s Job creation failure: {:?} — will be reclaimed after claim TTL",
+                        job.job_id, release_err
+                    );
+                }
                 self.in_flight.write().await.remove(&job.job_id);
                 Err(e)
             }
@@ -513,7 +521,9 @@ impl Orchestrator {
             let job_id = &result.job_id;
             let Some(stage) = StageNumber::from_u8(result.stage) else {
                 error!("Invalid stage number {} in job result for {}", result.stage, job_id);
-                let _ = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await;
+                if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
+                    warn!("Failed to delete malformed job_result {}: {}", safe_job_id, e);
+                }
                 continue;
             };
 
@@ -521,7 +531,9 @@ impl Orchestrator {
                 Ok(parsed) => parsed,
                 Err(e) => {
                     error!("Failed to parse job_id {}: {}", job_id, e);
-                    let _ = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await;
+                    if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
+                        warn!("Failed to delete unparseable job_result {}: {}", safe_job_id, e);
+                    }
                     continue;
                 }
             };
@@ -533,7 +545,9 @@ impl Orchestrator {
                     "Discarding stale JobResult for {} stage {} (result_epoch={} live_epoch={})",
                     job_id, stage_num, result.job_epoch, live_epoch
                 );
-                let _ = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await;
+                if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
+                    warn!("Failed to delete stale job_result {}: {}", safe_job_id, e);
+                }
                 self.in_flight.write().await.remove(job_id);
                 continue;
             }
@@ -547,7 +561,12 @@ impl Orchestrator {
             }
 
             let result_path = job_result_path(job_id);
-            let _ = self.rtdb.delete(&result_path).await;
+            if let Err(e) = self.rtdb.delete(&result_path).await {
+                // Not fatal: the take-once CAS on job_results prevents a
+                // double-apply on retry, so the worst case is a spammy warn
+                // until the next scan wins the delete.
+                warn!("Failed to delete processed job_result {}: {}", safe_job_id, e);
+            }
 
             self.in_flight.write().await.remove(job_id);
         }
