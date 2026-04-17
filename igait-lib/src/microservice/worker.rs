@@ -339,30 +339,24 @@ impl QueueOps {
     }
 
     /// Attempts to claim an available job from the specified stage queue.
-    /// 
-    /// This uses a read-then-write pattern with validation to minimize race conditions.
-    /// If another worker claims the job between read and write, the write will
-    /// effectively be a no-op (job will be re-processed due to timeout if the
-    /// other worker fails).
     ///
-    /// Jobs that require approval (either via the job flag or the queue config)
-    /// but have not yet been approved will be skipped.
+    /// Candidate items are filtered by approval status and claim/heartbeat
+    /// state, then each is claimed via a per-path CAS transaction. If two
+    /// workers see the same unclaimed item, at most one `put_if_match` wins;
+    /// the loser's transform re-reads, sees it's now claimed, and aborts.
     pub async fn claim_job(&self, stage: StageNumber) -> ClaimResult<QueueItem> {
         let path = queue_path(stage);
-        
-        // Read the queue-level config to check if this queue requires approval
+
         let config_path = queue_config_path(stage);
         let queue_config: QueueConfig = match self.db.get(&config_path).await {
             Ok(Some(cfg)) => cfg,
             Ok(None) => QueueConfig::default(),
             Err(e) => {
-                // Non-fatal: default to not requiring approval
                 eprintln!("Warning: failed to read queue config at {}: {}", config_path, e);
                 QueueConfig::default()
             }
         };
 
-        // Read all items in the queue
         let items: Option<HashMap<String, QueueItem>> = match self.db.get(&path).await {
             Ok(items) => items,
             Err(e) => return ClaimResult::Error(format!("Failed to read queue: {}", e)),
@@ -376,35 +370,70 @@ impl QueueOps {
             return ClaimResult::QueueEmpty;
         }
 
-        // Find an available item (unclaimed or stale) that is approved for processing
         let now = now_ms();
-        let mut available_item: Option<(String, QueueItem)> = None;
+        let requires_approval = queue_config.requires_approval;
+        let mut candidates: Vec<String> = items
+            .iter()
+            .filter(|(_, item)| {
+                let is_unclaimed = item.claimed_by.is_none();
+                let is_stale = item
+                    .claimed_at
+                    .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
+                    .unwrap_or(false);
+                (is_unclaimed || is_stale)
+                    && item.is_approved_for_processing(requires_approval)
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
 
-        for (key, item) in items {
-            let is_unclaimed = item.claimed_by.is_none();
-            let is_stale = item.claimed_at
-                .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
-                .unwrap_or(false);
+        if candidates.is_empty() {
+            return ClaimResult::AllClaimed;
+        }
 
-            if (is_unclaimed || is_stale) && item.is_approved_for_processing(queue_config.requires_approval) {
-                available_item = Some((key, item));
-                break;
+        // Deterministic order prevents two orchestrators from deadlock-like
+        // thrashing on the same key sequence.
+        candidates.sort();
+
+        for key in candidates {
+            let item_path = format!("{}/{}", path, key);
+            let worker_id = self.worker_id.clone();
+
+            let outcome = self.db
+                .transaction::<QueueItem, _>(&item_path, move |current| {
+                    let current = current?;
+                    let now = now_ms();
+                    let is_unclaimed = current.claimed_by.is_none();
+                    let is_stale = current
+                        .claimed_at
+                        .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
+                        .unwrap_or(false);
+
+                    if !(is_unclaimed || is_stale) {
+                        return None;
+                    }
+
+                    if !current.is_approved_for_processing(requires_approval) {
+                        return None;
+                    }
+
+                    Some(current.claim(&worker_id))
+                })
+                .await;
+
+            match outcome {
+                Ok(TxOutcome::Committed(claimed)) => return ClaimResult::Claimed(claimed),
+                Ok(TxOutcome::Aborted) => continue,
+                Ok(TxOutcome::ExhaustedRetries) => {
+                    return ClaimResult::Error(format!(
+                        "Too many CAS retries claiming {}",
+                        item_path
+                    ));
+                }
+                Err(e) => return ClaimResult::Error(format!("Failed to claim job: {}", e)),
             }
         }
 
-        let Some((key, item)) = available_item else {
-            return ClaimResult::AllClaimed;
-        };
-
-        // Claim the item
-        let claimed_item = item.claim(&self.worker_id);
-        let item_path = format!("{}/{}", path, key);
-
-        if let Err(e) = self.db.set(&item_path, &claimed_item).await {
-            return ClaimResult::Error(format!("Failed to claim job: {}", e));
-        }
-
-        ClaimResult::Claimed(claimed_item)
+        ClaimResult::AllClaimed
     }
 
     /// Updates the heartbeat for a claimed job to prevent timeout.
@@ -524,10 +553,10 @@ impl QueueOps {
         Ok(())
     }
 
-    /// Claims a job from the finalize queue.
+    /// Claims a job from the finalize queue via per-path CAS transaction.
     pub async fn claim_finalize_job(&self) -> ClaimResult<FinalizeQueueItem> {
         let path = queue_path(StageNumber::Stage7Finalize);
-        
+
         let items: Option<HashMap<String, FinalizeQueueItem>> = match self.db.get(&path).await {
             Ok(items) => items,
             Err(e) => return ClaimResult::Error(format!("Failed to read finalize queue: {}", e)),
@@ -542,37 +571,63 @@ impl QueueOps {
         }
 
         let now = now_ms();
-        let mut available_item: Option<(String, FinalizeQueueItem)> = None;
+        let mut candidates: Vec<String> = items
+            .iter()
+            .filter(|(_, item)| {
+                let is_unclaimed = item.claimed_by.is_none();
+                let is_stale = item
+                    .claimed_at
+                    .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
+                    .unwrap_or(false);
+                is_unclaimed || is_stale
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
 
-        for (key, item) in items {
-            let is_unclaimed = item.claimed_by.is_none();
-            let is_stale = item.claimed_at
-                .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
-                .unwrap_or(false);
+        if candidates.is_empty() {
+            return ClaimResult::AllClaimed;
+        }
 
-            if is_unclaimed || is_stale {
-                available_item = Some((key, item));
-                break;
+        candidates.sort();
+
+        for key in candidates {
+            let item_path = format!("{}/{}", path, key);
+            let worker_id = self.worker_id.clone();
+
+            let outcome = self.db
+                .transaction::<FinalizeQueueItem, _>(&item_path, move |current| {
+                    let current = current?;
+                    let now = now_ms();
+                    let is_unclaimed = current.claimed_by.is_none();
+                    let is_stale = current
+                        .claimed_at
+                        .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
+                        .unwrap_or(false);
+
+                    if !(is_unclaimed || is_stale) {
+                        return None;
+                    }
+
+                    Some(current.claim(&worker_id))
+                })
+                .await;
+
+            match outcome {
+                Ok(TxOutcome::Committed(claimed)) => return ClaimResult::Claimed(claimed),
+                Ok(TxOutcome::Aborted) => continue,
+                Ok(TxOutcome::ExhaustedRetries) => {
+                    return ClaimResult::Error(format!(
+                        "Too many CAS retries claiming finalize {}",
+                        item_path
+                    ));
+                }
+                Err(e) => {
+                    return ClaimResult::Error(format!("Failed to claim finalize job: {}", e))
+                }
             }
         }
 
-        let Some((key, item)) = available_item else {
-            return ClaimResult::AllClaimed;
-        };
-
-        // Claim it
-        let claimed_item = FinalizeQueueItem {
-            claimed_by: Some(self.worker_id.clone()),
-            claimed_at: Some(now_ms()),
-            ..item
-        };
-        
-        let item_path = format!("{}/{}", path, key);
-        if let Err(e) = self.db.set(&item_path, &claimed_item).await {
-            return ClaimResult::Error(format!("Failed to claim finalize job: {}", e));
-        }
-
-        ClaimResult::Claimed(claimed_item)
+        ClaimResult::AllClaimed
     }
 
     /// Removes a completed job from the finalize queue.
