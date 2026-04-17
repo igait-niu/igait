@@ -1097,6 +1097,7 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
                 input_keys: job.input_keys.clone(),
                 requires_approval: job.requires_approval,
                 approved: job.approved,
+                epoch: job.epoch,
             }
         }
         ProcessingResult::Failure { error, logs, duration_ms } => {
@@ -1122,6 +1123,7 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
                 input_keys: job.input_keys.clone(),
                 requires_approval: job.requires_approval,
                 approved: job.approved,
+                epoch: job.epoch,
             }
         }
     };

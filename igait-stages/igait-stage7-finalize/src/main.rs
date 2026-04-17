@@ -502,6 +502,7 @@ async fn run_finalize_job_mode() -> Result<()> {
                 input_keys: HashMap::new(),
                 requires_approval: false,
                 approved: false,
+                epoch: job.epoch,
             }
         }
         ProcessingResult::Failure { error, logs, duration_ms } => {
@@ -519,6 +520,7 @@ async fn run_finalize_job_mode() -> Result<()> {
                 input_keys: HashMap::new(),
                 requires_approval: false,
                 approved: false,
+                epoch: job.epoch,
             }
         }
     };

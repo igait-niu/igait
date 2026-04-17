@@ -79,6 +79,11 @@ pub struct QueueItem {
     /// this field is ignored and the job can be picked up freely.
     #[serde(default)]
     pub approved: bool,
+
+    /// Monotonic fencing token. Incremented on each successful claim; writes
+    /// from any worker holding a stale epoch must be rejected.
+    #[serde(default)]
+    pub epoch: u64,
 }
 
 impl QueueItem {
@@ -99,9 +104,8 @@ impl QueueItem {
             input_keys,
             metadata,
             requires_approval,
-            // Start unapproved — the worker's `is_approved_for_processing`
-            // method will allow pick-up if no approval is required.
             approved: false,
+            epoch: 0,
         }
     }
 
@@ -137,13 +141,12 @@ impl QueueItem {
         !self.requires_approval && !queue_requires_approval
     }
 
-    /// Claims this item for a worker.
-    /// 
-    /// Returns the modified item with claim information set.
+    /// Claims this item for a worker. Increments the fencing epoch.
     pub fn claim(&self, worker_id: &str) -> Self {
         Self {
             claimed_by: Some(worker_id.to_string()),
             claimed_at: Some(now_ms()),
+            epoch: self.epoch + 1,
             ..self.clone()
         }
     }
@@ -235,9 +238,14 @@ pub struct FinalizeQueueItem {
     /// Final output keys (if successful - includes prediction results)
     #[serde(default)]
     pub output_keys: HashMap<String, String>,
-    
+
     /// Job metadata for email content
     pub metadata: JobMetadata,
+
+    /// Monotonic fencing token. Incremented on each successful claim; writes
+    /// from any worker holding a stale epoch must be rejected.
+    #[serde(default)]
+    pub epoch: u64,
 }
 
 impl FinalizeQueueItem {
@@ -260,6 +268,7 @@ impl FinalizeQueueItem {
             error_logs: None,
             output_keys,
             metadata,
+            epoch: 0,
         }
     }
 
@@ -284,6 +293,7 @@ impl FinalizeQueueItem {
             error_logs,
             output_keys: HashMap::new(),
             metadata,
+            epoch: 0,
         }
     }
 
@@ -297,11 +307,12 @@ impl FinalizeQueueItem {
         }
     }
 
-    /// Claims this item for a worker.
+    /// Claims this item for a worker. Increments the fencing epoch.
     pub fn claim(&self, worker_id: &str) -> Self {
         Self {
             claimed_by: Some(worker_id.to_string()),
             claimed_at: Some(now_ms()),
+            epoch: self.epoch + 1,
             ..self.clone()
         }
     }
@@ -379,6 +390,10 @@ pub struct JobResult {
     /// Whether the original job was approved.
     #[serde(default)]
     pub approved: bool,
+    /// Epoch the K8s Job claimed under. Orchestrator rejects results whose
+    /// epoch no longer matches the queue item — indicates a zombie completion.
+    #[serde(default)]
+    pub epoch: u64,
 }
 
 /// Returns the next stage in the pipeline, or Stage7Finalize if at the end.

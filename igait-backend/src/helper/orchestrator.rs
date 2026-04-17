@@ -603,6 +603,7 @@ impl Orchestrator {
                             input_keys: HashMap::new(),
                             requires_approval: false,
                             approved: false,
+                            epoch: 0,
                         };
 
                         if let Err(e) = self.rtdb.set(&result_path, &failure_result).await {
