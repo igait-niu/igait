@@ -424,6 +424,23 @@ pub fn job_result_path(job_id: &str) -> String {
     format!("job_results/{}", safe_job_id)
 }
 
+/// Returns the path of the one-shot email-sent marker for a given job.
+pub fn result_notification_path(user_id: &str, job_key: &str) -> String {
+    format!("users/{}/jobs/{}/notifications/result", user_id, job_key)
+}
+
+/// Persisted marker written via CAS insert-if-not-exists right before an outbound
+/// result email is sent. If the insert races with a sibling worker, the loser
+/// sees `PreconditionFailed` and skips the send — preventing duplicate emails.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailNotificationMarker {
+    pub sent_at: u64,
+    pub sent_by: String,
+    pub outcome: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedup_id: Option<String>,
+}
+
 /// The result a K8s Job writes to Firebase RTDB after processing.
 ///
 /// The backend orchestrator reads this to determine whether the stage

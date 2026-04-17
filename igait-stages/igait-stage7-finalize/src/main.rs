@@ -125,6 +125,14 @@ impl FinalizeStageWorker {
         let email = job.metadata.email.as_deref()
             .ok_or_else(|| anyhow::anyhow!("No email address in job metadata"))?;
 
+        let (user_id, job_key) = QueueOps::parse_job_id(&job.job_id)
+            .context("Failed to parse job_id for email dedup marker")?;
+        let outcome = if is_asd { "success_asd" } else { "success_no_asd" };
+        let Some(dedup_id) = self.queue_ops.try_claim_email_send(&user_id, &job_key, outcome).await? else {
+            logs.push_str("Result email already sent by another worker; skipping\n");
+            return Ok(());
+        };
+
         let dt_now_utc: DateTime<Utc> = SystemTime::now().into();
         let dt_now_cst = dt_now_utc.with_timezone(&chrono_tz::US::Central);
 
@@ -143,7 +151,7 @@ impl FinalizeStageWorker {
         logs.push_str(&format!("Sending success email to {}\n", email));
         logs.push_str(&format!("ASD indicator: {}\n", is_asd));
 
-        self.email_client.send(email, &subject, &body).await?;
+        self.email_client.send_with_dedup(email, &subject, &body, Some(&dedup_id)).await?;
         logs.push_str("Success email sent\n");
 
         Ok(())
@@ -158,10 +166,17 @@ impl FinalizeStageWorker {
     ) -> Result<()> {
         let email = job.metadata.email.as_deref()
             .ok_or_else(|| anyhow::anyhow!("No email address in job metadata"))?;
-        
+
+        let (user_id, job_key) = QueueOps::parse_job_id(&job.job_id)
+            .context("Failed to parse job_id for email dedup marker")?;
+        let Some(dedup_id) = self.queue_ops.try_claim_email_send(&user_id, &job_key, "failure").await? else {
+            logs.push_str("Result email already sent by another worker; skipping\n");
+            return Ok(());
+        };
+
         let dt_now_utc: DateTime<Utc> = SystemTime::now().into();
         let dt_now_cst = dt_now_utc.with_timezone(&chrono_tz::US::Central);
-        
+
         let (subject, body) = EmailTemplates::processing_failure(
             &dt_now_cst.to_string(),
             job.failed_at_stage,
@@ -172,10 +187,10 @@ impl FinalizeStageWorker {
 
         logs.push_str(&format!("Sending failure email to {}\n", email));
         logs.push_str(&format!("Failed at stage: {:?}, Error: {}\n", job.failed_at_stage, error));
-        
-        self.email_client.send(email, &subject, &body).await?;
+
+        self.email_client.send_with_dedup(email, &subject, &body, Some(&dedup_id)).await?;
         logs.push_str("Failure email sent\n");
-        
+
         Ok(())
     }
 

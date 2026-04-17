@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 
 #[cfg(feature = "email")]
 use aws_sdk_sesv2::{
-    types::{Body, Content, Destination, EmailContent, Message},
+    types::{Body, Content, Destination, EmailContent, Message, MessageTag},
     Client as SesClient,
 };
 
@@ -65,6 +65,20 @@ impl EmailClient {
     /// * `subject` - The email subject
     /// * `body_html` - The HTML body of the email
     pub async fn send(&self, to: &str, subject: &str, body_html: &str) -> Result<()> {
+        self.send_with_dedup(to, subject, body_html, None).await
+    }
+
+    /// Sends an email and stamps the given dedup_id as an SES MessageTag.
+    /// The tag is surfaced in SES event logs for audit/correlation — it does
+    /// *not* cause SES to suppress duplicate deliveries (that's enforced upstream
+    /// via the CAS notification marker).
+    pub async fn send_with_dedup(
+        &self,
+        to: &str,
+        subject: &str,
+        body_html: &str,
+        dedup_id: Option<&str>,
+    ) -> Result<()> {
         println!("Sending email to '{to}'...");
 
         let destination = Destination::builder()
@@ -94,14 +108,26 @@ impl EmailClient {
             ))
             .build();
 
-        self.ses_client
+        let mut builder = self
+            .ses_client
             .lock()
             .await
             .send_email()
             .from_email_address(&self.from_address)
             .from_email_address_identity_arn(&self.from_identity_arn)
             .destination(destination)
-            .content(content)
+            .content(content);
+
+        if let Some(id) = dedup_id {
+            let tag = MessageTag::builder()
+                .name("dedup_id")
+                .value(sanitize_ses_tag_value(id))
+                .build()
+                .context("Failed to build SES MessageTag")?;
+            builder = builder.email_tags(tag);
+        }
+
+        builder
             .send()
             .await
             .context("Failed to send email via SES")?;
@@ -109,6 +135,20 @@ impl EmailClient {
         println!("Successfully sent email to '{to}'!");
         Ok(())
     }
+}
+
+/// SES MessageTag values allow only `A-Za-z0-9_-` (max 256 chars). Anything
+/// else gets replaced with `_` so the tag is never silently rejected.
+#[cfg(feature = "email")]
+fn sanitize_ses_tag_value(value: &str) -> String {
+    let mut out: String = value
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .collect();
+    if out.len() > 256 {
+        out.truncate(256);
+    }
+    out
 }
 
 // ============================================================================

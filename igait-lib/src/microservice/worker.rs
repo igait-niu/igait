@@ -5,10 +5,10 @@
 
 use crate::microservice::{
     queue::{
-        ClaimResult, FinalizeQueueItem, JobResult, ProcessingResult, QueueConfig, QueueItem,
-        CLAIM_TIMEOUT_MS, HEARTBEAT_INTERVAL_SECS,
+        ClaimResult, EmailNotificationMarker, FinalizeQueueItem, JobResult, ProcessingResult,
+        QueueConfig, QueueItem, CLAIM_TIMEOUT_MS, HEARTBEAT_INTERVAL_SECS,
         generate_worker_id, job_result_path, next_stage, now_ms, queue_config_path,
-        queue_item_path, queue_path,
+        queue_item_path, queue_path, result_notification_path,
     },
     backend_status::{JobStatus, StageStatus},
     StageNumber,
@@ -685,6 +685,31 @@ impl QueueOps {
     pub async fn complete_finalize(&self, job_id: &str) -> Result<()> {
         let path = queue_item_path(StageNumber::Stage7Finalize, job_id);
         self.db.delete(&path).await
+    }
+
+    /// CAS-claims the exclusive right to send the result email for a job.
+    ///
+    /// Returns `Ok(Some(dedup_id))` if the marker was written and the caller
+    /// should send the email; `Ok(None)` if another worker already claimed it.
+    /// The returned `dedup_id` is opaque and suitable for SES MessageTag use.
+    pub async fn try_claim_email_send(
+        &self,
+        user_id: &str,
+        job_key: &str,
+        outcome: &str,
+    ) -> Result<Option<String>> {
+        let path = result_notification_path(user_id, job_key);
+        let dedup_id = format!("{}_{}_{}", user_id, job_key, outcome);
+        let marker = EmailNotificationMarker {
+            sent_at: now_ms(),
+            sent_by: self.worker_id.clone(),
+            outcome: outcome.to_string(),
+            dedup_id: Some(dedup_id.clone()),
+        };
+        match self.db.put_if_match(&path, &marker, NULL_ETAG).await? {
+            CasResult::Ok => Ok(Some(dedup_id)),
+            CasResult::PreconditionFailed => Ok(None),
+        }
     }
 
     /// Updates the job status directly in Firebase RTDB.
