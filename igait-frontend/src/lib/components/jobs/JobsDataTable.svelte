@@ -18,7 +18,7 @@
 		selectedId?: string | null;
 		selectable?: boolean;
 		onRowClick?: (job: JobWithId) => void;
-		onApprove?: (jobIds: string[]) => void;
+		onApprove?: (jobIds: string[]) => void | Promise<void>;
 	}
 
 	let {
@@ -33,16 +33,26 @@
 	}: Props = $props();
 
 	let selectedIds = new SvelteSet<string>();
+	let approving = $state(false);
 
 	function toggleSelect(id: string) {
+		const job = jobsWithIds.find((j) => j.id === id);
+		if (job?.approved) return;
 		if (selectedIds.has(id)) selectedIds.delete(id);
 		else selectedIds.add(id);
 	}
 
-	function handleApprove() {
-		if (onApprove && selectedIds.size > 0) {
-			onApprove([...selectedIds]);
+	async function handleApprove() {
+		if (!onApprove || selectedIds.size === 0 || approving) return;
+		const ids = [...selectedIds];
+		approving = true;
+		try {
+			await onApprove(ids);
+			// Only clear selection on success — preserves the user's selection
+			// so they can retry after an error without re-picking rows.
 			selectedIds.clear();
+		} finally {
+			approving = false;
 		}
 	}
 
@@ -141,15 +151,18 @@
 		return filtered;
 	});
 
+	const selectableFilteredData = $derived(filteredData.filter((j) => !j.approved));
+
 	const allFilteredSelected = $derived(
-		filteredData.length > 0 && filteredData.every((j) => selectedIds.has(j.id))
+		selectableFilteredData.length > 0 &&
+			selectableFilteredData.every((j) => selectedIds.has(j.id))
 	);
 
 	function toggleSelectAll() {
 		if (allFilteredSelected) {
 			selectedIds.clear();
 		} else {
-			for (const j of filteredData) selectedIds.add(j.id);
+			for (const j of selectableFilteredData) selectedIds.add(j.id);
 		}
 	}
 
@@ -214,9 +227,15 @@
 	{#if selectable && selectedIds.size > 0}
 		<div class="selection-bar">
 			<span class="selection-count">{selectedIds.size} selected</span>
-			<Button variant="default" size="sm" class="approve-selected-btn" onclick={handleApprove}>
+			<Button
+				variant="default"
+				size="sm"
+				class="approve-selected-btn"
+				onclick={handleApprove}
+				disabled={approving}
+			>
 				<ShieldCheck class="approve-icon" />
-				Approve Selected
+				{approving ? 'Approving…' : 'Approve Selected'}
 			</Button>
 		</div>
 	{/if}
@@ -231,6 +250,7 @@
 								type="checkbox"
 								checked={allFilteredSelected}
 								onchange={toggleSelectAll}
+								disabled={selectableFilteredData.length === 0}
 								class="row-checkbox"
 							/>
 						</Table.Head>
@@ -261,18 +281,29 @@
 						<Table.Row
 							class="data-row {selectedId === job.id ? 'row-selected' : ''} {onRowClick
 								? 'row-clickable'
-								: ''}"
+								: ''} {selectable && job.approved ? 'row-approved' : ''}"
 							onclick={() => onRowClick?.(job)}
 						>
 							{#if selectable}
 								<Table.Cell>
-									<input
-										type="checkbox"
-										checked={selectedIds.has(job.id)}
-										onchange={() => toggleSelect(job.id)}
-										onclick={(e) => e.stopPropagation()}
-										class="row-checkbox"
-									/>
+									{#if job.approved}
+										<span
+											class="approved-indicator"
+											title="Already approved"
+											onclick={(e) => e.stopPropagation()}
+											role="presentation"
+										>
+											<ShieldCheck class="approved-icon" />
+										</span>
+									{:else}
+										<input
+											type="checkbox"
+											checked={selectedIds.has(job.id)}
+											onchange={() => toggleSelect(job.id)}
+											onclick={(e) => e.stopPropagation()}
+											class="row-checkbox"
+										/>
+									{/if}
 								</Table.Cell>
 							{/if}
 							<Table.Cell>
@@ -420,6 +451,33 @@
 		width: 0.875rem;
 		height: 0.875rem;
 		accent-color: hsl(var(--primary));
+	}
+
+	.row-checkbox:disabled {
+		cursor: not-allowed;
+		opacity: 0.4;
+	}
+
+	:global(.data-row.row-approved) {
+		opacity: 0.65;
+		background-color: hsl(142 76% 36% / 0.04);
+	}
+
+	:global(.data-row.row-approved:hover) {
+		opacity: 0.85;
+	}
+
+	.approved-indicator {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		color: hsl(142 76% 36%);
+		cursor: default;
+	}
+
+	:global(.approved-icon) {
+		width: 0.9375rem;
+		height: 0.9375rem;
 	}
 
 	.selection-bar {
