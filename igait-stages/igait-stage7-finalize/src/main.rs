@@ -267,18 +267,12 @@ impl FinalizeStageWorker {
                 }
             }
             
-            // Update job status to Complete
-            // prediction field kept for backward compatibility; set to 1.0/0.0 matching class
-            let prediction = if is_asd { 1.0_f32 } else { 0.0_f32 };
-            self.update_job_status(&job.job_id, JobStatus::complete(prediction, is_asd)).await;
-            self.update_stage_status(&job.job_id, 7, StageStatus::Complete).await;
-
-            // Upload stage 7 logs to Firebase RTDB
             self.upload_stage_logs(&job.job_id, &logs).await;
 
             ProcessingResult::Success {
                 output_keys: HashMap::from([
                     ("is_asd".to_string(), is_asd.to_string()),
+                    ("prediction".to_string(), if is_asd { "1.0" } else { "0.0" }.to_string()),
                 ]),
                 logs,
                 duration_ms: start_time.elapsed().as_millis() as u64,
@@ -306,13 +300,8 @@ impl FinalizeStageWorker {
                 }
             }
             
-            // Update job status to Error
-            self.update_job_status(&job.job_id, JobStatus::error(error_msg.clone())).await;
-            self.update_stage_status(&job.job_id, 7, StageStatus::Error).await;
-
-            // Upload stage 7 logs to Firebase RTDB
             self.upload_stage_logs(&job.job_id, &logs).await;
-            
+
             // Return success because finalization completed (even though the job itself failed)
             ProcessingResult::Success {
                 output_keys: HashMap::new(),

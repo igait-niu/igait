@@ -429,6 +429,18 @@ pub fn result_notification_path(user_id: &str, job_key: &str) -> String {
     format!("users/{}/jobs/{}/notifications/result", user_id, job_key)
 }
 
+pub fn stage_status_path(user_id: &str, job_key: &str, stage: u8) -> String {
+    format!("users/{}/jobs/{}/stage_statuses/stage_{}", user_id, job_key, stage)
+}
+
+pub fn stage_logs_path(user_id: &str, job_key: &str, stage: u8) -> String {
+    format!("users/{}/jobs/{}/stage_logs/stage_{}", user_id, job_key, stage)
+}
+
+pub fn job_status_path(user_id: &str, job_key: &str) -> String {
+    format!("users/{}/jobs/{}/status", user_id, job_key)
+}
+
 /// Persisted marker written via CAS insert-if-not-exists right before an outbound
 /// result email is sent. If the insert races with a sibling worker, the loser
 /// sees `PreconditionFailed` and skips the send — preventing duplicate emails.

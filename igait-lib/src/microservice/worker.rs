@@ -1217,16 +1217,13 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
     // Process the job
     let process_result = worker.process(&job).await;
 
-    // Build the JobResult
+    // Build the JobResult. The orchestrator seals stage_status + job_status
+    // atomically alongside the queue transition — if this Job gets OOMKilled
+    // between here and the orchestrator picking it up, no half-updated status
+    // can leak to the UI.
     let job_result = match &process_result {
         ProcessingResult::Success { output_keys, logs, duration_ms } => {
             println!("[job-mode] Job {} completed successfully in {}ms", job.job_id, duration_ms);
-
-            // Update stage status
-            if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
-                let _ = queue_ops.update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Complete).await;
-                let _ = queue_ops.update_stage_logs(&user_id, &job_index, stage_num, logs).await;
-            }
 
             JobResult {
                 stage: stage_num,
@@ -1248,13 +1245,6 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
         }
         ProcessingResult::Failure { error, logs, duration_ms } => {
             eprintln!("[job-mode] Job {} failed after {}ms: {}", job.job_id, duration_ms, error);
-
-            // Update stage status
-            if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
-                let _ = queue_ops.update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Error).await;
-                let _ = queue_ops.update_job_status(&user_id, &job_index, &JobStatus::error(logs.clone())).await;
-                let _ = queue_ops.update_stage_logs(&user_id, &job_index, stage_num, logs).await;
-            }
 
             JobResult {
                 stage: stage_num,
