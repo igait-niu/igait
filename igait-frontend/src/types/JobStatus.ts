@@ -2,35 +2,25 @@
 
 /**
  * Simplified job status that gets stored in Firebase RTDB.
- *
+ * 
  * This is a tagged union (discriminated by `code`) with variant-specific fields.
- *
+ * 
  * # Variants
  * * `Submitted` - Job has been submitted and is waiting to be processed
  * * `Processing` - Job is currently being processed by a stage
  * * `Complete` - Job completed successfully with prediction results
  * * `Error` - Job failed at some point in the pipeline
  */
-export type JobStatus =
-	| { code: 'Submitted'; value: string }
-	| { code: 'Processing'; stage: number; num_stages: number; value: string }
-	| {
-			code: 'Complete';
-			/**
-			 * The prediction value (0.0 - 1.0 probability)
-			 */
-			prediction: number;
-			/**
-			 * Whether ASD was detected
-			 */
-			asd: boolean;
-			value: string;
-	  }
-	| {
-			code: 'Error';
-			/**
-			 * Collected error logs
-			 */
-			logs: string;
-			value: string;
-	  };
+export type JobStatus = { "code": "Submitted", value: string, } | { "code": "Processing", stage: number, num_stages: number, value: string, } | { "code": "Complete", 
+/**
+ * The prediction value (0.0 - 1.0 probability)
+ */
+prediction: number, 
+/**
+ * Whether ASD was detected
+ */
+asd: boolean, value: string, } | { "code": "Error", 
+/**
+ * Collected error logs
+ */
+logs: string, value: string, };
