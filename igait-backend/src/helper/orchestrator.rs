@@ -504,6 +504,8 @@ impl Orchestrator {
                             result.user_id.clone(),
                             result.output_keys.clone(),
                             result.metadata.clone(),
+                            result.requires_approval,
+                            result.approved,
                         );
                         let current_path = queue_item_path(stage, job_id);
                         let finalize_path = queue_item_path(StageNumber::Stage7Finalize, job_id);

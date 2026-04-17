@@ -293,6 +293,12 @@ pub struct FinalizeQueueItem {
     /// Job metadata for email content
     pub metadata: JobMetadata,
 
+    #[serde(default)]
+    pub requires_approval: bool,
+
+    #[serde(default)]
+    pub approved: bool,
+
     /// Monotonic fencing token. Incremented on each successful claim; writes
     /// from any worker holding a stale epoch must be rejected.
     #[serde(default)]
@@ -306,6 +312,8 @@ impl FinalizeQueueItem {
         user_id: String,
         output_keys: HashMap<String, String>,
         metadata: JobMetadata,
+        requires_approval: bool,
+        approved: bool,
     ) -> Self {
         Self {
             job_id,
@@ -319,11 +327,13 @@ impl FinalizeQueueItem {
             error_logs: None,
             output_keys,
             metadata,
+            requires_approval,
+            approved,
             epoch: 0,
         }
     }
 
-    /// Creates a failure finalize item (stage failed).
+    /// Creates a failure finalize item (stage failed). Failures bypass approval.
     pub fn failure(
         job_id: String,
         user_id: String,
@@ -344,8 +354,17 @@ impl FinalizeQueueItem {
             error_logs,
             output_keys: HashMap::new(),
             metadata,
+            requires_approval: false,
+            approved: true,
             epoch: 0,
         }
+    }
+
+    pub fn is_approved_for_processing(&self, queue_requires_approval: bool) -> bool {
+        if self.approved {
+            return true;
+        }
+        !self.requires_approval && !queue_requires_approval
     }
 
     /// Checks if this item is available for claiming.

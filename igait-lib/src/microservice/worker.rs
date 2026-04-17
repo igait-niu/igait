@@ -532,6 +532,8 @@ impl QueueOps {
             job.user_id.clone(),
             output_keys,
             job.metadata.clone(),
+            job.requires_approval,
+            job.approved,
         );
 
         let finalize_path = queue_item_path(StageNumber::Stage7Finalize, &job.job_id);
@@ -586,8 +588,19 @@ impl QueueOps {
     }
 
     /// Claims a job from the finalize queue via per-path CAS transaction.
+    /// Honors `queue_config/stage_7.requires_approval` — parity with claim_job.
     pub async fn claim_finalize_job(&self) -> ClaimResult<FinalizeQueueItem> {
         let path = queue_path(StageNumber::Stage7Finalize);
+
+        let config_path = queue_config_path(StageNumber::Stage7Finalize);
+        let queue_config: QueueConfig = match self.db.get(&config_path).await {
+            Ok(Some(cfg)) => cfg,
+            Ok(None) => QueueConfig::default(),
+            Err(e) => {
+                eprintln!("Warning: failed to read queue config at {}: {}", config_path, e);
+                QueueConfig::default()
+            }
+        };
 
         let items: Option<HashMap<String, FinalizeQueueItem>> = match self.db.get(&path).await {
             Ok(items) => items,
@@ -603,6 +616,7 @@ impl QueueOps {
         }
 
         let now = now_ms();
+        let requires_approval = queue_config.requires_approval;
         let mut candidates: Vec<String> = items
             .iter()
             .filter(|(_, item)| {
@@ -611,7 +625,8 @@ impl QueueOps {
                     .claimed_at
                     .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
                     .unwrap_or(false);
-                is_unclaimed || is_stale
+                (is_unclaimed || is_stale)
+                    && item.is_approved_for_processing(requires_approval)
             })
             .map(|(k, _)| k.clone())
             .collect();
@@ -637,6 +652,10 @@ impl QueueOps {
                         .unwrap_or(false);
 
                     if !(is_unclaimed || is_stale) {
+                        return None;
+                    }
+
+                    if !current.is_approved_for_processing(requires_approval) {
                         return None;
                     }
 
