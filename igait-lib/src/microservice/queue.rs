@@ -517,6 +517,12 @@ pub struct JobResult {
     /// epoch no longer matches the queue item — indicates a zombie completion.
     #[serde(default)]
     pub epoch: u64,
+    /// Job-generation epoch stamped from JobCoordination at K8s Job creation
+    /// time. Orchestrator rejects results whose job_epoch is less than the
+    /// live value — a rerun bumped the generation while this K8s Job was
+    /// running, so its output is no longer valid.
+    #[serde(default)]
+    pub job_epoch: u64,
     /// Orchestrator instance that took this result for processing.
     /// Set via CAS; a second replica seeing this field set will skip the entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]

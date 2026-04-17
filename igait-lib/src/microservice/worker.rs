@@ -1333,13 +1333,13 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
         let _ = queue_ops.update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Running).await;
     }
 
-    // Process the job
+    let job_epoch: u64 = std::env::var("IGAIT_JOB_EPOCH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
     let process_result = worker.process(&job).await;
 
-    // Build the JobResult. The orchestrator seals stage_status + job_status
-    // atomically alongside the queue transition — if this Job gets OOMKilled
-    // between here and the orchestrator picking it up, no half-updated status
-    // can leak to the UI.
     let job_result = match &process_result {
         ProcessingResult::Success { output_keys, logs, duration_ms } => {
             println!("[job-mode] Job {} completed successfully in {}ms", job.job_id, duration_ms);
@@ -1358,6 +1358,7 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
                 requires_approval: job.requires_approval,
                 approved: job.approved,
                 epoch: job.epoch,
+                job_epoch,
                 taken_by: None,
                 taken_at: None,
             }
@@ -1379,6 +1380,7 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
                 requires_approval: job.requires_approval,
                 approved: job.approved,
                 epoch: job.epoch,
+                job_epoch,
                 taken_by: None,
                 taken_at: None,
             }

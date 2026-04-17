@@ -334,12 +334,15 @@ async fn run_finalize_job_mode() -> Result<()> {
         .await
         .context("Failed to create finalize worker")?;
 
-    // The finalize worker handles status updates, emails, etc. internally
     let process_result = worker.process(&job).await;
 
-    // Write result to RTDB for the orchestrator to clean up the finalize queue
     let db = FirebaseRtdb::from_env()
         .context("Failed to create Firebase RTDB client")?;
+
+    let job_epoch: u64 = std::env::var("IGAIT_JOB_EPOCH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
 
     let job_result = match &process_result {
         ProcessingResult::Success { output_keys, logs, duration_ms } => {
@@ -358,6 +361,7 @@ async fn run_finalize_job_mode() -> Result<()> {
                 requires_approval: false,
                 approved: false,
                 epoch: job.epoch,
+                job_epoch,
                 taken_by: None,
                 taken_at: None,
             }
@@ -378,6 +382,7 @@ async fn run_finalize_job_mode() -> Result<()> {
                 requires_approval: false,
                 approved: false,
                 epoch: job.epoch,
+                job_epoch,
                 taken_by: None,
                 taken_at: None,
             }

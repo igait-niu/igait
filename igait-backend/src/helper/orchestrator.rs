@@ -211,6 +211,16 @@ impl Orchestrator {
         })
     }
 
+    /// Reads the live job-generation epoch for a job. Returns 0 if no
+    /// coordination record exists (job has never been rerun).
+    async fn current_job_epoch(&self, job_id: &str) -> u64 {
+        let Ok((user_id, job_key)) = QueueOps::parse_job_id(job_id) else {
+            return 0;
+        };
+        let queue_ops = QueueOps::new(self.rtdb.clone(), self.orchestrator_id.clone());
+        queue_ops.read_job_epoch(&user_id, &job_key).await.unwrap_or(0)
+    }
+
     /// Creates a K8s Job for a standard processing stage (1-6).
     async fn create_stage_job(&self, stage: StageNumber, job: &QueueItem) -> Result<String> {
         let image = self.stage_images.get(&stage)
@@ -221,6 +231,7 @@ impl Orchestrator {
 
         let job_name = self.make_job_name(stage, &job.job_id);
         let resources = stage_resources(stage);
+        let job_epoch = self.current_job_epoch(&job.job_id).await;
 
         let k8s_job = self.build_job_spec(
             &job_name,
@@ -231,13 +242,15 @@ impl Orchestrator {
             stage,
             &job.job_id,
             &job.user_id,
+            job_epoch,
         );
 
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
         jobs_api.create(&PostParams::default(), &k8s_job).await
             .context(format!("Failed to create K8s Job {}", job_name))?;
 
-        info!("Created K8s Job {} for stage {} job {}", job_name, stage.as_u8(), job.job_id);
+        info!("Created K8s Job {} for stage {} job {} (job_epoch={})",
+            job_name, stage.as_u8(), job.job_id, job_epoch);
         Ok(job_name)
     }
 
@@ -252,6 +265,7 @@ impl Orchestrator {
 
         let job_name = self.make_job_name(stage, &job.job_id);
         let resources = stage_resources(stage);
+        let job_epoch = self.current_job_epoch(&job.job_id).await;
 
         let k8s_job = self.build_job_spec(
             &job_name,
@@ -262,13 +276,15 @@ impl Orchestrator {
             stage,
             &job.job_id,
             &job.user_id,
+            job_epoch,
         );
 
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
         jobs_api.create(&PostParams::default(), &k8s_job).await
             .context(format!("Failed to create K8s Job {}", job_name))?;
 
-        info!("Created K8s Job {} for finalize job {}", job_name, job.job_id);
+        info!("Created K8s Job {} for finalize job {} (job_epoch={})",
+            job_name, job.job_id, job_epoch);
         Ok(job_name)
     }
 
@@ -283,6 +299,7 @@ impl Orchestrator {
         stage: StageNumber,
         job_id: &str,
         user_id: &str,
+        job_epoch: u64,
     ) -> Job {
         let mut resource_requests = std::collections::BTreeMap::new();
         resource_requests.insert("cpu".to_string(), Quantity(resources.cpu_request.to_string()));
@@ -310,6 +327,7 @@ impl Orchestrator {
                 annotations: Some(std::collections::BTreeMap::from([
                     ("igait.niu.edu/job-id".to_string(), job_id.to_string()),
                     ("igait.niu.edu/user-id".to_string(), user_id.to_string()),
+                    ("igait.niu.edu/job-epoch".to_string(), job_epoch.to_string()),
                 ])),
                 ..Default::default()
             },
@@ -329,11 +347,18 @@ impl Orchestrator {
                         containers: vec![Container {
                             name: "worker".to_string(),
                             image: Some(image.to_string()),
-                            env: Some(vec![EnvVar {
-                                name: payload_env_var.to_string(),
-                                value: Some(payload.to_string()),
-                                ..Default::default()
-                            }]),
+                            env: Some(vec![
+                                EnvVar {
+                                    name: payload_env_var.to_string(),
+                                    value: Some(payload.to_string()),
+                                    ..Default::default()
+                                },
+                                EnvVar {
+                                    name: "IGAIT_JOB_EPOCH".to_string(),
+                                    value: Some(job_epoch.to_string()),
+                                    ..Default::default()
+                                },
+                            ]),
                             env_from: Some(vec![EnvFromSource {
                                 secret_ref: Some(SecretEnvSource {
                                     name: SECRET_NAME.to_string(),
@@ -501,6 +526,17 @@ impl Orchestrator {
                 }
             };
             let stage_num = stage.as_u8();
+
+            let live_epoch = self.current_job_epoch(job_id).await;
+            if result.job_epoch < live_epoch {
+                warn!(
+                    "Discarding stale JobResult for {} stage {} (result_epoch={} live_epoch={})",
+                    job_id, stage_num, result.job_epoch, live_epoch
+                );
+                let _ = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await;
+                self.in_flight.write().await.remove(job_id);
+                continue;
+            }
 
             if let Err(e) = self
                 .apply_completion_transition(&result, stage, &user_id, &job_key, stage_num)
@@ -703,6 +739,11 @@ impl Orchestrator {
                             .cloned()
                             .unwrap_or_default();
 
+                        let job_epoch_annotation: u64 = annotations
+                            .and_then(|a| a.get("igait.niu.edu/job-epoch"))
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(0);
+
                         let error_text = format!("K8s Job {}: pod {}", reason, job_name);
                         let logs_text = format!("Stage {} pod {} without writing a result", stage_num, reason);
 
@@ -720,6 +761,7 @@ impl Orchestrator {
                             requires_approval: false,
                             approved: false,
                             epoch: 0,
+                            job_epoch: job_epoch_annotation,
                             taken_by: None,
                             taken_at: None,
                         };
