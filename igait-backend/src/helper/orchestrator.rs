@@ -394,8 +394,7 @@ impl Orchestrator {
             }
             Err(e) => {
                 error!("Failed to create K8s Job for job {}: {}", job.job_id, e);
-                // Release the claim so another attempt can be made
-                let _ = queue_ops.release_job(stage, &job.job_id).await;
+                let _ = queue_ops.release_job(stage, &job.job_id, job.epoch).await;
                 self.in_flight.write().await.remove(&job.job_id);
                 Err(e)
             }

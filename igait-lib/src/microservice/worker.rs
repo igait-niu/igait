@@ -436,45 +436,65 @@ impl QueueOps {
         ClaimResult::AllClaimed
     }
 
-    /// Updates the heartbeat for a claimed job to prevent timeout.
-    pub async fn heartbeat(&self, stage: StageNumber, job_id: &str) -> Result<()> {
+    /// Refreshes the heartbeat, but only if the caller's epoch still matches.
+    ///
+    /// Returns `Ok(false)` when the epoch has changed (the lease has been lost
+    /// to another worker). Callers should stop processing and exit cleanly.
+    pub async fn heartbeat(&self, stage: StageNumber, job_id: &str, epoch: u64) -> Result<bool> {
         let path = queue_item_path(stage, job_id);
-        
-        #[derive(Serialize)]
-        struct HeartbeatUpdate {
-            claimed_at: u64,
-        }
-        
-        self.db.update(&path, &HeartbeatUpdate { claimed_at: now_ms() }).await
+        let outcome = self.db
+            .transaction::<QueueItem, _>(&path, move |current| {
+                let current = current?;
+                if current.epoch != epoch {
+                    return None;
+                }
+                Some(QueueItem {
+                    claimed_at: Some(now_ms()),
+                    ..current
+                })
+            })
+            .await?;
+
+        Ok(matches!(outcome, TxOutcome::Committed(_)))
     }
 
-    /// Releases a job back to the queue by clearing the claim.
-    /// Used when a job needs to be aborted (e.g., during shutdown).
-    pub async fn release_job(&self, stage: StageNumber, job_id: &str) -> Result<()> {
+    /// Releases a claim back to the queue, iff the caller's epoch still matches.
+    pub async fn release_job(&self, stage: StageNumber, job_id: &str, epoch: u64) -> Result<bool> {
         let path = queue_item_path(stage, job_id);
-        
-        #[derive(Serialize)]
-        struct ReleaseUpdate {
-            claimed_by: Option<String>,
-            claimed_at: Option<u64>,
-        }
-        
-        self.db.update(&path, &ReleaseUpdate { 
-            claimed_by: None, 
-            claimed_at: None 
-        }).await
+        let outcome = self.db
+            .transaction::<QueueItem, _>(&path, move |current| {
+                let current = current?;
+                if current.epoch != epoch {
+                    return None;
+                }
+                Some(QueueItem {
+                    claimed_by: None,
+                    claimed_at: None,
+                    ..current
+                })
+            })
+            .await?;
+
+        Ok(matches!(outcome, TxOutcome::Committed(_)))
     }
 
     /// Moves a job to the next stage queue after successful processing.
+    ///
+    /// Returns `Ok(false)` if the lease was lost (epoch drift) — the move does
+    /// not occur and the caller should exit. Verifies the epoch via a CAS
+    /// read before performing the atomic multi-path move.
     pub async fn move_to_next_stage(
         &self,
         current_stage: StageNumber,
         job: &QueueItem,
         output_keys: HashMap<String, String>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
+        let current_path = queue_item_path(current_stage, &job.job_id);
+        if !self.verify_epoch(&current_path, job.epoch).await? {
+            return Ok(false);
+        }
+
         let next = next_stage(current_stage);
-        
-        // Create the item for the next queue, carrying through approval fields
         let mut next_item = QueueItem::new(
             job.job_id.clone(),
             job.user_id.clone(),
@@ -482,20 +502,17 @@ impl QueueOps {
             job.metadata.clone(),
             job.requires_approval,
         );
-        // Preserve the approval decision from the original job
         next_item.approved = job.approved;
 
-        // Build multi-path update: delete from current, add to next
-        let current_path = queue_item_path(current_stage, &job.job_id);
         let next_path = queue_item_path(next, &job.job_id);
 
         let mut updates = HashMap::new();
-        updates.insert(current_path, Value::Null); // Delete from current
-        updates.insert(next_path, serde_json::to_value(&next_item)?); // Add to next
+        updates.insert(current_path, Value::Null);
+        updates.insert(next_path, serde_json::to_value(&next_item)?);
 
         self.db.multi_update(updates).await?;
-        
-        Ok(())
+
+        Ok(true)
     }
 
     /// Moves a job to the finalize queue after successful pipeline completion.
@@ -504,7 +521,12 @@ impl QueueOps {
         current_stage: StageNumber,
         job: &QueueItem,
         output_keys: HashMap<String, String>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
+        let current_path = queue_item_path(current_stage, &job.job_id);
+        if !self.verify_epoch(&current_path, job.epoch).await? {
+            return Ok(false);
+        }
+
         let finalize_item = FinalizeQueueItem::success(
             job.job_id.clone(),
             job.user_id.clone(),
@@ -512,7 +534,6 @@ impl QueueOps {
             job.metadata.clone(),
         );
 
-        let current_path = queue_item_path(current_stage, &job.job_id);
         let finalize_path = queue_item_path(StageNumber::Stage7Finalize, &job.job_id);
 
         let mut updates = HashMap::new();
@@ -520,8 +541,8 @@ impl QueueOps {
         updates.insert(finalize_path, serde_json::to_value(&finalize_item)?);
 
         self.db.multi_update(updates).await?;
-        
-        Ok(())
+
+        Ok(true)
     }
 
     /// Moves a job to the finalize queue after a stage failure.
@@ -531,7 +552,12 @@ impl QueueOps {
         job: &QueueItem,
         error: String,
         error_logs: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
+        let current_path = queue_item_path(current_stage, &job.job_id);
+        if !self.verify_epoch(&current_path, job.epoch).await? {
+            return Ok(false);
+        }
+
         let finalize_item = FinalizeQueueItem::failure(
             job.job_id.clone(),
             job.user_id.clone(),
@@ -541,7 +567,6 @@ impl QueueOps {
             job.metadata.clone(),
         );
 
-        let current_path = queue_item_path(current_stage, &job.job_id);
         let finalize_path = queue_item_path(StageNumber::Stage7Finalize, &job.job_id);
 
         let mut updates = HashMap::new();
@@ -549,8 +574,15 @@ impl QueueOps {
         updates.insert(finalize_path, serde_json::to_value(&finalize_item)?);
 
         self.db.multi_update(updates).await?;
-        
-        Ok(())
+
+        Ok(true)
+    }
+
+    /// Returns true iff the item at `path` still carries `expected_epoch`.
+    /// Used before multi-path moves where per-path CAS is not available.
+    async fn verify_epoch(&self, path: &str, expected_epoch: u64) -> Result<bool> {
+        let (current, _etag) = self.db.get_with_etag::<QueueItem>(path).await?;
+        Ok(matches!(current, Some(item) if item.epoch == expected_epoch))
     }
 
     /// Claims a job from the finalize queue via per-path CAS transaction.
@@ -853,21 +885,31 @@ impl<W: StageWorker> WorkerRunner<W> {
         self.update_job_status(&job.job_id, JobStatus::processing(stage_num)).await;
         self.update_stage_status(&job.job_id, stage_num, StageStatus::Running).await;
 
-        // Spawn heartbeat task for long-running jobs
         let heartbeat_db = self.queue_ops.db.clone();
         let heartbeat_worker_id = self.worker_id.clone();
         let heartbeat_job_id = job.job_id.clone();
         let heartbeat_stage = stage;
+        let heartbeat_epoch = job.epoch;
         let heartbeat_shutdown = self.shutdown_token.child_token();
-        
+
         let heartbeat_handle = tokio::spawn(async move {
             let ops = QueueOps::new(heartbeat_db, heartbeat_worker_id);
             loop {
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(HEARTBEAT_INTERVAL_SECS)) => {
-                        if let Err(e) = ops.heartbeat(heartbeat_stage, &heartbeat_job_id).await {
-                            eprintln!("Heartbeat failed: {:?}", e);
-                            break;
+                        match ops.heartbeat(heartbeat_stage, &heartbeat_job_id, heartbeat_epoch).await {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                eprintln!(
+                                    "Heartbeat aborted: lease lost for job {} (epoch {})",
+                                    heartbeat_job_id, heartbeat_epoch
+                                );
+                                break;
+                            }
+                            Err(e) => {
+                                eprintln!("Heartbeat failed: {:?}", e);
+                                break;
+                            }
                         }
                     }
                     _ = heartbeat_shutdown.cancelled() => {
@@ -877,7 +919,6 @@ impl<W: StageWorker> WorkerRunner<W> {
             }
         });
 
-        // Process the job with cancellation support
         let process_result = tokio::select! {
             result = self.worker.process(&job) => result,
             _ = self.shutdown_token.cancelled() => {
@@ -885,12 +926,8 @@ impl<W: StageWorker> WorkerRunner<W> {
                     "[{}] Job {} processing cancelled due to shutdown",
                     self.worker_id, job.job_id
                 );
-                // Cancel heartbeat
                 heartbeat_handle.abort();
-                
-                // Release the job back to the queue by removing claim
-                let _ = self.queue_ops.release_job(stage, &job.job_id).await;
-                
+                let _ = self.queue_ops.release_job(stage, &job.job_id, job.epoch).await;
                 return Ok(false);
             }
         };
@@ -912,18 +949,23 @@ impl<W: StageWorker> WorkerRunner<W> {
                 // Mark this stage as complete
                 self.update_stage_status(&job.job_id, stage_num, StageStatus::Complete).await;
 
-                // Check if this is the last processing stage (stage 6)
-                // Stage 7 is finalize, so stage 6 sends to finalize on success
-                if stage == StageNumber::Stage6Prediction {
+                // Stage 7 is finalize, so stage 6 sends to finalize on success.
+                let moved = if stage == StageNumber::Stage6Prediction {
                     self.queue_ops
                         .move_to_finalize_success(stage, &job, output_keys)
                         .await
-                        .context("Failed to move job to finalize queue")?;
+                        .context("Failed to move job to finalize queue")?
                 } else {
                     self.queue_ops
                         .move_to_next_stage(stage, &job, output_keys)
                         .await
-                        .context("Failed to move job to next stage")?;
+                        .context("Failed to move job to next stage")?
+                };
+                if !moved {
+                    eprintln!(
+                        "[{}] Job {} (epoch {}): lease lost before move; successor will complete it",
+                        self.worker_id, job.job_id, job.epoch
+                    );
                 }
             }
             ProcessingResult::Failure { error, logs, duration_ms } => {
@@ -932,17 +974,20 @@ impl<W: StageWorker> WorkerRunner<W> {
                     self.worker_id, job.job_id, duration_ms, error
                 );
 
-                // Upload stage logs to Firebase RTDB
                 self.upload_stage_logs(&job.job_id, stage_num, &logs).await;
-                
-                // Mark this stage as errored and update job status
                 self.update_stage_status(&job.job_id, stage_num, StageStatus::Error).await;
                 self.update_job_status(&job.job_id, JobStatus::error(logs.clone())).await;
 
-                self.queue_ops
+                let moved = self.queue_ops
                     .move_to_finalize_failure(stage, &job, error, Some(logs))
                     .await
                     .context("Failed to move job to finalize queue")?;
+                if !moved {
+                    eprintln!(
+                        "[{}] Job {} (epoch {}): lease lost before failure move; successor will handle",
+                        self.worker_id, job.job_id, job.epoch
+                    );
+                }
             }
         }
 
