@@ -3,7 +3,8 @@
 //! This module defines the data structures used for Firebase Realtime Database
 //! queue-based job processing with claim-based distributed locking.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::ser::SerializeMap;
 use std::collections::HashMap;
 
 use crate::microservice::{JobMetadata, StageNumber};
@@ -21,6 +22,56 @@ pub const CLAIM_TIMEOUT_MS: u64 = 5 * 60 * 1000;
 /// Interval for heartbeat updates during long-running jobs (30 seconds).
 /// Must be well below `CLAIM_TIMEOUT_MS` to prevent false expirations.
 pub const HEARTBEAT_INTERVAL_SECS: u64 = 30;
+
+/// A timestamp field that uses Firebase's server-side clock.
+///
+/// Writing `Sentinel` emits `{".sv":"timestamp"}`, which Firebase replaces with
+/// its own wall-clock time at commit. Reads deserialize the resolved `u64`.
+/// This replaces client-side `now_ms()` on write paths so that timestamps
+/// from globally-distributed replicas do not race due to clock skew.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerTimestamp {
+    Sentinel,
+    Value(u64),
+}
+
+impl ServerTimestamp {
+    pub fn as_ms(self) -> u64 {
+        match self {
+            Self::Value(v) => v,
+            Self::Sentinel => 0,
+        }
+    }
+}
+
+impl Serialize for ServerTimestamp {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Sentinel => {
+                let mut m = s.serialize_map(Some(1))?;
+                m.serialize_entry(".sv", "timestamp")?;
+                m.end()
+            }
+            Self::Value(v) => v.serialize(s),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ServerTimestamp {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = serde_json::Value::deserialize(d)?;
+        match v {
+            serde_json::Value::Number(n) => n
+                .as_u64()
+                .map(Self::Value)
+                .ok_or_else(|| serde::de::Error::custom("ServerTimestamp out of range")),
+            serde_json::Value::Object(_) => Ok(Self::Sentinel),
+            other => Err(serde::de::Error::custom(format!(
+                "ServerTimestamp: expected number or sentinel object, got {other}"
+            ))),
+        }
+    }
+}
 
 // ============================================================================
 // QUEUE ITEM TYPES
@@ -512,6 +563,32 @@ mod tests {
         
         let claimed = item.claim("worker_1");
         assert!(!claimed.is_available()); // Just claimed, not timed out yet
+    }
+
+    #[test]
+    fn test_server_timestamp_serializes_sentinel() {
+        let json = serde_json::to_string(&ServerTimestamp::Sentinel).unwrap();
+        assert_eq!(json, r#"{".sv":"timestamp"}"#);
+    }
+
+    #[test]
+    fn test_server_timestamp_serializes_value() {
+        let json = serde_json::to_string(&ServerTimestamp::Value(1_700_000_000_000)).unwrap();
+        assert_eq!(json, "1700000000000");
+    }
+
+    #[test]
+    fn test_server_timestamp_deserializes_number() {
+        let v: ServerTimestamp = serde_json::from_str("1700000000000").unwrap();
+        assert_eq!(v, ServerTimestamp::Value(1_700_000_000_000));
+        assert_eq!(v.as_ms(), 1_700_000_000_000);
+    }
+
+    #[test]
+    fn test_server_timestamp_deserializes_sentinel_object() {
+        let v: ServerTimestamp = serde_json::from_str(r#"{".sv":"timestamp"}"#).unwrap();
+        assert_eq!(v, ServerTimestamp::Sentinel);
+        assert_eq!(v.as_ms(), 0);
     }
 
     #[test]
