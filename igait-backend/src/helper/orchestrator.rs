@@ -25,7 +25,7 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{
-    api::{Api, ListParams, PostParams},
+    api::{Api, DeleteParams, ListParams, PostParams, PropagationPolicy},
     Client as KubeClient,
 };
 use std::collections::HashMap;
@@ -684,6 +684,61 @@ impl Orchestrator {
             .await
             .context("Failed to apply completion transition")?;
         Ok(())
+    }
+
+    /// Deletes all in-flight K8s Jobs for a given `job_id`, propagating the
+    /// delete to the owned pods. Returns the number of K8s Jobs cancelled.
+    ///
+    /// Called by the rerun endpoint before writing the new queue item so that
+    /// a still-running stage can't finish and contaminate the rerun with a
+    /// stale result. The epoch bump is the ultimate safety net; this is the
+    /// proactive "please stop now" that avoids the wasted compute.
+    pub async fn cancel_in_flight_jobs(&self, job_id: &str) -> Result<usize> {
+        let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
+        let lp = ListParams::default()
+            .labels("app=igait-pipeline,managed-by=igait-backend");
+
+        let job_list = jobs_api.list(&lp).await
+            .context("Failed to list K8s Jobs for cancellation")?;
+
+        let dp = DeleteParams {
+            propagation_policy: Some(PropagationPolicy::Foreground),
+            ..Default::default()
+        };
+
+        let mut cancelled = 0;
+        for k8s_job in job_list.items {
+            let matches_job_id = k8s_job
+                .metadata
+                .annotations
+                .as_ref()
+                .and_then(|a| a.get("igait.niu.edu/job-id"))
+                .map(|v| v == job_id)
+                .unwrap_or(false);
+            if !matches_job_id {
+                continue;
+            }
+
+            let Some(name) = k8s_job.metadata.name.as_deref() else {
+                continue;
+            };
+
+            match jobs_api.delete(name, &dp).await {
+                Ok(_) => {
+                    info!("Cancelled K8s Job {} for rerun of {}", name, job_id);
+                    cancelled += 1;
+                }
+                Err(kube::Error::Api(e)) if e.code == 404 => {
+                    // Already gone — race with TTL/finalizer; treat as success
+                }
+                Err(e) => {
+                    warn!("Failed to cancel K8s Job {}: {:?}", name, e);
+                }
+            }
+        }
+
+        self.in_flight.write().await.remove(job_id);
+        Ok(cancelled)
     }
 
     /// Checks for stale K8s Jobs that have failed/timed out without writing a result.

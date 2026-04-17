@@ -89,6 +89,7 @@ async fn main() -> Result<()> {
         match Orchestrator::new().await {
             Ok(orch) => {
                 let orch = Arc::new(orch);
+                *state.orchestrator.write().await = Some(orch.clone());
                 tokio::spawn(orchestrator::orchestration_loop(orch.clone()));
                 tokio::spawn(orchestrator::completion_monitor_loop(orch));
                 info!("Orchestrator loops spawned");
