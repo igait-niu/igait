@@ -106,7 +106,7 @@ spec:
         - name: STAGE6_IMAGE
           value: ghcr.io/igait-niu/igait/igait-stage6-prediction:sha-883d03a
         - name: STAGE7_IMAGE
-          value: ghcr.io/igait-niu/igait/igait-stage7-finalize:sha-5d5c6c0
+          value: ghcr.io/igait-niu/igait/igait-stage7-finalize:sha-883d03a
         resources:
           limits:
             cpu: "1"
