@@ -137,20 +137,188 @@ impl FirebaseRtdb {
     }
 
     /// Performs a multi-path update (atomic update to multiple paths).
-    /// 
+    ///
     /// The updates map should have paths as keys (without leading slash)
     /// and the new values. Use `Value::Null` to delete a path.
     pub async fn multi_update(&self, updates: HashMap<String, Value>) -> Result<()> {
         let url = self.url("");
         let response = self.client.patch(&url).json(&updates).send().await?;
-        
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             anyhow::bail!("Firebase MULTI_UPDATE failed ({}): {}", status, body);
         }
-        
+
         Ok(())
+    }
+
+    /// Reads data at `path` alongside its current ETag.
+    pub async fn get_with_etag<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<(Option<T>, String)> {
+        let url = self.url(path);
+        let response = self.client
+            .get(&url)
+            .header("X-Firebase-ETag", "true")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Firebase GET (with ETag) failed ({}): {}", status, body);
+        }
+
+        let etag = response.headers()
+            .get(reqwest::header::ETAG)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+
+        let value: Value = response.json().await?;
+        if value.is_null() {
+            return Ok((None, etag));
+        }
+
+        let data: T = serde_json::from_value(value)?;
+        Ok((Some(data), etag))
+    }
+
+    /// Conditional PUT — writes iff the current ETag matches.
+    pub async fn put_if_match<T: Serialize>(&self, path: &str, data: &T, etag: &str) -> Result<CasResult> {
+        let url = self.url(path);
+        let response = self.client
+            .put(&url)
+            .header("if-match", etag)
+            .json(data)
+            .send()
+            .await?;
+
+        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+            return Ok(CasResult::PreconditionFailed);
+        }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Firebase PUT (If-Match) failed ({}): {}", status, body);
+        }
+
+        Ok(CasResult::Ok)
+    }
+
+    /// Conditional PATCH — merges iff the current ETag matches.
+    pub async fn patch_if_match<T: Serialize>(&self, path: &str, data: &T, etag: &str) -> Result<CasResult> {
+        let url = self.url(path);
+        let response = self.client
+            .patch(&url)
+            .header("if-match", etag)
+            .json(data)
+            .send()
+            .await?;
+
+        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+            return Ok(CasResult::PreconditionFailed);
+        }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Firebase PATCH (If-Match) failed ({}): {}", status, body);
+        }
+
+        Ok(CasResult::Ok)
+    }
+
+    /// Conditional DELETE — removes iff the current ETag matches.
+    pub async fn delete_if_match(&self, path: &str, etag: &str) -> Result<CasResult> {
+        let url = self.url(path);
+        let response = self.client
+            .delete(&url)
+            .header("if-match", etag)
+            .send()
+            .await?;
+
+        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+            return Ok(CasResult::PreconditionFailed);
+        }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Firebase DELETE (If-Match) failed ({}): {}", status, body);
+        }
+
+        Ok(CasResult::Ok)
+    }
+
+    /// Read-modify-write transaction with CAS retry.
+    ///
+    /// `transform` returns `None` to abort (nothing to do).
+    pub async fn transaction<T, F>(&self, path: &str, mut transform: F) -> Result<TxOutcome<T>>
+    where
+        T: Serialize + for<'de> Deserialize<'de> + Clone,
+        F: FnMut(Option<T>) -> Option<T>,
+    {
+        let mut backoff_ms: u64 = 25;
+
+        for _ in 0..MAX_TRANSACTION_ATTEMPTS {
+            let (current, etag) = self.get_with_etag::<T>(path).await?;
+
+            let Some(new_value) = transform(current) else {
+                return Ok(TxOutcome::Aborted);
+            };
+
+            match self.put_if_match(path, &new_value, &etag).await? {
+                CasResult::Ok => return Ok(TxOutcome::Committed(new_value)),
+                CasResult::PreconditionFailed => {
+                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                    backoff_ms = (backoff_ms * 2).min(500);
+                }
+            }
+        }
+
+        Ok(TxOutcome::ExhaustedRetries)
+    }
+}
+
+/// Firebase ETag sentinel meaning "this path is currently empty".
+pub const NULL_ETAG: &str = "null_etag";
+
+pub const MAX_TRANSACTION_ATTEMPTS: usize = 8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CasResult {
+    Ok,
+    PreconditionFailed,
+}
+
+impl CasResult {
+    pub fn is_ok(self) -> bool {
+        matches!(self, CasResult::Ok)
+    }
+
+    pub fn is_precondition_failed(self) -> bool {
+        matches!(self, CasResult::PreconditionFailed)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TxOutcome<T> {
+    Committed(T),
+    Aborted,
+    ExhaustedRetries,
+}
+
+impl<T> TxOutcome<T> {
+    pub fn committed(self) -> Option<T> {
+        match self {
+            TxOutcome::Committed(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn is_committed(&self) -> bool {
+        matches!(self, TxOutcome::Committed(_))
     }
 }
 
