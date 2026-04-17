@@ -4,7 +4,15 @@
       ".read": "auth != null && root.child('users').child(auth.uid).child('administrator').val() == true",
       "$uid": {
         ".read": "auth != null && auth.uid == $uid",
-        ".write": false
+        ".write": false,
+        "jobs": {
+          "$job_key": {
+            "approved": {
+              ".write": "auth != null && root.child('users').child(auth.uid).child('administrator').val() == true",
+              ".validate": "newData.isBoolean()"
+            }
+          }
+        }
       }
     },
     "queues": {

@@ -31,6 +31,9 @@
 	let configState: QueueConfigState = $state({ status: 'loading' });
 	let activeStage: string = $state('stage_1');
 
+	let approveError: string | null = $state(null);
+	let approveSuccess: string | null = $state(null);
+
 	// ── Subscriptions ──────────────────────────────────────
 
 	const unsubQueues = subscribeToQueues((state) => {
@@ -102,6 +105,8 @@
 
 	function handleSelectStage(stageKey: string) {
 		activeStage = stageKey;
+		approveError = null;
+		approveSuccess = null;
 	}
 
 	function handleSelectJob(job: Job & { id: string }) {
@@ -113,11 +118,41 @@
 	}
 
 	async function handleApproveJobs(jobIds: string[]) {
-		for (const { key, item } of activeQueueEntries) {
-			if (jobIds.includes(item.job_id)) {
-				await approveQueueItem(activeStage, key, item);
-			}
+		approveError = null;
+		approveSuccess = null;
+
+		const targets = activeQueueEntries.filter(({ item }) => jobIds.includes(item.job_id));
+
+		if (targets.length === 0) {
+			approveError = 'Selected jobs are no longer in this queue.';
+			throw new Error(approveError);
 		}
+
+		const results = await Promise.allSettled(
+			targets.map(({ key, item }) => approveQueueItem(activeStage, key, item))
+		);
+
+		const failures = results.filter(
+			(r): r is PromiseRejectedResult => r.status === 'rejected'
+		);
+		const succeeded = results.length - failures.length;
+
+		if (failures.length === 0) {
+			approveSuccess = `Approved ${succeeded} job${succeeded === 1 ? '' : 's'}.`;
+			return;
+		}
+
+		const firstReason =
+			failures[0].reason instanceof Error
+				? failures[0].reason.message
+				: String(failures[0].reason);
+		approveError =
+			succeeded > 0
+				? `Approved ${succeeded} of ${results.length}; ${failures.length} failed: ${firstReason}`
+				: `Approval failed: ${firstReason}`;
+
+		// Re-throw so the table keeps the selection intact for retry.
+		throw new Error(approveError);
 	}
 </script>
 
@@ -178,6 +213,17 @@
 						<Switch checked={activeRequiresApproval} onCheckedChange={handleToggleApproval} />
 					</label>
 				</div>
+
+				{#if approveError}
+					<div class="approve-banner approve-banner--error" role="alert">
+						{approveError}
+					</div>
+				{/if}
+				{#if approveSuccess}
+					<div class="approve-banner approve-banner--success" role="status">
+						{approveSuccess}
+					</div>
+				{/if}
 
 				<!-- Content -->
 				<div class="content-area">
@@ -379,6 +425,29 @@
 		font-weight: 500;
 		color: var(--foreground);
 		user-select: none;
+	}
+
+	/* ── Approve Banner ─────────────────────────────────── */
+
+	.approve-banner {
+		margin: 0.625rem 0.875rem 0;
+		padding: 0.5rem 0.75rem;
+		border-radius: var(--radius-sm, 0.375rem);
+		font-size: 0.8125rem;
+		line-height: 1.4;
+		border: 1px solid;
+	}
+
+	.approve-banner--error {
+		background: oklch(from var(--destructive) l c h / 0.1);
+		border-color: oklch(from var(--destructive) l c h / 0.3);
+		color: var(--destructive);
+	}
+
+	.approve-banner--success {
+		background: oklch(0.65 0.18 142 / 0.1);
+		border-color: oklch(0.65 0.18 142 / 0.3);
+		color: oklch(0.45 0.18 142);
 	}
 
 	/* ── Content Area ───────────────────────────────────── */
