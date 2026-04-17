@@ -445,7 +445,20 @@ pub struct JobResult {
     /// epoch no longer matches the queue item — indicates a zombie completion.
     #[serde(default)]
     pub epoch: u64,
+    /// Orchestrator instance that took this result for processing.
+    /// Set via CAS; a second replica seeing this field set will skip the entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub taken_by: Option<String>,
+    /// When the result was taken (ms). If older than the take timeout,
+    /// another replica can reclaim it — recovers results whose taker crashed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub taken_at: Option<u64>,
 }
+
+/// Timeout after which a taken-but-unprocessed JobResult can be reclaimed (30s).
+/// Orchestrator's transition work should complete in milliseconds, so this is
+/// orders of magnitude larger than normal — only trips on true crashes.
+pub const JOB_RESULT_TAKE_TIMEOUT_MS: u64 = 30_000;
 
 /// Returns the next stage in the pipeline, or Stage7Finalize if at the end.
 pub fn next_stage(current: StageNumber) -> StageNumber {

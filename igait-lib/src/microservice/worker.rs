@@ -1198,6 +1198,8 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
                 requires_approval: job.requires_approval,
                 approved: job.approved,
                 epoch: job.epoch,
+                taken_by: None,
+                taken_at: None,
             }
         }
         ProcessingResult::Failure { error, logs, duration_ms } => {
@@ -1224,6 +1226,8 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
                 requires_approval: job.requires_approval,
                 approved: job.approved,
                 epoch: job.epoch,
+                taken_by: None,
+                taken_at: None,
             }
         }
     };

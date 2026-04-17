@@ -12,8 +12,9 @@
 
 use anyhow::{Context, Result};
 use igait_lib::microservice::{
-    ClaimResult, FinalizeQueueItem, FirebaseRtdb, JobResult, JobMetadata, QueueItem, QueueOps,
-    StageNumber, job_result_path, queue_item_path,
+    CasResult, ClaimResult, FinalizeQueueItem, FirebaseRtdb, JobMetadata, JobResult, QueueItem,
+    QueueOps, StageNumber, generate_worker_id, job_result_path, now_ms, queue_item_path,
+    JOB_RESULT_TAKE_TIMEOUT_MS,
 };
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
@@ -154,6 +155,9 @@ pub struct Orchestrator {
     /// Set of job IDs that currently have a K8s Job running.
     /// Prevents double-dispatch (in addition to RTDB claiming).
     in_flight: RwLock<HashMap<String, StageNumber>>,
+    /// Unique identifier for this replica. Stamped on `taken_by` when
+    /// CAS-claiming a JobResult, so sibling replicas skip it.
+    orchestrator_id: String,
 }
 
 impl Orchestrator {
@@ -194,11 +198,15 @@ impl Orchestrator {
             }
         }
 
+        let orchestrator_id = generate_worker_id("orchestrator");
+        info!("Orchestrator id: {}", orchestrator_id);
+
         Ok(Self {
             kube_client,
             rtdb,
             stage_images,
             in_flight: RwLock::new(HashMap::new()),
+            orchestrator_id,
         })
     }
 
@@ -431,6 +439,32 @@ impl Orchestrator {
         }
     }
 
+    /// CAS-claims a JobResult so only one orchestrator replica processes it.
+    /// Returns `Ok(None)` if already taken by another replica within the stale window,
+    /// or if a concurrent replica beat us to the CAS write.
+    async fn try_take_completion_result(&self, safe_job_id: &str) -> Result<Option<JobResult>> {
+        let path = format!("job_results/{}", safe_job_id);
+        let (current, etag) = self.rtdb.get_with_etag::<JobResult>(&path).await?;
+
+        let Some(mut result) = current else {
+            return Ok(None);
+        };
+
+        if let (Some(_), Some(taken_at)) = (&result.taken_by, result.taken_at) {
+            if now_ms().saturating_sub(taken_at) < JOB_RESULT_TAKE_TIMEOUT_MS {
+                return Ok(None);
+            }
+        }
+
+        result.taken_by = Some(self.orchestrator_id.clone());
+        result.taken_at = Some(now_ms());
+
+        match self.rtdb.put_if_match(&path, &result, &etag).await? {
+            CasResult::Ok => Ok(Some(result)),
+            CasResult::PreconditionFailed => Ok(None),
+        }
+    }
+
     /// Checks `job_results/` in Firebase RTDB for completed results and handles transitions.
     async fn check_completions(&self) -> Result<()> {
         let results: Option<HashMap<String, JobResult>> = self.rtdb.get("job_results").await
@@ -440,9 +474,18 @@ impl Orchestrator {
             return Ok(());
         };
 
-        let queue_ops = QueueOps::new(self.rtdb.clone(), "orchestrator".to_string());
+        let queue_ops = QueueOps::new(self.rtdb.clone(), self.orchestrator_id.clone());
 
-        for (safe_job_id, result) in results {
+        for (safe_job_id, _peek) in results {
+            let result = match self.try_take_completion_result(&safe_job_id).await {
+                Ok(Some(r)) => r,
+                Ok(None) => continue,
+                Err(e) => {
+                    warn!("Failed to CAS-claim job_results/{}: {}", safe_job_id, e);
+                    continue;
+                }
+            };
+
             let job_id = &result.job_id;
             let Some(stage) = StageNumber::from_u8(result.stage) else {
                 error!("Invalid stage number {} in job result for {}", result.stage, job_id);
@@ -603,6 +646,8 @@ impl Orchestrator {
                             requires_approval: false,
                             approved: false,
                             epoch: 0,
+                            taken_by: None,
+                            taken_at: None,
                         };
 
                         if let Err(e) = self.rtdb.set(&result_path, &failure_result).await {

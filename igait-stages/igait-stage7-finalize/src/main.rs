@@ -503,6 +503,8 @@ async fn run_finalize_job_mode() -> Result<()> {
                 requires_approval: false,
                 approved: false,
                 epoch: job.epoch,
+                taken_by: None,
+                taken_at: None,
             }
         }
         ProcessingResult::Failure { error, logs, duration_ms } => {
@@ -521,6 +523,8 @@ async fn run_finalize_job_mode() -> Result<()> {
                 requires_approval: false,
                 approved: false,
                 epoch: job.epoch,
+                taken_by: None,
+                taken_at: None,
             }
         }
     };
