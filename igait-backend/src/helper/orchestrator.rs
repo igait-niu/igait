@@ -13,9 +13,9 @@
 use anyhow::{Context, Result};
 use igait_lib::microservice::{
     CasResult, ClaimResult, FinalizeQueueItem, FirebaseRtdb, JobMetadata, JobResult, JobStatus,
-    QueueItem, QueueOps, StageNumber, StageStatus, generate_worker_id, job_result_path,
-    job_status_path, now_ms, queue_item_path, stage_logs_path, stage_status_path,
-    JOB_RESULT_TAKE_TIMEOUT_MS,
+    QueueItem, QueueOps, RetryPolicy, StageNumber, StageStatus, generate_worker_id,
+    job_result_path, job_status_path, now_ms, queue_item_path, retry_transient,
+    stage_logs_path, stage_status_path, JOB_RESULT_TAKE_TIMEOUT_MS,
 };
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
@@ -679,10 +679,13 @@ impl Orchestrator {
             }
         }
 
-        self.rtdb
-            .multi_update(updates)
-            .await
-            .context("Failed to apply completion transition")?;
+        let rtdb = &self.rtdb;
+        retry_transient(&RetryPolicy::default(), "apply_completion_transition", || {
+            let updates = updates.clone();
+            async move { rtdb.multi_update(updates).await }
+        })
+        .await
+        .context("Failed to apply completion transition")?;
         Ok(())
     }
 
@@ -840,7 +843,17 @@ impl Orchestrator {
                             );
                         }
 
-                        if let Err(e) = self.rtdb.multi_update(updates).await {
+                        let rtdb = &self.rtdb;
+                        let write_result = retry_transient(
+                            &RetryPolicy::default(),
+                            "check_stale_jobs/synthetic_failure",
+                            || {
+                                let updates = updates.clone();
+                                async move { rtdb.multi_update(updates).await }
+                            },
+                        )
+                        .await;
+                        if let Err(e) = write_result {
                             error!("Failed to write synthetic failure result for {}: {}", job_id, e);
                         }
                     }
