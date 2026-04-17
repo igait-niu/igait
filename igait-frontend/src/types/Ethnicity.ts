@@ -2,7 +2,7 @@
 
 /**
  * Ethnicity options for job submission.
- *
+ * 
  * # Variants
  * * `AfricanAmerican` - African American/Black
  * * `NativeAmerican` - Native American/American Indian
@@ -11,10 +11,4 @@
  * * `Caucasian` - Caucasian/White
  * * `PacificIslander` - Pacific Islander
  */
-export type Ethnicity =
-	| 'africanAmerican'
-	| 'nativeAmerican'
-	| 'asian'
-	| 'hispanic'
-	| 'caucasian'
-	| 'pacificIslander';
+export type Ethnicity = "africanAmerican" | "nativeAmerican" | "asian" | "hispanic" | "caucasian" | "pacificIslander";

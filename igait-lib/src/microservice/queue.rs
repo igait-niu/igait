@@ -3,7 +3,8 @@
 //! This module defines the data structures used for Firebase Realtime Database
 //! queue-based job processing with claim-based distributed locking.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::ser::SerializeMap;
 use std::collections::HashMap;
 
 use crate::microservice::{JobMetadata, StageNumber};
@@ -21,6 +22,56 @@ pub const CLAIM_TIMEOUT_MS: u64 = 5 * 60 * 1000;
 /// Interval for heartbeat updates during long-running jobs (30 seconds).
 /// Must be well below `CLAIM_TIMEOUT_MS` to prevent false expirations.
 pub const HEARTBEAT_INTERVAL_SECS: u64 = 30;
+
+/// A timestamp field that uses Firebase's server-side clock.
+///
+/// Writing `Sentinel` emits `{".sv":"timestamp"}`, which Firebase replaces with
+/// its own wall-clock time at commit. Reads deserialize the resolved `u64`.
+/// This replaces client-side `now_ms()` on write paths so that timestamps
+/// from globally-distributed replicas do not race due to clock skew.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerTimestamp {
+    Sentinel,
+    Value(u64),
+}
+
+impl ServerTimestamp {
+    pub fn as_ms(self) -> u64 {
+        match self {
+            Self::Value(v) => v,
+            Self::Sentinel => 0,
+        }
+    }
+}
+
+impl Serialize for ServerTimestamp {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Sentinel => {
+                let mut m = s.serialize_map(Some(1))?;
+                m.serialize_entry(".sv", "timestamp")?;
+                m.end()
+            }
+            Self::Value(v) => v.serialize(s),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ServerTimestamp {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = serde_json::Value::deserialize(d)?;
+        match v {
+            serde_json::Value::Number(n) => n
+                .as_u64()
+                .map(Self::Value)
+                .ok_or_else(|| serde::de::Error::custom("ServerTimestamp out of range")),
+            serde_json::Value::Object(_) => Ok(Self::Sentinel),
+            other => Err(serde::de::Error::custom(format!(
+                "ServerTimestamp: expected number or sentinel object, got {other}"
+            ))),
+        }
+    }
+}
 
 // ============================================================================
 // QUEUE ITEM TYPES
@@ -79,6 +130,11 @@ pub struct QueueItem {
     /// this field is ignored and the job can be picked up freely.
     #[serde(default)]
     pub approved: bool,
+
+    /// Monotonic fencing token. Incremented on each successful claim; writes
+    /// from any worker holding a stale epoch must be rejected.
+    #[serde(default)]
+    pub epoch: u64,
 }
 
 impl QueueItem {
@@ -99,9 +155,8 @@ impl QueueItem {
             input_keys,
             metadata,
             requires_approval,
-            // Start unapproved — the worker's `is_approved_for_processing`
-            // method will allow pick-up if no approval is required.
             approved: false,
+            epoch: 0,
         }
     }
 
@@ -137,13 +192,12 @@ impl QueueItem {
         !self.requires_approval && !queue_requires_approval
     }
 
-    /// Claims this item for a worker.
-    /// 
-    /// Returns the modified item with claim information set.
+    /// Claims this item for a worker. Increments the fencing epoch.
     pub fn claim(&self, worker_id: &str) -> Self {
         Self {
             claimed_by: Some(worker_id.to_string()),
             claimed_at: Some(now_ms()),
+            epoch: self.epoch + 1,
             ..self.clone()
         }
     }
@@ -235,9 +289,20 @@ pub struct FinalizeQueueItem {
     /// Final output keys (if successful - includes prediction results)
     #[serde(default)]
     pub output_keys: HashMap<String, String>,
-    
+
     /// Job metadata for email content
     pub metadata: JobMetadata,
+
+    #[serde(default)]
+    pub requires_approval: bool,
+
+    #[serde(default)]
+    pub approved: bool,
+
+    /// Monotonic fencing token. Incremented on each successful claim; writes
+    /// from any worker holding a stale epoch must be rejected.
+    #[serde(default)]
+    pub epoch: u64,
 }
 
 impl FinalizeQueueItem {
@@ -247,6 +312,8 @@ impl FinalizeQueueItem {
         user_id: String,
         output_keys: HashMap<String, String>,
         metadata: JobMetadata,
+        requires_approval: bool,
+        approved: bool,
     ) -> Self {
         Self {
             job_id,
@@ -260,10 +327,13 @@ impl FinalizeQueueItem {
             error_logs: None,
             output_keys,
             metadata,
+            requires_approval,
+            approved,
+            epoch: 0,
         }
     }
 
-    /// Creates a failure finalize item (stage failed).
+    /// Creates a failure finalize item (stage failed). Failures bypass approval.
     pub fn failure(
         job_id: String,
         user_id: String,
@@ -284,7 +354,17 @@ impl FinalizeQueueItem {
             error_logs,
             output_keys: HashMap::new(),
             metadata,
+            requires_approval: false,
+            approved: true,
+            epoch: 0,
         }
+    }
+
+    pub fn is_approved_for_processing(&self, queue_requires_approval: bool) -> bool {
+        if self.approved {
+            return true;
+        }
+        !self.requires_approval && !queue_requires_approval
     }
 
     /// Checks if this item is available for claiming.
@@ -297,11 +377,12 @@ impl FinalizeQueueItem {
         }
     }
 
-    /// Claims this item for a worker.
+    /// Claims this item for a worker. Increments the fencing epoch.
     pub fn claim(&self, worker_id: &str) -> Self {
         Self {
             claimed_by: Some(worker_id.to_string()),
             claimed_at: Some(now_ms()),
+            epoch: self.epoch + 1,
             ..self.clone()
         }
     }
@@ -343,6 +424,59 @@ pub fn job_result_path(job_id: &str) -> String {
     format!("job_results/{}", safe_job_id)
 }
 
+/// Returns the path of the one-shot email-sent marker for a given job.
+pub fn result_notification_path(user_id: &str, job_key: &str) -> String {
+    format!("users/{}/jobs/{}/notifications/result", user_id, job_key)
+}
+
+pub fn stage_status_path(user_id: &str, job_key: &str, stage: u8) -> String {
+    format!("users/{}/jobs/{}/stage_statuses/stage_{}", user_id, job_key, stage)
+}
+
+pub fn stage_logs_path(user_id: &str, job_key: &str, stage: u8) -> String {
+    format!("users/{}/jobs/{}/stage_logs/stage_{}", user_id, job_key, stage)
+}
+
+pub fn job_status_path(user_id: &str, job_key: &str) -> String {
+    format!("users/{}/jobs/{}/status", user_id, job_key)
+}
+
+/// Returns the path of a job's coordination record (lease + generation epoch).
+pub fn job_coordination_path(user_id: &str, job_key: &str) -> String {
+    format!("users/{}/jobs/{}/coordination", user_id, job_key)
+}
+
+/// Job-level coordination state used to serialize reruns and reject zombie
+/// K8s Jobs whose work was invalidated by a rerun.
+///
+/// * `epoch` — monotonic "job generation". Bumped on every rerun. K8s Jobs
+///   stamp their current epoch on every `JobResult`; the orchestrator
+///   discards results whose epoch is behind the live value.
+/// * `lease_holder` / `lease_expires_at` — short-lived advisory lease used
+///   by the rerun endpoint to serialize itself against concurrent reruns
+///   (and against future self-healing flows that need the same guarantee).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct JobCoordination {
+    #[serde(default)]
+    pub epoch: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_holder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<u64>,
+}
+
+/// Persisted marker written via CAS insert-if-not-exists right before an outbound
+/// result email is sent. If the insert races with a sibling worker, the loser
+/// sees `PreconditionFailed` and skips the send — preventing duplicate emails.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailNotificationMarker {
+    pub sent_at: u64,
+    pub sent_by: String,
+    pub outcome: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedup_id: Option<String>,
+}
+
 /// The result a K8s Job writes to Firebase RTDB after processing.
 ///
 /// The backend orchestrator reads this to determine whether the stage
@@ -379,7 +513,30 @@ pub struct JobResult {
     /// Whether the original job was approved.
     #[serde(default)]
     pub approved: bool,
+    /// Epoch the K8s Job claimed under. Orchestrator rejects results whose
+    /// epoch no longer matches the queue item — indicates a zombie completion.
+    #[serde(default)]
+    pub epoch: u64,
+    /// Job-generation epoch stamped from JobCoordination at K8s Job creation
+    /// time. Orchestrator rejects results whose job_epoch is less than the
+    /// live value — a rerun bumped the generation while this K8s Job was
+    /// running, so its output is no longer valid.
+    #[serde(default)]
+    pub job_epoch: u64,
+    /// Orchestrator instance that took this result for processing.
+    /// Set via CAS; a second replica seeing this field set will skip the entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub taken_by: Option<String>,
+    /// When the result was taken (ms). If older than the take timeout,
+    /// another replica can reclaim it — recovers results whose taker crashed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub taken_at: Option<u64>,
 }
+
+/// Timeout after which a taken-but-unprocessed JobResult can be reclaimed (30s).
+/// Orchestrator's transition work should complete in milliseconds, so this is
+/// orders of magnitude larger than normal — only trips on true crashes.
+pub const JOB_RESULT_TAKE_TIMEOUT_MS: u64 = 30_000;
 
 /// Returns the next stage in the pipeline, or Stage7Finalize if at the end.
 pub fn next_stage(current: StageNumber) -> StageNumber {
@@ -497,6 +654,32 @@ mod tests {
         
         let claimed = item.claim("worker_1");
         assert!(!claimed.is_available()); // Just claimed, not timed out yet
+    }
+
+    #[test]
+    fn test_server_timestamp_serializes_sentinel() {
+        let json = serde_json::to_string(&ServerTimestamp::Sentinel).unwrap();
+        assert_eq!(json, r#"{".sv":"timestamp"}"#);
+    }
+
+    #[test]
+    fn test_server_timestamp_serializes_value() {
+        let json = serde_json::to_string(&ServerTimestamp::Value(1_700_000_000_000)).unwrap();
+        assert_eq!(json, "1700000000000");
+    }
+
+    #[test]
+    fn test_server_timestamp_deserializes_number() {
+        let v: ServerTimestamp = serde_json::from_str("1700000000000").unwrap();
+        assert_eq!(v, ServerTimestamp::Value(1_700_000_000_000));
+        assert_eq!(v.as_ms(), 1_700_000_000_000);
+    }
+
+    #[test]
+    fn test_server_timestamp_deserializes_sentinel_object() {
+        let v: ServerTimestamp = serde_json::from_str(r#"{".sv":"timestamp"}"#).unwrap();
+        assert_eq!(v, ServerTimestamp::Sentinel);
+        assert_eq!(v.as_ms(), 0);
     }
 
     #[test]

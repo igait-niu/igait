@@ -12,8 +12,10 @@
 
 use anyhow::{Context, Result};
 use igait_lib::microservice::{
-    ClaimResult, FinalizeQueueItem, FirebaseRtdb, JobResult, JobMetadata, QueueItem, QueueOps,
-    StageNumber, job_result_path, queue_item_path,
+    CasResult, ClaimResult, FinalizeQueueItem, FirebaseRtdb, JobMetadata, JobResult, JobStatus,
+    QueueItem, QueueOps, RetryPolicy, StageNumber, StageStatus, generate_worker_id,
+    job_result_path, job_status_path, now_ms, queue_item_path, retry_transient,
+    stage_logs_path, stage_status_path, JOB_RESULT_TAKE_TIMEOUT_MS,
 };
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
@@ -23,14 +25,14 @@ use k8s_openapi::api::core::v1::{
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{
-    api::{Api, ListParams, PostParams},
+    api::{Api, DeleteParams, ListParams, PostParams, PropagationPolicy},
     Client as KubeClient,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 /// The K8s namespace where pipeline Jobs are created.
 const NAMESPACE: &str = "igait";
@@ -154,6 +156,9 @@ pub struct Orchestrator {
     /// Set of job IDs that currently have a K8s Job running.
     /// Prevents double-dispatch (in addition to RTDB claiming).
     in_flight: RwLock<HashMap<String, StageNumber>>,
+    /// Unique identifier for this replica. Stamped on `taken_by` when
+    /// CAS-claiming a JobResult, so sibling replicas skip it.
+    orchestrator_id: String,
 }
 
 impl Orchestrator {
@@ -194,15 +199,30 @@ impl Orchestrator {
             }
         }
 
+        let orchestrator_id = generate_worker_id("orchestrator");
+        info!("Orchestrator id: {}", orchestrator_id);
+
         Ok(Self {
             kube_client,
             rtdb,
             stage_images,
             in_flight: RwLock::new(HashMap::new()),
+            orchestrator_id,
         })
     }
 
+    /// Reads the live job-generation epoch for a job. Returns 0 if no
+    /// coordination record exists (job has never been rerun).
+    async fn current_job_epoch(&self, job_id: &str) -> u64 {
+        let Ok((user_id, job_key)) = QueueOps::parse_job_id(job_id) else {
+            return 0;
+        };
+        let queue_ops = QueueOps::new(self.rtdb.clone(), self.orchestrator_id.clone());
+        queue_ops.read_job_epoch(&user_id, &job_key).await.unwrap_or(0)
+    }
+
     /// Creates a K8s Job for a standard processing stage (1-6).
+    #[instrument(skip_all, fields(stage = stage.as_u8(), job_id = %job.job_id, epoch = job.epoch))]
     async fn create_stage_job(&self, stage: StageNumber, job: &QueueItem) -> Result<String> {
         let image = self.stage_images.get(&stage)
             .ok_or_else(|| anyhow::anyhow!("No image configured for stage {}", stage.as_u8()))?;
@@ -212,6 +232,7 @@ impl Orchestrator {
 
         let job_name = self.make_job_name(stage, &job.job_id);
         let resources = stage_resources(stage);
+        let job_epoch = self.current_job_epoch(&job.job_id).await;
 
         let k8s_job = self.build_job_spec(
             &job_name,
@@ -222,17 +243,20 @@ impl Orchestrator {
             stage,
             &job.job_id,
             &job.user_id,
+            job_epoch,
         );
 
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
         jobs_api.create(&PostParams::default(), &k8s_job).await
             .context(format!("Failed to create K8s Job {}", job_name))?;
 
-        info!("Created K8s Job {} for stage {} job {}", job_name, stage.as_u8(), job.job_id);
+        info!("Created K8s Job {} for stage {} job {} (job_epoch={})",
+            job_name, stage.as_u8(), job.job_id, job_epoch);
         Ok(job_name)
     }
 
     /// Creates a K8s Job for the finalize stage (stage 7).
+    #[instrument(skip_all, fields(stage = 7, job_id = %job.job_id))]
     async fn create_finalize_job(&self, job: &FinalizeQueueItem) -> Result<String> {
         let stage = StageNumber::Stage7Finalize;
         let image = self.stage_images.get(&stage)
@@ -243,6 +267,7 @@ impl Orchestrator {
 
         let job_name = self.make_job_name(stage, &job.job_id);
         let resources = stage_resources(stage);
+        let job_epoch = self.current_job_epoch(&job.job_id).await;
 
         let k8s_job = self.build_job_spec(
             &job_name,
@@ -253,13 +278,15 @@ impl Orchestrator {
             stage,
             &job.job_id,
             &job.user_id,
+            job_epoch,
         );
 
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
         jobs_api.create(&PostParams::default(), &k8s_job).await
             .context(format!("Failed to create K8s Job {}", job_name))?;
 
-        info!("Created K8s Job {} for finalize job {}", job_name, job.job_id);
+        info!("Created K8s Job {} for finalize job {} (job_epoch={})",
+            job_name, job.job_id, job_epoch);
         Ok(job_name)
     }
 
@@ -274,6 +301,7 @@ impl Orchestrator {
         stage: StageNumber,
         job_id: &str,
         user_id: &str,
+        job_epoch: u64,
     ) -> Job {
         let mut resource_requests = std::collections::BTreeMap::new();
         resource_requests.insert("cpu".to_string(), Quantity(resources.cpu_request.to_string()));
@@ -301,6 +329,7 @@ impl Orchestrator {
                 annotations: Some(std::collections::BTreeMap::from([
                     ("igait.niu.edu/job-id".to_string(), job_id.to_string()),
                     ("igait.niu.edu/user-id".to_string(), user_id.to_string()),
+                    ("igait.niu.edu/job-epoch".to_string(), job_epoch.to_string()),
                 ])),
                 ..Default::default()
             },
@@ -320,11 +349,18 @@ impl Orchestrator {
                         containers: vec![Container {
                             name: "worker".to_string(),
                             image: Some(image.to_string()),
-                            env: Some(vec![EnvVar {
-                                name: payload_env_var.to_string(),
-                                value: Some(payload.to_string()),
-                                ..Default::default()
-                            }]),
+                            env: Some(vec![
+                                EnvVar {
+                                    name: payload_env_var.to_string(),
+                                    value: Some(payload.to_string()),
+                                    ..Default::default()
+                                },
+                                EnvVar {
+                                    name: "IGAIT_JOB_EPOCH".to_string(),
+                                    value: Some(job_epoch.to_string()),
+                                    ..Default::default()
+                                },
+                            ]),
                             env_from: Some(vec![EnvFromSource {
                                 secret_ref: Some(SecretEnvSource {
                                     name: SECRET_NAME.to_string(),
@@ -369,6 +405,7 @@ impl Orchestrator {
     }
 
     /// Attempts to claim and dispatch a job for a standard stage (1-6).
+    #[instrument(skip(self), fields(stage = stage.as_u8(), orchestrator_id = %self.orchestrator_id))]
     async fn poll_and_dispatch_stage(&self, stage: StageNumber) -> Result<bool> {
         let queue_ops = QueueOps::new(self.rtdb.clone(), "orchestrator".to_string());
 
@@ -394,8 +431,15 @@ impl Orchestrator {
             }
             Err(e) => {
                 error!("Failed to create K8s Job for job {}: {}", job.job_id, e);
-                // Release the claim so another attempt can be made
-                let _ = queue_ops.release_job(stage, &job.job_id).await;
+                if let Err(release_err) = queue_ops
+                    .release_job(stage, &job.job_id, job.epoch)
+                    .await
+                {
+                    warn!(
+                        "Failed to release claim on job {} after K8s Job creation failure: {:?} — will be reclaimed after claim TTL",
+                        job.job_id, release_err
+                    );
+                }
                 self.in_flight.write().await.remove(&job.job_id);
                 Err(e)
             }
@@ -403,6 +447,7 @@ impl Orchestrator {
     }
 
     /// Attempts to claim and dispatch a finalize job (stage 7).
+    #[instrument(skip(self), fields(stage = 7, orchestrator_id = %self.orchestrator_id))]
     async fn poll_and_dispatch_finalize(&self) -> Result<bool> {
         let queue_ops = QueueOps::new(self.rtdb.clone(), "orchestrator".to_string());
 
@@ -432,7 +477,35 @@ impl Orchestrator {
         }
     }
 
+    /// CAS-claims a JobResult so only one orchestrator replica processes it.
+    /// Returns `Ok(None)` if already taken by another replica within the stale window,
+    /// or if a concurrent replica beat us to the CAS write.
+    #[instrument(skip(self), fields(job_id = %safe_job_id, orchestrator_id = %self.orchestrator_id))]
+    async fn try_take_completion_result(&self, safe_job_id: &str) -> Result<Option<JobResult>> {
+        let path = format!("job_results/{}", safe_job_id);
+        let (current, etag) = self.rtdb.get_with_etag::<JobResult>(&path).await?;
+
+        let Some(mut result) = current else {
+            return Ok(None);
+        };
+
+        if let (Some(_), Some(taken_at)) = (&result.taken_by, result.taken_at) {
+            if now_ms().saturating_sub(taken_at) < JOB_RESULT_TAKE_TIMEOUT_MS {
+                return Ok(None);
+            }
+        }
+
+        result.taken_by = Some(self.orchestrator_id.clone());
+        result.taken_at = Some(now_ms());
+
+        match self.rtdb.put_if_match(&path, &result, &etag).await? {
+            CasResult::Ok => Ok(Some(result)),
+            CasResult::PreconditionFailed => Ok(None),
+        }
+    }
+
     /// Checks `job_results/` in Firebase RTDB for completed results and handles transitions.
+    #[instrument(skip(self))]
     async fn check_completions(&self) -> Result<()> {
         let results: Option<HashMap<String, JobResult>> = self.rtdb.get("job_results").await
             .context("Failed to read job_results from RTDB")?;
@@ -441,103 +514,270 @@ impl Orchestrator {
             return Ok(());
         };
 
-        let queue_ops = QueueOps::new(self.rtdb.clone(), "orchestrator".to_string());
+        for (safe_job_id, _peek) in results {
+            let result = match self.try_take_completion_result(&safe_job_id).await {
+                Ok(Some(r)) => r,
+                Ok(None) => continue,
+                Err(e) => {
+                    warn!("Failed to CAS-claim job_results/{}: {}", safe_job_id, e);
+                    continue;
+                }
+            };
 
-        for (safe_job_id, result) in results {
             let job_id = &result.job_id;
             let Some(stage) = StageNumber::from_u8(result.stage) else {
                 error!("Invalid stage number {} in job result for {}", result.stage, job_id);
-                let _ = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await;
+                if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
+                    warn!("Failed to delete malformed job_result {}: {}", safe_job_id, e);
+                }
                 continue;
             };
 
-            if result.success {
-                info!("Job {} stage {} completed successfully", job_id, result.stage);
-
-                match stage {
-                    // Stage 6 success → finalize queue
-                    StageNumber::Stage6Prediction => {
-                        let finalize_item = FinalizeQueueItem::success(
-                            result.job_id.clone(),
-                            result.user_id.clone(),
-                            result.output_keys.clone(),
-                            result.metadata.clone(),
-                        );
-                        let current_path = queue_item_path(stage, job_id);
-                        let finalize_path = queue_item_path(StageNumber::Stage7Finalize, job_id);
-                        let mut updates = HashMap::new();
-                        updates.insert(current_path, serde_json::Value::Null);
-                        updates.insert(finalize_path, serde_json::to_value(&finalize_item)?);
-                        self.rtdb.multi_update(updates).await
-                            .context("Failed to move job to finalize queue")?;
+            let (user_id, job_key) = match QueueOps::parse_job_id(job_id) {
+                Ok(parsed) => parsed,
+                Err(e) => {
+                    error!("Failed to parse job_id {}: {}", job_id, e);
+                    if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
+                        warn!("Failed to delete unparseable job_result {}: {}", safe_job_id, e);
                     }
-                    // Stage 7 (finalize) success → just remove from finalize queue
-                    StageNumber::Stage7Finalize => {
-                        let _ = queue_ops.complete_finalize(job_id).await;
-                    }
-                    // Stages 1-5 success → move to next stage queue
-                    _ => {
-                        let next_job = QueueItem::new(
-                            result.job_id.clone(),
-                            result.user_id.clone(),
-                            result.output_keys.clone(),
-                            result.metadata.clone(),
-                            result.requires_approval,
-                        );
-                        // Preserve approval
-                        let mut next_job = next_job;
-                        next_job.approved = result.approved;
-
-                        let current_path = queue_item_path(stage, job_id);
-                        let next_stage = igait_lib::microservice::next_stage(stage);
-                        let next_path = queue_item_path(next_stage, job_id);
-                        let mut updates = HashMap::new();
-                        updates.insert(current_path, serde_json::Value::Null);
-                        updates.insert(next_path, serde_json::to_value(&next_job)?);
-                        self.rtdb.multi_update(updates).await
-                            .context("Failed to move job to next stage")?;
-                    }
+                    continue;
                 }
-            } else {
-                // Failure → move to finalize queue (unless already finalize)
-                let error_msg = result.error.clone().unwrap_or_else(|| "Unknown error".to_string());
-                warn!("Job {} stage {} failed: {}", job_id, result.stage, error_msg);
+            };
+            let stage_num = stage.as_u8();
 
-                if stage == StageNumber::Stage7Finalize {
-                    // Finalize itself failed — just log it and remove
-                    error!("Finalize job {} failed: {}", job_id, error_msg);
-                    let _ = queue_ops.complete_finalize(job_id).await;
-                } else {
-                    let finalize_item = FinalizeQueueItem::failure(
-                        result.job_id.clone(),
-                        result.user_id.clone(),
-                        result.stage,
-                        error_msg,
-                        Some(result.logs.clone()),
-                        result.metadata.clone(),
-                    );
-                    let current_path = queue_item_path(stage, job_id);
-                    let finalize_path = queue_item_path(StageNumber::Stage7Finalize, job_id);
-                    let mut updates = HashMap::new();
-                    updates.insert(current_path, serde_json::Value::Null);
-                    updates.insert(finalize_path, serde_json::to_value(&finalize_item)?);
-                    self.rtdb.multi_update(updates).await
-                        .context("Failed to move failed job to finalize queue")?;
+            let live_epoch = self.current_job_epoch(job_id).await;
+            if result.job_epoch < live_epoch {
+                warn!(
+                    "Discarding stale JobResult for {} stage {} (result_epoch={} live_epoch={})",
+                    job_id, stage_num, result.job_epoch, live_epoch
+                );
+                if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
+                    warn!("Failed to delete stale job_result {}: {}", safe_job_id, e);
                 }
+                self.in_flight.write().await.remove(job_id);
+                continue;
             }
 
-            // Clean up the result from RTDB
-            let result_path = job_result_path(job_id);
-            let _ = self.rtdb.delete(&result_path).await;
+            if let Err(e) = self
+                .apply_completion_transition(&result, stage, &user_id, &job_key, stage_num)
+                .await
+            {
+                error!("Failed to apply completion transition for {}: {:?}", job_id, e);
+                continue;
+            }
 
-            // Remove from in-flight tracking
+            let result_path = job_result_path(job_id);
+            if let Err(e) = self.rtdb.delete(&result_path).await {
+                // Not fatal: the take-once CAS on job_results prevents a
+                // double-apply on retry, so the worst case is a spammy warn
+                // until the next scan wins the delete.
+                warn!("Failed to delete processed job_result {}: {}", safe_job_id, e);
+            }
+
             self.in_flight.write().await.remove(job_id);
         }
 
         Ok(())
     }
 
+    /// Performs the single atomic multi-path update for a stage completion.
+    ///
+    /// Every transition now bundles: the queue move, the per-stage status seal,
+    /// the per-stage logs, and (where applicable) the top-level job status.
+    /// Either the whole transition commits or none of it does, which eliminates
+    /// the "queue advanced but status stayed Running" class of stale-state bug.
+    #[instrument(skip_all, fields(
+        job_id = %result.job_id,
+        stage = stage_num,
+        epoch = result.job_epoch,
+        success = result.success,
+    ))]
+    async fn apply_completion_transition(
+        &self,
+        result: &JobResult,
+        stage: StageNumber,
+        user_id: &str,
+        job_key: &str,
+        stage_num: u8,
+    ) -> Result<()> {
+        let job_id = &result.job_id;
+        let mut updates: HashMap<String, serde_json::Value> = HashMap::new();
+
+        if result.success {
+            info!("Job {} stage {} completed successfully", job_id, stage_num);
+
+            updates.insert(
+                stage_status_path(user_id, job_key, stage_num),
+                serde_json::to_value(StageStatus::Complete)?,
+            );
+            updates.insert(
+                stage_logs_path(user_id, job_key, stage_num),
+                serde_json::Value::String(result.logs.clone()),
+            );
+
+            match stage {
+                StageNumber::Stage6Prediction => {
+                    let finalize_item = FinalizeQueueItem::success(
+                        result.job_id.clone(),
+                        result.user_id.clone(),
+                        result.output_keys.clone(),
+                        result.metadata.clone(),
+                        result.requires_approval,
+                        result.approved,
+                    );
+                    updates.insert(queue_item_path(stage, job_id), serde_json::Value::Null);
+                    updates.insert(
+                        queue_item_path(StageNumber::Stage7Finalize, job_id),
+                        serde_json::to_value(&finalize_item)?,
+                    );
+                }
+                StageNumber::Stage7Finalize => {
+                    updates.insert(
+                        queue_item_path(StageNumber::Stage7Finalize, job_id),
+                        serde_json::Value::Null,
+                    );
+                    if let Some(is_asd_raw) = result.output_keys.get("is_asd") {
+                        let is_asd = is_asd_raw == "true";
+                        let prediction = result
+                            .output_keys
+                            .get("prediction")
+                            .and_then(|s| s.parse::<f32>().ok())
+                            .unwrap_or(0.0);
+                        updates.insert(
+                            job_status_path(user_id, job_key),
+                            serde_json::to_value(JobStatus::complete(prediction, is_asd))?,
+                        );
+                    }
+                }
+                _ => {
+                    let mut next_job = QueueItem::new(
+                        result.job_id.clone(),
+                        result.user_id.clone(),
+                        result.output_keys.clone(),
+                        result.metadata.clone(),
+                        result.requires_approval,
+                    );
+                    next_job.approved = result.approved;
+
+                    let next_stage = igait_lib::microservice::next_stage(stage);
+                    updates.insert(queue_item_path(stage, job_id), serde_json::Value::Null);
+                    updates.insert(
+                        queue_item_path(next_stage, job_id),
+                        serde_json::to_value(&next_job)?,
+                    );
+                }
+            }
+        } else {
+            let error_msg = result
+                .error
+                .clone()
+                .unwrap_or_else(|| "Unknown error".to_string());
+            warn!("Job {} stage {} failed: {}", job_id, stage_num, error_msg);
+
+            updates.insert(
+                stage_status_path(user_id, job_key, stage_num),
+                serde_json::to_value(StageStatus::Error)?,
+            );
+            updates.insert(
+                stage_logs_path(user_id, job_key, stage_num),
+                serde_json::Value::String(result.logs.clone()),
+            );
+            updates.insert(
+                job_status_path(user_id, job_key),
+                serde_json::to_value(JobStatus::error(result.logs.clone()))?,
+            );
+
+            if stage == StageNumber::Stage7Finalize {
+                error!("Finalize job {} failed: {}", job_id, error_msg);
+                updates.insert(
+                    queue_item_path(StageNumber::Stage7Finalize, job_id),
+                    serde_json::Value::Null,
+                );
+            } else {
+                let finalize_item = FinalizeQueueItem::failure(
+                    result.job_id.clone(),
+                    result.user_id.clone(),
+                    stage_num,
+                    error_msg,
+                    Some(result.logs.clone()),
+                    result.metadata.clone(),
+                );
+                updates.insert(queue_item_path(stage, job_id), serde_json::Value::Null);
+                updates.insert(
+                    queue_item_path(StageNumber::Stage7Finalize, job_id),
+                    serde_json::to_value(&finalize_item)?,
+                );
+            }
+        }
+
+        let rtdb = &self.rtdb;
+        retry_transient(&RetryPolicy::default(), "apply_completion_transition", || {
+            let updates = updates.clone();
+            async move { rtdb.multi_update(updates).await }
+        })
+        .await
+        .context("Failed to apply completion transition")?;
+        Ok(())
+    }
+
+    /// Deletes all in-flight K8s Jobs for a given `job_id`, propagating the
+    /// delete to the owned pods. Returns the number of K8s Jobs cancelled.
+    ///
+    /// Called by the rerun endpoint before writing the new queue item so that
+    /// a still-running stage can't finish and contaminate the rerun with a
+    /// stale result. The epoch bump is the ultimate safety net; this is the
+    /// proactive "please stop now" that avoids the wasted compute.
+    #[instrument(skip(self), fields(job_id = %job_id))]
+    pub async fn cancel_in_flight_jobs(&self, job_id: &str) -> Result<usize> {
+        let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
+        let lp = ListParams::default()
+            .labels("app=igait-pipeline,managed-by=igait-backend");
+
+        let job_list = jobs_api.list(&lp).await
+            .context("Failed to list K8s Jobs for cancellation")?;
+
+        let dp = DeleteParams {
+            propagation_policy: Some(PropagationPolicy::Foreground),
+            ..Default::default()
+        };
+
+        let mut cancelled = 0;
+        for k8s_job in job_list.items {
+            let matches_job_id = k8s_job
+                .metadata
+                .annotations
+                .as_ref()
+                .and_then(|a| a.get("igait.niu.edu/job-id"))
+                .map(|v| v == job_id)
+                .unwrap_or(false);
+            if !matches_job_id {
+                continue;
+            }
+
+            let Some(name) = k8s_job.metadata.name.as_deref() else {
+                continue;
+            };
+
+            match jobs_api.delete(name, &dp).await {
+                Ok(_) => {
+                    info!("Cancelled K8s Job {} for rerun of {}", name, job_id);
+                    cancelled += 1;
+                }
+                Err(kube::Error::Api(e)) if e.code == 404 => {
+                    // Already gone — race with TTL/finalizer; treat as success
+                }
+                Err(e) => {
+                    warn!("Failed to cancel K8s Job {}: {:?}", name, e);
+                }
+            }
+        }
+
+        self.in_flight.write().await.remove(job_id);
+        Ok(cancelled)
+    }
+
     /// Checks for stale K8s Jobs that have failed/timed out without writing a result.
+    #[instrument(skip(self))]
     async fn check_stale_jobs(&self) -> Result<()> {
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
         let lp = ListParams::default()
@@ -585,27 +825,68 @@ impl Orchestrator {
                         let reason = if is_deadline_exceeded { "timed out" } else { "crashed" };
                         warn!("Writing synthetic failure result for job {} stage {} ({})", job_id, stage_num, reason);
 
-                        let user_id = annotations
+                        let user_id_annotation = annotations
                             .and_then(|a| a.get("igait.niu.edu/user-id"))
                             .cloned()
                             .unwrap_or_default();
+
+                        let job_epoch_annotation: u64 = annotations
+                            .and_then(|a| a.get("igait.niu.edu/job-epoch"))
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(0);
+
+                        let error_text = format!("K8s Job {}: pod {}", reason, job_name);
+                        let logs_text = format!("Stage {} pod {} without writing a result", stage_num, reason);
 
                         let failure_result = JobResult {
                             stage: stage_num,
                             success: false,
                             output_keys: HashMap::new(),
-                            error: Some(format!("K8s Job {}: pod {}", reason, job_name)),
-                            logs: format!("Stage {} pod {} without writing a result", stage_num, reason),
+                            error: Some(error_text.clone()),
+                            logs: logs_text.clone(),
                             duration_ms: 0,
                             job_id: job_id.clone(),
-                            user_id,
+                            user_id: user_id_annotation.clone(),
                             metadata: JobMetadata::default(),
                             input_keys: HashMap::new(),
                             requires_approval: false,
                             approved: false,
+                            epoch: 0,
+                            job_epoch: job_epoch_annotation,
+                            taken_by: None,
+                            taken_at: None,
                         };
 
-                        if let Err(e) = self.rtdb.set(&result_path, &failure_result).await {
+                        let mut updates: HashMap<String, serde_json::Value> = HashMap::new();
+                        updates.insert(result_path.clone(), serde_json::to_value(&failure_result)?);
+
+                        if let Ok((parsed_user_id, job_key)) = QueueOps::parse_job_id(job_id) {
+                            let uid = if user_id_annotation.is_empty() {
+                                parsed_user_id
+                            } else {
+                                user_id_annotation
+                            };
+                            updates.insert(
+                                stage_status_path(&uid, &job_key, stage_num),
+                                serde_json::to_value(StageStatus::Error)?,
+                            );
+                            updates.insert(
+                                stage_logs_path(&uid, &job_key, stage_num),
+                                serde_json::Value::String(logs_text),
+                            );
+                        }
+
+                        let rtdb = &self.rtdb;
+                        let write_result = retry_transient(
+                            &RetryPolicy::default(),
+                            "check_stale_jobs/synthetic_failure",
+                            || {
+                                let updates = updates.clone();
+                                async move { rtdb.multi_update(updates).await }
+                            },
+                        )
+                        .await;
+                        if let Err(e) = write_result {
                             error!("Failed to write synthetic failure result for {}: {}", job_id, e);
                         }
                     }

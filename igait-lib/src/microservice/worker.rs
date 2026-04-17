@@ -5,10 +5,10 @@
 
 use crate::microservice::{
     queue::{
-        ClaimResult, FinalizeQueueItem, JobResult, ProcessingResult, QueueConfig, QueueItem,
-        CLAIM_TIMEOUT_MS, HEARTBEAT_INTERVAL_SECS,
-        generate_worker_id, job_result_path, next_stage, now_ms, queue_config_path,
-        queue_item_path, queue_path,
+        ClaimResult, EmailNotificationMarker, FinalizeQueueItem, JobCoordination, JobResult,
+        ProcessingResult, QueueConfig, QueueItem, CLAIM_TIMEOUT_MS, HEARTBEAT_INTERVAL_SECS,
+        generate_worker_id, job_coordination_path, job_result_path, next_stage, now_ms,
+        queue_config_path, queue_item_path, queue_path, result_notification_path,
     },
     backend_status::{JobStatus, StageStatus},
     StageNumber,
@@ -137,20 +137,188 @@ impl FirebaseRtdb {
     }
 
     /// Performs a multi-path update (atomic update to multiple paths).
-    /// 
+    ///
     /// The updates map should have paths as keys (without leading slash)
     /// and the new values. Use `Value::Null` to delete a path.
     pub async fn multi_update(&self, updates: HashMap<String, Value>) -> Result<()> {
         let url = self.url("");
         let response = self.client.patch(&url).json(&updates).send().await?;
-        
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             anyhow::bail!("Firebase MULTI_UPDATE failed ({}): {}", status, body);
         }
-        
+
         Ok(())
+    }
+
+    /// Reads data at `path` alongside its current ETag.
+    pub async fn get_with_etag<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<(Option<T>, String)> {
+        let url = self.url(path);
+        let response = self.client
+            .get(&url)
+            .header("X-Firebase-ETag", "true")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Firebase GET (with ETag) failed ({}): {}", status, body);
+        }
+
+        let etag = response.headers()
+            .get(reqwest::header::ETAG)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+
+        let value: Value = response.json().await?;
+        if value.is_null() {
+            return Ok((None, etag));
+        }
+
+        let data: T = serde_json::from_value(value)?;
+        Ok((Some(data), etag))
+    }
+
+    /// Conditional PUT — writes iff the current ETag matches.
+    pub async fn put_if_match<T: Serialize>(&self, path: &str, data: &T, etag: &str) -> Result<CasResult> {
+        let url = self.url(path);
+        let response = self.client
+            .put(&url)
+            .header("if-match", etag)
+            .json(data)
+            .send()
+            .await?;
+
+        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+            return Ok(CasResult::PreconditionFailed);
+        }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Firebase PUT (If-Match) failed ({}): {}", status, body);
+        }
+
+        Ok(CasResult::Ok)
+    }
+
+    /// Conditional PATCH — merges iff the current ETag matches.
+    pub async fn patch_if_match<T: Serialize>(&self, path: &str, data: &T, etag: &str) -> Result<CasResult> {
+        let url = self.url(path);
+        let response = self.client
+            .patch(&url)
+            .header("if-match", etag)
+            .json(data)
+            .send()
+            .await?;
+
+        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+            return Ok(CasResult::PreconditionFailed);
+        }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Firebase PATCH (If-Match) failed ({}): {}", status, body);
+        }
+
+        Ok(CasResult::Ok)
+    }
+
+    /// Conditional DELETE — removes iff the current ETag matches.
+    pub async fn delete_if_match(&self, path: &str, etag: &str) -> Result<CasResult> {
+        let url = self.url(path);
+        let response = self.client
+            .delete(&url)
+            .header("if-match", etag)
+            .send()
+            .await?;
+
+        if response.status() == reqwest::StatusCode::PRECONDITION_FAILED {
+            return Ok(CasResult::PreconditionFailed);
+        }
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Firebase DELETE (If-Match) failed ({}): {}", status, body);
+        }
+
+        Ok(CasResult::Ok)
+    }
+
+    /// Read-modify-write transaction with CAS retry.
+    ///
+    /// `transform` returns `None` to abort (nothing to do).
+    pub async fn transaction<T, F>(&self, path: &str, mut transform: F) -> Result<TxOutcome<T>>
+    where
+        T: Serialize + for<'de> Deserialize<'de> + Clone,
+        F: FnMut(Option<T>) -> Option<T>,
+    {
+        let mut backoff_ms: u64 = 25;
+
+        for _ in 0..MAX_TRANSACTION_ATTEMPTS {
+            let (current, etag) = self.get_with_etag::<T>(path).await?;
+
+            let Some(new_value) = transform(current) else {
+                return Ok(TxOutcome::Aborted);
+            };
+
+            match self.put_if_match(path, &new_value, &etag).await? {
+                CasResult::Ok => return Ok(TxOutcome::Committed(new_value)),
+                CasResult::PreconditionFailed => {
+                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                    backoff_ms = (backoff_ms * 2).min(500);
+                }
+            }
+        }
+
+        Ok(TxOutcome::ExhaustedRetries)
+    }
+}
+
+/// Firebase ETag sentinel meaning "this path is currently empty".
+pub const NULL_ETAG: &str = "null_etag";
+
+pub const MAX_TRANSACTION_ATTEMPTS: usize = 8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CasResult {
+    Ok,
+    PreconditionFailed,
+}
+
+impl CasResult {
+    pub fn is_ok(self) -> bool {
+        matches!(self, CasResult::Ok)
+    }
+
+    pub fn is_precondition_failed(self) -> bool {
+        matches!(self, CasResult::PreconditionFailed)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TxOutcome<T> {
+    Committed(T),
+    Aborted,
+    ExhaustedRetries,
+}
+
+impl<T> TxOutcome<T> {
+    pub fn committed(self) -> Option<T> {
+        match self {
+            TxOutcome::Committed(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn is_committed(&self) -> bool {
+        matches!(self, TxOutcome::Committed(_))
     }
 }
 
@@ -171,30 +339,24 @@ impl QueueOps {
     }
 
     /// Attempts to claim an available job from the specified stage queue.
-    /// 
-    /// This uses a read-then-write pattern with validation to minimize race conditions.
-    /// If another worker claims the job between read and write, the write will
-    /// effectively be a no-op (job will be re-processed due to timeout if the
-    /// other worker fails).
     ///
-    /// Jobs that require approval (either via the job flag or the queue config)
-    /// but have not yet been approved will be skipped.
+    /// Candidate items are filtered by approval status and claim/heartbeat
+    /// state, then each is claimed via a per-path CAS transaction. If two
+    /// workers see the same unclaimed item, at most one `put_if_match` wins;
+    /// the loser's transform re-reads, sees it's now claimed, and aborts.
     pub async fn claim_job(&self, stage: StageNumber) -> ClaimResult<QueueItem> {
         let path = queue_path(stage);
-        
-        // Read the queue-level config to check if this queue requires approval
+
         let config_path = queue_config_path(stage);
         let queue_config: QueueConfig = match self.db.get(&config_path).await {
             Ok(Some(cfg)) => cfg,
             Ok(None) => QueueConfig::default(),
             Err(e) => {
-                // Non-fatal: default to not requiring approval
                 eprintln!("Warning: failed to read queue config at {}: {}", config_path, e);
                 QueueConfig::default()
             }
         };
 
-        // Read all items in the queue
         let items: Option<HashMap<String, QueueItem>> = match self.db.get(&path).await {
             Ok(items) => items,
             Err(e) => return ClaimResult::Error(format!("Failed to read queue: {}", e)),
@@ -208,76 +370,131 @@ impl QueueOps {
             return ClaimResult::QueueEmpty;
         }
 
-        // Find an available item (unclaimed or stale) that is approved for processing
         let now = now_ms();
-        let mut available_item: Option<(String, QueueItem)> = None;
+        let requires_approval = queue_config.requires_approval;
+        let mut candidates: Vec<String> = items
+            .iter()
+            .filter(|(_, item)| {
+                let is_unclaimed = item.claimed_by.is_none();
+                let is_stale = item
+                    .claimed_at
+                    .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
+                    .unwrap_or(false);
+                (is_unclaimed || is_stale)
+                    && item.is_approved_for_processing(requires_approval)
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
 
-        for (key, item) in items {
-            let is_unclaimed = item.claimed_by.is_none();
-            let is_stale = item.claimed_at
-                .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
-                .unwrap_or(false);
+        if candidates.is_empty() {
+            return ClaimResult::AllClaimed;
+        }
 
-            if (is_unclaimed || is_stale) && item.is_approved_for_processing(queue_config.requires_approval) {
-                available_item = Some((key, item));
-                break;
+        // Deterministic order prevents two orchestrators from deadlock-like
+        // thrashing on the same key sequence.
+        candidates.sort();
+
+        for key in candidates {
+            let item_path = format!("{}/{}", path, key);
+            let worker_id = self.worker_id.clone();
+
+            let outcome = self.db
+                .transaction::<QueueItem, _>(&item_path, move |current| {
+                    let current = current?;
+                    let now = now_ms();
+                    let is_unclaimed = current.claimed_by.is_none();
+                    let is_stale = current
+                        .claimed_at
+                        .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
+                        .unwrap_or(false);
+
+                    if !(is_unclaimed || is_stale) {
+                        return None;
+                    }
+
+                    if !current.is_approved_for_processing(requires_approval) {
+                        return None;
+                    }
+
+                    Some(current.claim(&worker_id))
+                })
+                .await;
+
+            match outcome {
+                Ok(TxOutcome::Committed(claimed)) => return ClaimResult::Claimed(claimed),
+                Ok(TxOutcome::Aborted) => continue,
+                Ok(TxOutcome::ExhaustedRetries) => {
+                    return ClaimResult::Error(format!(
+                        "Too many CAS retries claiming {}",
+                        item_path
+                    ));
+                }
+                Err(e) => return ClaimResult::Error(format!("Failed to claim job: {}", e)),
             }
         }
 
-        let Some((key, item)) = available_item else {
-            return ClaimResult::AllClaimed;
-        };
-
-        // Claim the item
-        let claimed_item = item.claim(&self.worker_id);
-        let item_path = format!("{}/{}", path, key);
-
-        if let Err(e) = self.db.set(&item_path, &claimed_item).await {
-            return ClaimResult::Error(format!("Failed to claim job: {}", e));
-        }
-
-        ClaimResult::Claimed(claimed_item)
+        ClaimResult::AllClaimed
     }
 
-    /// Updates the heartbeat for a claimed job to prevent timeout.
-    pub async fn heartbeat(&self, stage: StageNumber, job_id: &str) -> Result<()> {
+    /// Refreshes the heartbeat, but only if the caller's epoch still matches.
+    ///
+    /// Returns `Ok(false)` when the epoch has changed (the lease has been lost
+    /// to another worker). Callers should stop processing and exit cleanly.
+    pub async fn heartbeat(&self, stage: StageNumber, job_id: &str, epoch: u64) -> Result<bool> {
         let path = queue_item_path(stage, job_id);
-        
-        #[derive(Serialize)]
-        struct HeartbeatUpdate {
-            claimed_at: u64,
-        }
-        
-        self.db.update(&path, &HeartbeatUpdate { claimed_at: now_ms() }).await
+        let outcome = self.db
+            .transaction::<QueueItem, _>(&path, move |current| {
+                let current = current?;
+                if current.epoch != epoch {
+                    return None;
+                }
+                Some(QueueItem {
+                    claimed_at: Some(now_ms()),
+                    ..current
+                })
+            })
+            .await?;
+
+        Ok(matches!(outcome, TxOutcome::Committed(_)))
     }
 
-    /// Releases a job back to the queue by clearing the claim.
-    /// Used when a job needs to be aborted (e.g., during shutdown).
-    pub async fn release_job(&self, stage: StageNumber, job_id: &str) -> Result<()> {
+    /// Releases a claim back to the queue, iff the caller's epoch still matches.
+    pub async fn release_job(&self, stage: StageNumber, job_id: &str, epoch: u64) -> Result<bool> {
         let path = queue_item_path(stage, job_id);
-        
-        #[derive(Serialize)]
-        struct ReleaseUpdate {
-            claimed_by: Option<String>,
-            claimed_at: Option<u64>,
-        }
-        
-        self.db.update(&path, &ReleaseUpdate { 
-            claimed_by: None, 
-            claimed_at: None 
-        }).await
+        let outcome = self.db
+            .transaction::<QueueItem, _>(&path, move |current| {
+                let current = current?;
+                if current.epoch != epoch {
+                    return None;
+                }
+                Some(QueueItem {
+                    claimed_by: None,
+                    claimed_at: None,
+                    ..current
+                })
+            })
+            .await?;
+
+        Ok(matches!(outcome, TxOutcome::Committed(_)))
     }
 
     /// Moves a job to the next stage queue after successful processing.
+    ///
+    /// Returns `Ok(false)` if the lease was lost (epoch drift) — the move does
+    /// not occur and the caller should exit. Verifies the epoch via a CAS
+    /// read before performing the atomic multi-path move.
     pub async fn move_to_next_stage(
         &self,
         current_stage: StageNumber,
         job: &QueueItem,
         output_keys: HashMap<String, String>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
+        let current_path = queue_item_path(current_stage, &job.job_id);
+        if !self.verify_epoch(&current_path, job.epoch).await? {
+            return Ok(false);
+        }
+
         let next = next_stage(current_stage);
-        
-        // Create the item for the next queue, carrying through approval fields
         let mut next_item = QueueItem::new(
             job.job_id.clone(),
             job.user_id.clone(),
@@ -285,20 +502,17 @@ impl QueueOps {
             job.metadata.clone(),
             job.requires_approval,
         );
-        // Preserve the approval decision from the original job
         next_item.approved = job.approved;
 
-        // Build multi-path update: delete from current, add to next
-        let current_path = queue_item_path(current_stage, &job.job_id);
         let next_path = queue_item_path(next, &job.job_id);
 
         let mut updates = HashMap::new();
-        updates.insert(current_path, Value::Null); // Delete from current
-        updates.insert(next_path, serde_json::to_value(&next_item)?); // Add to next
+        updates.insert(current_path, Value::Null);
+        updates.insert(next_path, serde_json::to_value(&next_item)?);
 
         self.db.multi_update(updates).await?;
-        
-        Ok(())
+
+        Ok(true)
     }
 
     /// Moves a job to the finalize queue after successful pipeline completion.
@@ -307,15 +521,21 @@ impl QueueOps {
         current_stage: StageNumber,
         job: &QueueItem,
         output_keys: HashMap<String, String>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
+        let current_path = queue_item_path(current_stage, &job.job_id);
+        if !self.verify_epoch(&current_path, job.epoch).await? {
+            return Ok(false);
+        }
+
         let finalize_item = FinalizeQueueItem::success(
             job.job_id.clone(),
             job.user_id.clone(),
             output_keys,
             job.metadata.clone(),
+            job.requires_approval,
+            job.approved,
         );
 
-        let current_path = queue_item_path(current_stage, &job.job_id);
         let finalize_path = queue_item_path(StageNumber::Stage7Finalize, &job.job_id);
 
         let mut updates = HashMap::new();
@@ -323,8 +543,8 @@ impl QueueOps {
         updates.insert(finalize_path, serde_json::to_value(&finalize_item)?);
 
         self.db.multi_update(updates).await?;
-        
-        Ok(())
+
+        Ok(true)
     }
 
     /// Moves a job to the finalize queue after a stage failure.
@@ -334,7 +554,12 @@ impl QueueOps {
         job: &QueueItem,
         error: String,
         error_logs: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
+        let current_path = queue_item_path(current_stage, &job.job_id);
+        if !self.verify_epoch(&current_path, job.epoch).await? {
+            return Ok(false);
+        }
+
         let finalize_item = FinalizeQueueItem::failure(
             job.job_id.clone(),
             job.user_id.clone(),
@@ -344,7 +569,6 @@ impl QueueOps {
             job.metadata.clone(),
         );
 
-        let current_path = queue_item_path(current_stage, &job.job_id);
         let finalize_path = queue_item_path(StageNumber::Stage7Finalize, &job.job_id);
 
         let mut updates = HashMap::new();
@@ -352,14 +576,32 @@ impl QueueOps {
         updates.insert(finalize_path, serde_json::to_value(&finalize_item)?);
 
         self.db.multi_update(updates).await?;
-        
-        Ok(())
+
+        Ok(true)
     }
 
-    /// Claims a job from the finalize queue.
+    /// Returns true iff the item at `path` still carries `expected_epoch`.
+    /// Used before multi-path moves where per-path CAS is not available.
+    async fn verify_epoch(&self, path: &str, expected_epoch: u64) -> Result<bool> {
+        let (current, _etag) = self.db.get_with_etag::<QueueItem>(path).await?;
+        Ok(matches!(current, Some(item) if item.epoch == expected_epoch))
+    }
+
+    /// Claims a job from the finalize queue via per-path CAS transaction.
+    /// Honors `queue_config/stage_7.requires_approval` — parity with claim_job.
     pub async fn claim_finalize_job(&self) -> ClaimResult<FinalizeQueueItem> {
         let path = queue_path(StageNumber::Stage7Finalize);
-        
+
+        let config_path = queue_config_path(StageNumber::Stage7Finalize);
+        let queue_config: QueueConfig = match self.db.get(&config_path).await {
+            Ok(Some(cfg)) => cfg,
+            Ok(None) => QueueConfig::default(),
+            Err(e) => {
+                eprintln!("Warning: failed to read queue config at {}: {}", config_path, e);
+                QueueConfig::default()
+            }
+        };
+
         let items: Option<HashMap<String, FinalizeQueueItem>> = match self.db.get(&path).await {
             Ok(items) => items,
             Err(e) => return ClaimResult::Error(format!("Failed to read finalize queue: {}", e)),
@@ -374,43 +616,219 @@ impl QueueOps {
         }
 
         let now = now_ms();
-        let mut available_item: Option<(String, FinalizeQueueItem)> = None;
+        let requires_approval = queue_config.requires_approval;
+        let mut candidates: Vec<String> = items
+            .iter()
+            .filter(|(_, item)| {
+                let is_unclaimed = item.claimed_by.is_none();
+                let is_stale = item
+                    .claimed_at
+                    .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
+                    .unwrap_or(false);
+                (is_unclaimed || is_stale)
+                    && item.is_approved_for_processing(requires_approval)
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
 
-        for (key, item) in items {
-            let is_unclaimed = item.claimed_by.is_none();
-            let is_stale = item.claimed_at
-                .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
-                .unwrap_or(false);
+        if candidates.is_empty() {
+            return ClaimResult::AllClaimed;
+        }
 
-            if is_unclaimed || is_stale {
-                available_item = Some((key, item));
-                break;
+        candidates.sort();
+
+        for key in candidates {
+            let item_path = format!("{}/{}", path, key);
+            let worker_id = self.worker_id.clone();
+
+            let outcome = self.db
+                .transaction::<FinalizeQueueItem, _>(&item_path, move |current| {
+                    let current = current?;
+                    let now = now_ms();
+                    let is_unclaimed = current.claimed_by.is_none();
+                    let is_stale = current
+                        .claimed_at
+                        .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
+                        .unwrap_or(false);
+
+                    if !(is_unclaimed || is_stale) {
+                        return None;
+                    }
+
+                    if !current.is_approved_for_processing(requires_approval) {
+                        return None;
+                    }
+
+                    Some(current.claim(&worker_id))
+                })
+                .await;
+
+            match outcome {
+                Ok(TxOutcome::Committed(claimed)) => return ClaimResult::Claimed(claimed),
+                Ok(TxOutcome::Aborted) => continue,
+                Ok(TxOutcome::ExhaustedRetries) => {
+                    return ClaimResult::Error(format!(
+                        "Too many CAS retries claiming finalize {}",
+                        item_path
+                    ));
+                }
+                Err(e) => {
+                    return ClaimResult::Error(format!("Failed to claim finalize job: {}", e))
+                }
             }
         }
 
-        let Some((key, item)) = available_item else {
-            return ClaimResult::AllClaimed;
-        };
-
-        // Claim it
-        let claimed_item = FinalizeQueueItem {
-            claimed_by: Some(self.worker_id.clone()),
-            claimed_at: Some(now_ms()),
-            ..item
-        };
-        
-        let item_path = format!("{}/{}", path, key);
-        if let Err(e) = self.db.set(&item_path, &claimed_item).await {
-            return ClaimResult::Error(format!("Failed to claim finalize job: {}", e));
-        }
-
-        ClaimResult::Claimed(claimed_item)
+        ClaimResult::AllClaimed
     }
 
     /// Removes a completed job from the finalize queue.
     pub async fn complete_finalize(&self, job_id: &str) -> Result<()> {
         let path = queue_item_path(StageNumber::Stage7Finalize, job_id);
         self.db.delete(&path).await
+    }
+
+    /// Reads the current job-generation epoch. Returns 0 if no coordination
+    /// record exists yet (the job has never been rerun).
+    pub async fn read_job_epoch(&self, user_id: &str, job_key: &str) -> Result<u64> {
+        let path = job_coordination_path(user_id, job_key);
+        let coord: Option<JobCoordination> = self.db.get(&path).await?;
+        Ok(coord.map(|c| c.epoch).unwrap_or(0))
+    }
+
+    /// Attempts to acquire an exclusive advisory lease on a job.
+    ///
+    /// On success the returned `lease_id` must be passed back to
+    /// `release_job_lease` / `bump_job_epoch` — it is the fencing token
+    /// that distinguishes this holder from any subsequent one. Returns
+    /// `Ok(None)` if another caller holds an unexpired lease.
+    pub async fn try_acquire_job_lease(
+        &self,
+        user_id: &str,
+        job_key: &str,
+        ttl_ms: u64,
+    ) -> Result<Option<String>> {
+        let path = job_coordination_path(user_id, job_key);
+        let lease_id = format!("{}_{}", self.worker_id, now_ms());
+        let lease_id_for_tx = lease_id.clone();
+
+        let outcome = self
+            .db
+            .transaction::<JobCoordination, _>(&path, move |current| {
+                let now = now_ms();
+                let (epoch, can_take) = match &current {
+                    Some(c) => {
+                        let held = matches!(
+                            (&c.lease_holder, c.lease_expires_at),
+                            (Some(_), Some(exp)) if exp > now,
+                        );
+                        (c.epoch, !held)
+                    }
+                    None => (0, true),
+                };
+                if !can_take {
+                    return None;
+                }
+                Some(JobCoordination {
+                    epoch,
+                    lease_holder: Some(lease_id_for_tx.clone()),
+                    lease_expires_at: Some(now + ttl_ms),
+                })
+            })
+            .await?;
+
+        match outcome {
+            TxOutcome::Committed(_) => Ok(Some(lease_id)),
+            TxOutcome::Aborted | TxOutcome::ExhaustedRetries => Ok(None),
+        }
+    }
+
+    /// Releases a held lease. Silently no-ops if the lease has already
+    /// expired or been taken over by another holder — both are benign.
+    pub async fn release_job_lease(
+        &self,
+        user_id: &str,
+        job_key: &str,
+        lease_id: &str,
+    ) -> Result<()> {
+        let path = job_coordination_path(user_id, job_key);
+        let lease_id = lease_id.to_string();
+        let _ = self
+            .db
+            .transaction::<JobCoordination, _>(&path, move |current| {
+                let c = current?;
+                if c.lease_holder.as_deref() != Some(&lease_id) {
+                    return None;
+                }
+                Some(JobCoordination {
+                    epoch: c.epoch,
+                    lease_holder: None,
+                    lease_expires_at: None,
+                })
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Increments the job epoch. Must be called while still holding the
+    /// lease; if the lease has been lost the bump is refused.
+    pub async fn bump_job_epoch(
+        &self,
+        user_id: &str,
+        job_key: &str,
+        lease_id: &str,
+    ) -> Result<u64> {
+        let path = job_coordination_path(user_id, job_key);
+        let owned = lease_id.to_string();
+        let for_tx = owned.clone();
+        let outcome = self
+            .db
+            .transaction::<JobCoordination, _>(&path, move |current| {
+                let c = current.unwrap_or_default();
+                if c.lease_holder.as_deref() != Some(&for_tx) {
+                    return None;
+                }
+                Some(JobCoordination {
+                    epoch: c.epoch + 1,
+                    lease_holder: c.lease_holder,
+                    lease_expires_at: c.lease_expires_at,
+                })
+            })
+            .await?;
+
+        match outcome {
+            TxOutcome::Committed(c) => Ok(c.epoch),
+            TxOutcome::Aborted => {
+                anyhow::bail!("bump_job_epoch refused: lease {} no longer held", owned)
+            }
+            TxOutcome::ExhaustedRetries => {
+                anyhow::bail!("bump_job_epoch: CAS retries exhausted for {}/{}", user_id, job_key)
+            }
+        }
+    }
+
+    /// CAS-claims the exclusive right to send the result email for a job.
+    ///
+    /// Returns `Ok(Some(dedup_id))` if the marker was written and the caller
+    /// should send the email; `Ok(None)` if another worker already claimed it.
+    /// The returned `dedup_id` is opaque and suitable for SES MessageTag use.
+    pub async fn try_claim_email_send(
+        &self,
+        user_id: &str,
+        job_key: &str,
+        outcome: &str,
+    ) -> Result<Option<String>> {
+        let path = result_notification_path(user_id, job_key);
+        let dedup_id = format!("{}_{}_{}", user_id, job_key, outcome);
+        let marker = EmailNotificationMarker {
+            sent_at: now_ms(),
+            sent_by: self.worker_id.clone(),
+            outcome: outcome.to_string(),
+            dedup_id: Some(dedup_id.clone()),
+        };
+        match self.db.put_if_match(&path, &marker, NULL_ETAG).await? {
+            CasResult::Ok => Ok(Some(dedup_id)),
+            CasResult::PreconditionFailed => Ok(None),
+        }
     }
 
     /// Updates the job status directly in Firebase RTDB.
@@ -630,21 +1048,31 @@ impl<W: StageWorker> WorkerRunner<W> {
         self.update_job_status(&job.job_id, JobStatus::processing(stage_num)).await;
         self.update_stage_status(&job.job_id, stage_num, StageStatus::Running).await;
 
-        // Spawn heartbeat task for long-running jobs
         let heartbeat_db = self.queue_ops.db.clone();
         let heartbeat_worker_id = self.worker_id.clone();
         let heartbeat_job_id = job.job_id.clone();
         let heartbeat_stage = stage;
+        let heartbeat_epoch = job.epoch;
         let heartbeat_shutdown = self.shutdown_token.child_token();
-        
+
         let heartbeat_handle = tokio::spawn(async move {
             let ops = QueueOps::new(heartbeat_db, heartbeat_worker_id);
             loop {
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(HEARTBEAT_INTERVAL_SECS)) => {
-                        if let Err(e) = ops.heartbeat(heartbeat_stage, &heartbeat_job_id).await {
-                            eprintln!("Heartbeat failed: {:?}", e);
-                            break;
+                        match ops.heartbeat(heartbeat_stage, &heartbeat_job_id, heartbeat_epoch).await {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                eprintln!(
+                                    "Heartbeat aborted: lease lost for job {} (epoch {})",
+                                    heartbeat_job_id, heartbeat_epoch
+                                );
+                                break;
+                            }
+                            Err(e) => {
+                                eprintln!("Heartbeat failed: {:?}", e);
+                                break;
+                            }
                         }
                     }
                     _ = heartbeat_shutdown.cancelled() => {
@@ -654,7 +1082,6 @@ impl<W: StageWorker> WorkerRunner<W> {
             }
         });
 
-        // Process the job with cancellation support
         let process_result = tokio::select! {
             result = self.worker.process(&job) => result,
             _ = self.shutdown_token.cancelled() => {
@@ -662,12 +1089,13 @@ impl<W: StageWorker> WorkerRunner<W> {
                     "[{}] Job {} processing cancelled due to shutdown",
                     self.worker_id, job.job_id
                 );
-                // Cancel heartbeat
                 heartbeat_handle.abort();
-                
-                // Release the job back to the queue by removing claim
-                let _ = self.queue_ops.release_job(stage, &job.job_id).await;
-                
+                if let Err(e) = self.queue_ops.release_job(stage, &job.job_id, job.epoch).await {
+                    eprintln!(
+                        "[{}] Failed to release claim on job {} during shutdown: {:?} — reclaim via TTL",
+                        self.worker_id, job.job_id, e
+                    );
+                }
                 return Ok(false);
             }
         };
@@ -689,18 +1117,23 @@ impl<W: StageWorker> WorkerRunner<W> {
                 // Mark this stage as complete
                 self.update_stage_status(&job.job_id, stage_num, StageStatus::Complete).await;
 
-                // Check if this is the last processing stage (stage 6)
-                // Stage 7 is finalize, so stage 6 sends to finalize on success
-                if stage == StageNumber::Stage6Prediction {
+                // Stage 7 is finalize, so stage 6 sends to finalize on success.
+                let moved = if stage == StageNumber::Stage6Prediction {
                     self.queue_ops
                         .move_to_finalize_success(stage, &job, output_keys)
                         .await
-                        .context("Failed to move job to finalize queue")?;
+                        .context("Failed to move job to finalize queue")?
                 } else {
                     self.queue_ops
                         .move_to_next_stage(stage, &job, output_keys)
                         .await
-                        .context("Failed to move job to next stage")?;
+                        .context("Failed to move job to next stage")?
+                };
+                if !moved {
+                    eprintln!(
+                        "[{}] Job {} (epoch {}): lease lost before move; successor will complete it",
+                        self.worker_id, job.job_id, job.epoch
+                    );
                 }
             }
             ProcessingResult::Failure { error, logs, duration_ms } => {
@@ -709,17 +1142,20 @@ impl<W: StageWorker> WorkerRunner<W> {
                     self.worker_id, job.job_id, duration_ms, error
                 );
 
-                // Upload stage logs to Firebase RTDB
                 self.upload_stage_logs(&job.job_id, stage_num, &logs).await;
-                
-                // Mark this stage as errored and update job status
                 self.update_stage_status(&job.job_id, stage_num, StageStatus::Error).await;
                 self.update_job_status(&job.job_id, JobStatus::error(logs.clone())).await;
 
-                self.queue_ops
+                let moved = self.queue_ops
                     .move_to_finalize_failure(stage, &job, error, Some(logs))
                     .await
                     .context("Failed to move job to finalize queue")?;
+                if !moved {
+                    eprintln!(
+                        "[{}] Job {} (epoch {}): lease lost before failure move; successor will handle",
+                        self.worker_id, job.job_id, job.epoch
+                    );
+                }
             }
         }
 
@@ -896,25 +1332,40 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
     let db = FirebaseRtdb::from_env()?;
     let queue_ops = QueueOps::new(db.clone(), format!("job-{}", job.job_id));
 
-    // Update job status to Processing
+    // Update job status to Processing. These writes are best-effort: a stuck
+    // status is cosmetic compared to a failed stage run, so we log and proceed
+    // rather than aborting the stage for a transient write failure.
     if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
-        let _ = queue_ops.update_job_status(&user_id, &job_index, &JobStatus::processing(stage_num)).await;
-        let _ = queue_ops.update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Running).await;
+        if let Err(e) = queue_ops
+            .update_job_status(&user_id, &job_index, &JobStatus::processing(stage_num))
+            .await
+        {
+            eprintln!(
+                "[job-mode] Failed to mark job {} as Processing: {:?}",
+                job.job_id, e
+            );
+        }
+        if let Err(e) = queue_ops
+            .update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Running)
+            .await
+        {
+            eprintln!(
+                "[job-mode] Failed to mark stage {} Running for {}: {:?}",
+                stage_num, job.job_id, e
+            );
+        }
     }
 
-    // Process the job
+    let job_epoch: u64 = std::env::var("IGAIT_JOB_EPOCH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
     let process_result = worker.process(&job).await;
 
-    // Build the JobResult
     let job_result = match &process_result {
         ProcessingResult::Success { output_keys, logs, duration_ms } => {
             println!("[job-mode] Job {} completed successfully in {}ms", job.job_id, duration_ms);
-
-            // Update stage status
-            if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
-                let _ = queue_ops.update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Complete).await;
-                let _ = queue_ops.update_stage_logs(&user_id, &job_index, stage_num, logs).await;
-            }
 
             JobResult {
                 stage: stage_num,
@@ -929,17 +1380,14 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
                 input_keys: job.input_keys.clone(),
                 requires_approval: job.requires_approval,
                 approved: job.approved,
+                epoch: job.epoch,
+                job_epoch,
+                taken_by: None,
+                taken_at: None,
             }
         }
         ProcessingResult::Failure { error, logs, duration_ms } => {
             eprintln!("[job-mode] Job {} failed after {}ms: {}", job.job_id, duration_ms, error);
-
-            // Update stage status
-            if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
-                let _ = queue_ops.update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Error).await;
-                let _ = queue_ops.update_job_status(&user_id, &job_index, &JobStatus::error(logs.clone())).await;
-                let _ = queue_ops.update_stage_logs(&user_id, &job_index, stage_num, logs).await;
-            }
 
             JobResult {
                 stage: stage_num,
@@ -954,6 +1402,10 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
                 input_keys: job.input_keys.clone(),
                 requires_approval: job.requires_approval,
                 approved: job.approved,
+                epoch: job.epoch,
+                job_epoch,
+                taken_by: None,
+                taken_at: None,
             }
         }
     };

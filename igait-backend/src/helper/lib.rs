@@ -449,7 +449,11 @@ pub struct AppState {
     pub email_client: EmailClient,
     pub openai_client: Client<OpenAIConfig>,
     pub openai_assistant: Option<AssistantObject>,
-    pub firebase_auth: FirebaseAuth
+    pub firebase_auth: FirebaseAuth,
+    /// Optional handle to the K8s Job orchestrator. Present iff ENABLE_ORCHESTRATOR=true
+    /// and initialisation succeeded. Routes that need to cancel in-flight K8s Jobs
+    /// (e.g., rerun) read through this.
+    pub orchestrator: tokio::sync::RwLock<Option<Arc<super::orchestrator::Orchestrator>>>,
 }
 impl AppState {
     /// Initializes the application state with database, storage, and service clients.
@@ -513,7 +517,8 @@ impl AppState {
             email_client,
             openai_client: client,
             openai_assistant: assistant,
-            firebase_auth
+            firebase_auth,
+            orchestrator: tokio::sync::RwLock::new(None),
         })
     }
 }

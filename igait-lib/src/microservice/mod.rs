@@ -11,6 +11,9 @@ mod backend_status;
 #[cfg(feature = "microservice")]
 mod worker;
 
+#[cfg(feature = "microservice")]
+mod retry;
+
 #[cfg(feature = "email")]
 mod email;
 
@@ -21,6 +24,9 @@ pub use backend_status::*;
 
 #[cfg(feature = "microservice")]
 pub use worker::*;
+
+#[cfg(feature = "microservice")]
+pub use retry::*;
 
 #[cfg(feature = "email")]
 pub use email::*;

@@ -17,7 +17,6 @@ use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub const ASD_CLASSIFICATION_THRESHOLD: f32 = 0.5;
-pub const DISABLE_RESULT_EMAIL: bool = true;
 
 /// The main entrypoint for the iGait backend.
 /// 
@@ -90,6 +89,7 @@ async fn main() -> Result<()> {
         match Orchestrator::new().await {
             Ok(orch) => {
                 let orch = Arc::new(orch);
+                *state.orchestrator.write().await = Some(orch.clone());
                 tokio::spawn(orchestrator::orchestration_loop(orch.clone()));
                 tokio::spawn(orchestrator::completion_monitor_loop(orch));
                 info!("Orchestrator loops spawned");

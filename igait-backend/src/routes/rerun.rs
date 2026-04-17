@@ -14,11 +14,22 @@ use firebase_auth::FirebaseUser;
 use serde::{Deserialize, Serialize};
 
 use igait_lib::microservice::{
-    JobMetadata, QueueItem, StageNumber, StageStatus, StoragePaths,
+    JobMetadata, QueueItem, QueueOps, StageNumber, StageStatus, StoragePaths,
     FirebaseRtdb, queue_item_path,
 };
+use tracing::{info, instrument, warn};
 
 use crate::helper::lib::{AppError, AppStatePtr, JobStatus, NUM_STAGES};
+
+/// Lease TTL for the rerun mutation phase. This guards the *handler's*
+/// work — cancel K8s Jobs, bump epoch, S3 cleanup, write new queue item —
+/// NOT the subsequent multi-hour stage processing. Stage-processing races
+/// are handled by the epoch comparison in the orchestrator, not the lease.
+///
+/// Five minutes is generous for even pathological S3 cleanup fan-out and
+/// short enough that a crashed rerun process can't block future admins
+/// for long.
+const RERUN_LEASE_TTL_MS: u64 = 5 * 60 * 1000;
 
 /// Request body for the rerun endpoint.
 #[derive(Debug, Deserialize)]
@@ -59,6 +70,12 @@ pub struct RerunResponse {
 /// * `current_user` – The Firebase-authenticated user (extracted from Bearer token).
 /// * `app` – The shared application state.
 /// * `request` – JSON body with `user_id`, `job_key`, and `stage`.
+#[instrument(skip(current_user, app), fields(
+    caller_uid = %current_user.user_id,
+    target_uid = %request.user_id,
+    job_key = %request.job_key,
+    stage = request.stage,
+))]
 pub async fn rerun_entrypoint(
     current_user: FirebaseUser,
     State(app): State<AppStatePtr>,
@@ -108,49 +125,122 @@ pub async fn rerun_entrypoint(
         .context("Failed to fetch the job — does it exist?")?;
 
     let job_id = format!("{}_{}", target_uid, job_key);
-    println!("Rerun requested by admin {}: job={}, stage={}", caller_uid, job_id, stage);
+    info!(%job_id, "rerun requested by admin");
 
-    // ── 3. Delete S3 outputs for stages `stage..=7` ─────────────────
+    let rtdb = FirebaseRtdb::from_env()
+        .context("Failed to initialise Firebase RTDB client")?;
+    let queue_ops = QueueOps::new(rtdb.clone(), format!("rerun_{}", caller_uid));
+
+    // ── 2a. Acquire job lease ───────────────────────────────────────
+    let lease_id = queue_ops
+        .try_acquire_job_lease(target_uid, job_key, RERUN_LEASE_TTL_MS)
+        .await
+        .context("Failed to probe for job lease")?
+        .ok_or_else(|| anyhow!(
+            "Another rerun is in progress for {}_{} — try again shortly",
+            target_uid, job_key
+        ))?;
+
+    let result = run_rerun_under_lease(
+        app.clone(),
+        rtdb.clone(),
+        &queue_ops,
+        &lease_id,
+        target_uid,
+        job_key,
+        &job_id,
+        stage,
+        target_stage,
+        job,
+    )
+    .await;
+
+    if let Err(e) = queue_ops.release_job_lease(target_uid, job_key, &lease_id).await {
+        warn!(
+            lease_id = %lease_id,
+            ttl_ms = RERUN_LEASE_TTL_MS,
+            "failed to release rerun lease: {:?} — lease will TTL",
+            e
+        );
+    }
+
+    let total_deleted = result?;
+
+    Ok(Json(RerunResponse {
+        success: true,
+        message: format!(
+            "Job {} is being re-processed from stage {} ({}).",
+            job_id,
+            stage,
+            target_stage.name()
+        ),
+        objects_deleted: total_deleted,
+    }))
+}
+
+/// Executes the mutating portion of a rerun while the caller holds the lease.
+/// Factored out so the outer function can release the lease on every path.
+#[allow(clippy::too_many_arguments)]
+#[instrument(skip_all, fields(job_id = %job_id, stage = stage, lease_id = %lease_id))]
+async fn run_rerun_under_lease(
+    app: std::sync::Arc<crate::helper::lib::AppState>,
+    rtdb: FirebaseRtdb,
+    queue_ops: &QueueOps,
+    lease_id: &str,
+    target_uid: &str,
+    job_key: &str,
+    job_id: &str,
+    stage: u8,
+    target_stage: StageNumber,
+    job: crate::helper::lib::Job,
+) -> Result<usize, AppError> {
+    // ── 3. Cancel any still-running K8s Jobs for this job_id ────────
+    // The epoch bump below is the correctness guarantee; this is the
+    // proactive best-effort cancel that avoids wasted compute.
+    if let Some(orch) = app.orchestrator.read().await.clone() {
+        match orch.cancel_in_flight_jobs(job_id).await {
+            Ok(n) if n > 0 => info!(cancelled = n, "cancelled in-flight K8s Jobs"),
+            Ok(_) => {}
+            Err(e) => warn!("cancel_in_flight_jobs failed: {:?}", e),
+        }
+    }
+
+    // ── 4. Bump job epoch — orchestrator now rejects any straggler
+    //       JobResult stamped with the old epoch.
+    let new_epoch = queue_ops
+        .bump_job_epoch(target_uid, job_key, lease_id)
+        .await
+        .context("Failed to bump job epoch")?;
+    info!(new_epoch, "bumped job epoch");
+
+    // ── 5. Delete S3 outputs for stages `stage..=7` ────────────────
     let mut total_deleted: usize = 0;
     for s in stage..=NUM_STAGES {
-        let prefix = StoragePaths::stage_dir(&job_id, s);
+        let prefix = StoragePaths::stage_dir(job_id, s);
         let deleted = app
             .storage
             .delete_by_prefix(&prefix)
             .await
             .context(format!("Failed to delete S3 objects for stage {}", s))?;
-        println!("Deleted {} object(s) from {}", deleted, prefix);
+        info!(deleted, prefix = %prefix, "deleted S3 objects for stage");
         total_deleted += deleted;
     }
 
-    // ── 3b. Clear stage logs for stages `stage..=7` ─────────────────
-    let rtdb_for_logs = FirebaseRtdb::from_env()
-        .context("Failed to initialise Firebase RTDB client for log cleanup")?;
+    // ── 6. Clear stage logs + reset stage statuses for `stage..=7` ──
     for s in stage..=NUM_STAGES {
         let log_path = format!("users/{}/jobs/{}/stage_logs/stage_{}", target_uid, job_key, s);
-        rtdb_for_logs.delete(&log_path)
+        rtdb.delete(&log_path)
             .await
             .context(format!("Failed to delete logs for stage {}", s))?;
-        println!("Cleared logs for stage {}", s);
-    }
-
-    // ── 3c. Reset stage statuses for stages `stage..=7` ────────────
-    for s in stage..=NUM_STAGES {
         let status_path = format!("users/{}/jobs/{}/stage_statuses/stage_{}", target_uid, job_key, s);
-        rtdb_for_logs.set(&status_path, &StageStatus::NotStarted)
+        rtdb.set(&status_path, &StageStatus::NotStarted)
             .await
             .context(format!("Failed to reset stage status for stage {}", s))?;
-        println!("Reset stage status for stage {}", s);
     }
 
-    // ── 4. Build input keys for the target stage ────────────────────
-    // The target stage reads from the *previous* stage's output directory.
-    // For stage 1 the inputs are the original uploads (stage_0).
-    let input_keys = build_input_keys(&job_id, stage);
+    // ── 7. Build a fresh QueueItem and write it to the target queue ─
+    let input_keys = build_input_keys(job_id, stage);
 
-    // Build metadata from the job record
-    // If the job has video_edit flags and we're re-running from stage 1,
-    // include them in metadata.extra so Stage 1 can apply the transforms.
     let mut extra = HashMap::new();
     if stage == 1 {
         if let Some(ref video_edit) = job.video_edit {
@@ -171,28 +261,21 @@ pub async fn rerun_entrypoint(
     };
 
     let mut queue_item = QueueItem::new(
-        job_id.clone(),
+        job_id.to_string(),
         target_uid.to_string(),
         input_keys,
         metadata,
         job.requires_approval,
     );
-
-    // Admin-initiated rerun: mark as approved immediately (admin check performed above at line 74-86)
     queue_item.approved = true;
 
-    // ── 5. Push into the target stage's queue ───────────────────────
-    let rtdb = FirebaseRtdb::from_env()
-        .context("Failed to initialise Firebase RTDB client")?;
-
-    let path = queue_item_path(target_stage, &job_id);
+    let path = queue_item_path(target_stage, job_id);
     rtdb.set(&path, &queue_item)
         .await
         .context("Failed to push job to the target stage queue")?;
+    info!("pushed job to target stage queue");
 
-    println!("Job {} pushed to stage {} queue", job_id, stage);
-
-    // ── 6. Update job status ────────────────────────────────────────
+    // ── 8. Update user-visible job status to Processing for this stage
     let status = JobStatus::processing(stage);
     app.db
         .lock()
@@ -201,16 +284,7 @@ pub async fn rerun_entrypoint(
         .await
         .context("Failed to update job status")?;
 
-    Ok(Json(RerunResponse {
-        success: true,
-        message: format!(
-            "Job {} is being re-processed from stage {} ({}).",
-            job_id,
-            stage,
-            target_stage.name()
-        ),
-        objects_deleted: total_deleted,
-    }))
+    Ok(total_deleted)
 }
 
 /// Builds the `input_keys` map for the target stage.

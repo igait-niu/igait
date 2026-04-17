@@ -2,10 +2,10 @@
 
 /**
  * Sex options for job submission.
- *
+ * 
  * # Variants
  * * `M` - Male
  * * `F` - Female
  * * `O` - Other
  */
-export type Sex = 'M' | 'F' | 'O';
+export type Sex = "M" | "F" | "O";
