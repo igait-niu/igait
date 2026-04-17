@@ -32,7 +32,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 /// The K8s namespace where pipeline Jobs are created.
 const NAMESPACE: &str = "igait";
@@ -222,6 +222,7 @@ impl Orchestrator {
     }
 
     /// Creates a K8s Job for a standard processing stage (1-6).
+    #[instrument(skip_all, fields(stage = stage.as_u8(), job_id = %job.job_id, epoch = job.epoch))]
     async fn create_stage_job(&self, stage: StageNumber, job: &QueueItem) -> Result<String> {
         let image = self.stage_images.get(&stage)
             .ok_or_else(|| anyhow::anyhow!("No image configured for stage {}", stage.as_u8()))?;
@@ -255,6 +256,7 @@ impl Orchestrator {
     }
 
     /// Creates a K8s Job for the finalize stage (stage 7).
+    #[instrument(skip_all, fields(stage = 7, job_id = %job.job_id))]
     async fn create_finalize_job(&self, job: &FinalizeQueueItem) -> Result<String> {
         let stage = StageNumber::Stage7Finalize;
         let image = self.stage_images.get(&stage)
@@ -403,6 +405,7 @@ impl Orchestrator {
     }
 
     /// Attempts to claim and dispatch a job for a standard stage (1-6).
+    #[instrument(skip(self), fields(stage = stage.as_u8(), orchestrator_id = %self.orchestrator_id))]
     async fn poll_and_dispatch_stage(&self, stage: StageNumber) -> Result<bool> {
         let queue_ops = QueueOps::new(self.rtdb.clone(), "orchestrator".to_string());
 
@@ -444,6 +447,7 @@ impl Orchestrator {
     }
 
     /// Attempts to claim and dispatch a finalize job (stage 7).
+    #[instrument(skip(self), fields(stage = 7, orchestrator_id = %self.orchestrator_id))]
     async fn poll_and_dispatch_finalize(&self) -> Result<bool> {
         let queue_ops = QueueOps::new(self.rtdb.clone(), "orchestrator".to_string());
 
@@ -476,6 +480,7 @@ impl Orchestrator {
     /// CAS-claims a JobResult so only one orchestrator replica processes it.
     /// Returns `Ok(None)` if already taken by another replica within the stale window,
     /// or if a concurrent replica beat us to the CAS write.
+    #[instrument(skip(self), fields(job_id = %safe_job_id, orchestrator_id = %self.orchestrator_id))]
     async fn try_take_completion_result(&self, safe_job_id: &str) -> Result<Option<JobResult>> {
         let path = format!("job_results/{}", safe_job_id);
         let (current, etag) = self.rtdb.get_with_etag::<JobResult>(&path).await?;
@@ -500,6 +505,7 @@ impl Orchestrator {
     }
 
     /// Checks `job_results/` in Firebase RTDB for completed results and handles transitions.
+    #[instrument(skip(self))]
     async fn check_completions(&self) -> Result<()> {
         let results: Option<HashMap<String, JobResult>> = self.rtdb.get("job_results").await
             .context("Failed to read job_results from RTDB")?;
@@ -580,6 +586,12 @@ impl Orchestrator {
     /// the per-stage logs, and (where applicable) the top-level job status.
     /// Either the whole transition commits or none of it does, which eliminates
     /// the "queue advanced but status stayed Running" class of stale-state bug.
+    #[instrument(skip_all, fields(
+        job_id = %result.job_id,
+        stage = stage_num,
+        epoch = result.job_epoch,
+        success = result.success,
+    ))]
     async fn apply_completion_transition(
         &self,
         result: &JobResult,
@@ -715,6 +727,7 @@ impl Orchestrator {
     /// a still-running stage can't finish and contaminate the rerun with a
     /// stale result. The epoch bump is the ultimate safety net; this is the
     /// proactive "please stop now" that avoids the wasted compute.
+    #[instrument(skip(self), fields(job_id = %job_id))]
     pub async fn cancel_in_flight_jobs(&self, job_id: &str) -> Result<usize> {
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
         let lp = ListParams::default()
@@ -764,6 +777,7 @@ impl Orchestrator {
     }
 
     /// Checks for stale K8s Jobs that have failed/timed out without writing a result.
+    #[instrument(skip(self))]
     async fn check_stale_jobs(&self) -> Result<()> {
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
         let lp = ListParams::default()

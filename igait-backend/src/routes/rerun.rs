@@ -17,6 +17,7 @@ use igait_lib::microservice::{
     JobMetadata, QueueItem, QueueOps, StageNumber, StageStatus, StoragePaths,
     FirebaseRtdb, queue_item_path,
 };
+use tracing::{info, instrument, warn};
 
 use crate::helper::lib::{AppError, AppStatePtr, JobStatus, NUM_STAGES};
 
@@ -69,6 +70,12 @@ pub struct RerunResponse {
 /// * `current_user` – The Firebase-authenticated user (extracted from Bearer token).
 /// * `app` – The shared application state.
 /// * `request` – JSON body with `user_id`, `job_key`, and `stage`.
+#[instrument(skip(current_user, app), fields(
+    caller_uid = %current_user.user_id,
+    target_uid = %request.user_id,
+    job_key = %request.job_key,
+    stage = request.stage,
+))]
 pub async fn rerun_entrypoint(
     current_user: FirebaseUser,
     State(app): State<AppStatePtr>,
@@ -118,7 +125,7 @@ pub async fn rerun_entrypoint(
         .context("Failed to fetch the job — does it exist?")?;
 
     let job_id = format!("{}_{}", target_uid, job_key);
-    println!("Rerun requested by admin {}: job={}, stage={}", caller_uid, job_id, stage);
+    info!(%job_id, "rerun requested by admin");
 
     let rtdb = FirebaseRtdb::from_env()
         .context("Failed to initialise Firebase RTDB client")?;
@@ -149,9 +156,11 @@ pub async fn rerun_entrypoint(
     .await;
 
     if let Err(e) = queue_ops.release_job_lease(target_uid, job_key, &lease_id).await {
-        eprintln!(
-            "Warning: failed to release rerun lease for {}_{} ({}): {:?} — lease will TTL in {}ms",
-            target_uid, job_key, lease_id, e, RERUN_LEASE_TTL_MS
+        warn!(
+            lease_id = %lease_id,
+            ttl_ms = RERUN_LEASE_TTL_MS,
+            "failed to release rerun lease: {:?} — lease will TTL",
+            e
         );
     }
 
@@ -172,6 +181,7 @@ pub async fn rerun_entrypoint(
 /// Executes the mutating portion of a rerun while the caller holds the lease.
 /// Factored out so the outer function can release the lease on every path.
 #[allow(clippy::too_many_arguments)]
+#[instrument(skip_all, fields(job_id = %job_id, stage = stage, lease_id = %lease_id))]
 async fn run_rerun_under_lease(
     app: std::sync::Arc<crate::helper::lib::AppState>,
     rtdb: FirebaseRtdb,
@@ -189,11 +199,9 @@ async fn run_rerun_under_lease(
     // proactive best-effort cancel that avoids wasted compute.
     if let Some(orch) = app.orchestrator.read().await.clone() {
         match orch.cancel_in_flight_jobs(job_id).await {
-            Ok(n) if n > 0 => println!("Cancelled {} in-flight K8s Job(s) for {}", n, job_id),
+            Ok(n) if n > 0 => info!(cancelled = n, "cancelled in-flight K8s Jobs"),
             Ok(_) => {}
-            Err(e) => {
-                eprintln!("Warning: cancel_in_flight_jobs failed for {}: {:?}", job_id, e);
-            }
+            Err(e) => warn!("cancel_in_flight_jobs failed: {:?}", e),
         }
     }
 
@@ -203,7 +211,7 @@ async fn run_rerun_under_lease(
         .bump_job_epoch(target_uid, job_key, lease_id)
         .await
         .context("Failed to bump job epoch")?;
-    println!("Bumped job_epoch to {} for {}", new_epoch, job_id);
+    info!(new_epoch, "bumped job epoch");
 
     // ── 5. Delete S3 outputs for stages `stage..=7` ────────────────
     let mut total_deleted: usize = 0;
@@ -214,7 +222,7 @@ async fn run_rerun_under_lease(
             .delete_by_prefix(&prefix)
             .await
             .context(format!("Failed to delete S3 objects for stage {}", s))?;
-        println!("Deleted {} object(s) from {}", deleted, prefix);
+        info!(deleted, prefix = %prefix, "deleted S3 objects for stage");
         total_deleted += deleted;
     }
 
@@ -265,7 +273,7 @@ async fn run_rerun_under_lease(
     rtdb.set(&path, &queue_item)
         .await
         .context("Failed to push job to the target stage queue")?;
-    println!("Job {} pushed to stage {} queue", job_id, stage);
+    info!("pushed job to target stage queue");
 
     // ── 8. Update user-visible job status to Processing for this stage
     let status = JobStatus::processing(stage);
