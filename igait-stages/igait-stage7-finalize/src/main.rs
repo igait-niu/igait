@@ -8,7 +8,6 @@
 //! This is the terminal stage that receives jobs from the finalize queue.
 
 use anyhow::{Context, Result};
-use async_trait::async_trait;
 use igait_lib::microservice::{
     EmailClient, EmailTemplates, FinalizeQueueItem, JobResult, ProcessingResult, StorageClient,
     JobStatus, StageStatus, QueueOps, FirebaseRtdb, job_result_path,
@@ -237,22 +236,7 @@ impl FinalizeStageWorker {
     }
 }
 
-/// Trait for finalize workers (separate from regular StageWorker).
-#[async_trait]
-pub trait FinalizeWorker: Send + Sync + 'static {
-    /// Human-readable service name.
-    fn service_name(&self) -> &'static str;
-
-    /// Process a finalize job.
-    async fn process(&self, job: &FinalizeQueueItem) -> ProcessingResult;
-}
-
-#[async_trait]
-impl FinalizeWorker for FinalizeStageWorker {
-    fn service_name(&self) -> &'static str {
-        "igait-stage7-finalize"
-    }
-
+impl FinalizeStageWorker {
     async fn process(&self, job: &FinalizeQueueItem) -> ProcessingResult {
         let start_time = Instant::now();
         let mut logs = String::new();
@@ -341,142 +325,9 @@ impl FinalizeWorker for FinalizeStageWorker {
     }
 }
 
-/// Runs the finalize worker in a continuous loop.
-/// 
-/// This is a standalone worker loop since FinalizeWorker has different
-/// queue handling than regular StageWorker.
-pub async fn run_finalize_worker(worker: FinalizeStageWorker) -> Result<()> {
-    use igait_lib::microservice::{
-        ClaimResult, FirebaseRtdb, QueueOps,
-        generate_worker_id,
-    };
-    use std::time::Duration;
-    use tokio_util::sync::CancellationToken;
-
-    let db = FirebaseRtdb::from_env()?;
-    let worker_id = generate_worker_id(worker.service_name());
-    let queue_ops = QueueOps::new(db, worker_id.clone());
-    let shutdown_token = CancellationToken::new();
-    
-    // Setup signal handler
-    let shutdown_signal = shutdown_token.clone();
-    tokio::spawn(async move {
-        let ctrl_c = async {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("Failed to install Ctrl+C handler");
-        };
-
-        #[cfg(unix)]
-        let terminate = async {
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("Failed to install SIGTERM handler")
-                .recv()
-                .await;
-        };
-
-        #[cfg(not(unix))]
-        let terminate = std::future::pending::<()>();
-
-        tokio::select! {
-            _ = ctrl_c => {
-                println!("\nReceived Ctrl+C, shutting down gracefully...");
-            },
-            _ = terminate => {
-                println!("\nReceived SIGTERM, shutting down gracefully...");
-            },
-        }
-        
-        shutdown_signal.cancel();
-    });
-    
-    println!("[{}] Starting Finalize worker...", worker_id);
-
-    loop {
-        // Check for shutdown signal
-        if shutdown_token.is_cancelled() {
-            println!("[{}] Shutdown signal received, stopping worker loop", worker_id);
-            break;
-        }
-
-        // Try to claim a job from the finalize queue
-        match queue_ops.claim_finalize_job().await {
-            ClaimResult::Claimed(job) => {
-                println!("[{}] Claimed finalize job {}", worker_id, job.job_id);
-                
-                // Process the job with cancellation support
-                let process_result = tokio::select! {
-                    result = worker.process(&job) => result,
-                    _ = shutdown_token.cancelled() => {
-                        println!(
-                            "[{}] Finalize job {} processing cancelled due to shutdown",
-                            worker_id, job.job_id
-                        );
-                        // Job will remain claimed and be picked up by another worker
-                        // or timeout and be re-claimed later
-                        break;
-                    }
-                };
-                
-                match process_result {
-                    ProcessingResult::Success { duration_ms, .. } => {
-                        println!(
-                            "[{}] Finalize job {} completed in {}ms",
-                            worker_id, job.job_id, duration_ms
-                        );
-                        
-                        // Remove from finalize queue (job is done)
-                        if let Err(e) = queue_ops.complete_finalize(&job.job_id).await {
-                            eprintln!("Failed to remove job from finalize queue: {}", e);
-                        }
-                    }
-                    ProcessingResult::Failure { error, duration_ms, .. } => {
-                        // This shouldn't really happen since we always return Success
-                        eprintln!(
-                            "[{}] Finalize job {} failed after {}ms: {}",
-                            worker_id, job.job_id, duration_ms, error
-                        );
-                    }
-                }
-            }
-            ClaimResult::QueueEmpty | ClaimResult::AllClaimed => {
-                // No jobs available, wait before polling again (or until shutdown)
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(5)) => {},
-                    _ = shutdown_token.cancelled() => {
-                        println!("[{}] Shutdown signal received during sleep", worker_id);
-                        break;
-                    }
-                }
-            }
-            ClaimResult::Error(e) => {
-                eprintln!("[{}] Error claiming job: {}", worker_id, e);
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(10)) => {},
-                    _ = shutdown_token.cancelled() => {
-                        println!("[{}] Shutdown signal received during error backoff", worker_id);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    
-    println!("[{}] Finalize worker stopped gracefully", worker_id);
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
-    if std::env::var("IGAIT_FINALIZE_PAYLOAD").is_ok() {
-        run_finalize_job_mode().await
-    } else {
-        println!("Starting Stage 7 Finalize worker...");
-        let worker = FinalizeStageWorker::new()
-            .await
-            .context("Failed to create finalize worker")?;
-        run_finalize_worker(worker).await
-    }
+    run_finalize_job_mode().await
 }
 
 /// Runs the finalize worker in single-job mode for K8s Job execution.
