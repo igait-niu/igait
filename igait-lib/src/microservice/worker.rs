@@ -5,10 +5,10 @@
 
 use crate::microservice::{
     queue::{
-        ClaimResult, EmailNotificationMarker, FinalizeQueueItem, JobResult, ProcessingResult,
-        QueueConfig, QueueItem, CLAIM_TIMEOUT_MS, HEARTBEAT_INTERVAL_SECS,
-        generate_worker_id, job_result_path, next_stage, now_ms, queue_config_path,
-        queue_item_path, queue_path, result_notification_path,
+        ClaimResult, EmailNotificationMarker, FinalizeQueueItem, JobCoordination, JobResult,
+        ProcessingResult, QueueConfig, QueueItem, CLAIM_TIMEOUT_MS, HEARTBEAT_INTERVAL_SECS,
+        generate_worker_id, job_coordination_path, job_result_path, next_stage, now_ms,
+        queue_config_path, queue_item_path, queue_path, result_notification_path,
     },
     backend_status::{JobStatus, StageStatus},
     StageNumber,
@@ -685,6 +685,125 @@ impl QueueOps {
     pub async fn complete_finalize(&self, job_id: &str) -> Result<()> {
         let path = queue_item_path(StageNumber::Stage7Finalize, job_id);
         self.db.delete(&path).await
+    }
+
+    /// Reads the current job-generation epoch. Returns 0 if no coordination
+    /// record exists yet (the job has never been rerun).
+    pub async fn read_job_epoch(&self, user_id: &str, job_key: &str) -> Result<u64> {
+        let path = job_coordination_path(user_id, job_key);
+        let coord: Option<JobCoordination> = self.db.get(&path).await?;
+        Ok(coord.map(|c| c.epoch).unwrap_or(0))
+    }
+
+    /// Attempts to acquire an exclusive advisory lease on a job.
+    ///
+    /// On success the returned `lease_id` must be passed back to
+    /// `release_job_lease` / `bump_job_epoch` — it is the fencing token
+    /// that distinguishes this holder from any subsequent one. Returns
+    /// `Ok(None)` if another caller holds an unexpired lease.
+    pub async fn try_acquire_job_lease(
+        &self,
+        user_id: &str,
+        job_key: &str,
+        ttl_ms: u64,
+    ) -> Result<Option<String>> {
+        let path = job_coordination_path(user_id, job_key);
+        let lease_id = format!("{}_{}", self.worker_id, now_ms());
+        let lease_id_for_tx = lease_id.clone();
+
+        let outcome = self
+            .db
+            .transaction::<JobCoordination, _>(&path, move |current| {
+                let now = now_ms();
+                let (epoch, can_take) = match &current {
+                    Some(c) => {
+                        let held = matches!(
+                            (&c.lease_holder, c.lease_expires_at),
+                            (Some(_), Some(exp)) if exp > now,
+                        );
+                        (c.epoch, !held)
+                    }
+                    None => (0, true),
+                };
+                if !can_take {
+                    return None;
+                }
+                Some(JobCoordination {
+                    epoch,
+                    lease_holder: Some(lease_id_for_tx.clone()),
+                    lease_expires_at: Some(now + ttl_ms),
+                })
+            })
+            .await?;
+
+        match outcome {
+            TxOutcome::Committed(_) => Ok(Some(lease_id)),
+            TxOutcome::Aborted | TxOutcome::ExhaustedRetries => Ok(None),
+        }
+    }
+
+    /// Releases a held lease. Silently no-ops if the lease has already
+    /// expired or been taken over by another holder — both are benign.
+    pub async fn release_job_lease(
+        &self,
+        user_id: &str,
+        job_key: &str,
+        lease_id: &str,
+    ) -> Result<()> {
+        let path = job_coordination_path(user_id, job_key);
+        let lease_id = lease_id.to_string();
+        let _ = self
+            .db
+            .transaction::<JobCoordination, _>(&path, move |current| {
+                let c = current?;
+                if c.lease_holder.as_deref() != Some(&lease_id) {
+                    return None;
+                }
+                Some(JobCoordination {
+                    epoch: c.epoch,
+                    lease_holder: None,
+                    lease_expires_at: None,
+                })
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Increments the job epoch. Must be called while still holding the
+    /// lease; if the lease has been lost the bump is refused.
+    pub async fn bump_job_epoch(
+        &self,
+        user_id: &str,
+        job_key: &str,
+        lease_id: &str,
+    ) -> Result<u64> {
+        let path = job_coordination_path(user_id, job_key);
+        let owned = lease_id.to_string();
+        let for_tx = owned.clone();
+        let outcome = self
+            .db
+            .transaction::<JobCoordination, _>(&path, move |current| {
+                let c = current.unwrap_or_default();
+                if c.lease_holder.as_deref() != Some(&for_tx) {
+                    return None;
+                }
+                Some(JobCoordination {
+                    epoch: c.epoch + 1,
+                    lease_holder: c.lease_holder,
+                    lease_expires_at: c.lease_expires_at,
+                })
+            })
+            .await?;
+
+        match outcome {
+            TxOutcome::Committed(c) => Ok(c.epoch),
+            TxOutcome::Aborted => {
+                anyhow::bail!("bump_job_epoch refused: lease {} no longer held", owned)
+            }
+            TxOutcome::ExhaustedRetries => {
+                anyhow::bail!("bump_job_epoch: CAS retries exhausted for {}/{}", user_id, job_key)
+            }
+        }
     }
 
     /// CAS-claims the exclusive right to send the result email for a job.

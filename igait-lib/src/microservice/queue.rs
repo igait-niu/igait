@@ -441,6 +441,30 @@ pub fn job_status_path(user_id: &str, job_key: &str) -> String {
     format!("users/{}/jobs/{}/status", user_id, job_key)
 }
 
+/// Returns the path of a job's coordination record (lease + generation epoch).
+pub fn job_coordination_path(user_id: &str, job_key: &str) -> String {
+    format!("users/{}/jobs/{}/coordination", user_id, job_key)
+}
+
+/// Job-level coordination state used to serialize reruns and reject zombie
+/// K8s Jobs whose work was invalidated by a rerun.
+///
+/// * `epoch` — monotonic "job generation". Bumped on every rerun. K8s Jobs
+///   stamp their current epoch on every `JobResult`; the orchestrator
+///   discards results whose epoch is behind the live value.
+/// * `lease_holder` / `lease_expires_at` — short-lived advisory lease used
+///   by the rerun endpoint to serialize itself against concurrent reruns
+///   (and against future self-healing flows that need the same guarantee).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct JobCoordination {
+    #[serde(default)]
+    pub epoch: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_holder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<u64>,
+}
+
 /// Persisted marker written via CAS insert-if-not-exists right before an outbound
 /// result email is sent. If the insert races with a sibling worker, the loser
 /// sees `PreconditionFailed` and skips the send — preventing duplicate emails.
