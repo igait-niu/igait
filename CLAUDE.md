@@ -13,14 +13,14 @@ iGait is a web-based autism screening tool that analyzes gait (walking) patterns
 - **igait-backend/** — Rust/Axum API server (port 3000). Handles auth, uploads, job management, OpenAI assistant integration.
 - **igait-frontend/** — Bun/SvelteKit/TypeScript/Tailwind. SvelteKit route-based layout with `(authenticated)/` group for protected routes.
 - **igait-lib/** — Shared Rust library used by backend and all stages. Key modules: `microservice/worker.rs` (StageWorker trait), `microservice/queue.rs` (Firebase RTDB ops), `microservice/storage.rs` (S3 client). Has feature flags: `microservice`, `email`.
-- **igait-stages/** — 7 Rust microservices, each following the StageWorker pattern from igait-lib:
-  - Stage 1: Media conversion (FFmpeg)
-  - Stage 2: Validity check (Python submodule)
-  - Stage 3: Reframing (FFmpeg)
-  - Stage 4: Pose estimation (MediaPipe/Python submodule)
-  - Stage 5: Cycle detection (Python submodule)
-  - Stage 6: ML prediction (TensorFlow/Python submodule)
-  - Stage 7: Finalize + email (AWS SESv2)
+- **igait-stages/** — Rust microservice stages, each following the StageWorker pattern from igait-lib. Each stage lives in its own directory named for what it does:
+  - `media-conversion/` — FFmpeg (entry point)
+  - `validity-check/` — Python submodule
+  - `reframing/` — FFmpeg
+  - `pose-estimation/` — MediaPipe/Python submodule
+  - `cycle-detection/` — Python submodule
+  - `prediction/` — TensorFlow/Python submodule
+  - `finalize/` — AWS SESv2 (terminal stage, sends email)
 
 **Cloud services**: Firebase (RTDB queues, Auth, Firestore), AWS S3 (file storage), AWS SESv2 (email), OpenAI API (assistant).
 
@@ -49,7 +49,7 @@ bun run format      # auto-format
 # First-time: build services individually (parallel build may exhaust RAM)
 docker compose build web
 docker compose build backend
-docker compose build stage1  # ...through stage7
+docker compose build media-conversion  # ...and each other stage
 
 # Run everything
 docker compose up --build
@@ -59,7 +59,7 @@ docker compose up --build
 
 ### Integration Test
 ```bash
-./test.sh  # Uploads test video, monitors stage 1 processing
+./test.sh  # Uploads test video, monitors media-conversion processing
 ```
 
 ## CI/CD

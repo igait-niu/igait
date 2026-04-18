@@ -1224,7 +1224,7 @@ impl<W: StageWorker> WorkerRunner<W> {
 /// #[async_trait::async_trait]
 /// impl StageWorker for MyStageWorker {
 ///     fn stage(&self) -> StageNumber { StageNumber::Stage2ValidityCheck }
-///     fn service_name(&self) -> &'static str { "stage2-validity-check" }
+///     fn service_name(&self) -> &'static str { "validity-check" }
 ///     
 ///     async fn process(&self, job: &QueueItem) -> ProcessingResult {
 ///         // ... do work ...

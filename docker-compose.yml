@@ -23,7 +23,7 @@ services:
     depends_on:
       - backend
 
-  # Backend API (handles uploads, pushes to queue 1)
+  # Backend API (handles uploads, pushes to the first stage queue)
   backend:
     build:
       context: .
@@ -40,58 +40,58 @@ services:
     volumes:
       - ./credentials:/app/credentials:ro
 
-  # Stage 1: Media Conversion Worker
-  stage1:
+  # Media Conversion Worker
+  media-conversion:
     build:
       context: .
-      dockerfile: igait-stages/igait-stage1-media-conversion/Dockerfile
+      dockerfile: igait-stages/media-conversion/Dockerfile
     environment:
       <<: *common-env
 
-  # Stage 2: Validity Check Worker
-  stage2:
+  # Validity Check Worker
+  validity-check:
     build:
       context: .
-      dockerfile: igait-stages/igait-stage2-validity-check/Dockerfile
+      dockerfile: igait-stages/validity-check/Dockerfile
     environment:
       <<: *common-env
 
-  # Stage 3: Reframing Worker
-  stage3:
+  # Reframing Worker
+  reframing:
     build:
       context: .
-      dockerfile: igait-stages/igait-stage3-reframing/Dockerfile
+      dockerfile: igait-stages/reframing/Dockerfile
     environment:
       <<: *common-env
 
-  # Stage 4: Pose Estimation Worker
-  stage4:
+  # Pose Estimation Worker
+  pose-estimation:
     build:
       context: .
-      dockerfile: igait-stages/igait-stage4-pose-estimation/Dockerfile
+      dockerfile: igait-stages/pose-estimation/Dockerfile
     environment:
       <<: *common-env
 
-  # Stage 5: Cycle Detection Worker
-  stage5:
+  # Cycle Detection Worker
+  cycle-detection:
     build:
       context: .
-      dockerfile: igait-stages/igait-stage5-cycle-detection/Dockerfile
+      dockerfile: igait-stages/cycle-detection/Dockerfile
     environment:
       <<: *common-env
 
-  # Stage 6: Prediction Worker
-  stage6:
+  # Prediction Worker
+  prediction:
     build:
       context: .
-      dockerfile: igait-stages/igait-stage6-prediction/Dockerfile
+      dockerfile: igait-stages/prediction/Dockerfile
     environment:
       <<: *common-env
 
-  # Stage 7: Finalize Worker (sends emails)
-  stage7:
+  # Finalize Worker (sends emails)
+  finalize:
     build:
       context: .
-      dockerfile: igait-stages/igait-stage7-finalize/Dockerfile
+      dockerfile: igait-stages/finalize/Dockerfile
     environment:
       <<: *common-env

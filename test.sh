@@ -3,7 +3,7 @@
 
 set -e
 
-echo "🧪 Testing Full Upload → Stage 1 Pipeline"
+echo "🧪 Testing Full Upload → Media Conversion Pipeline"
 echo "=========================================="
 echo ""
 
@@ -49,8 +49,8 @@ echo "HTTP Status: $HTTP_CODE"
 if [ "$HTTP_CODE" = "200" ]; then
     echo "✅ Upload successful!"
     echo ""
-    echo "📊 Monitoring Stage 1 processing..."
-    echo "   Run: docker compose logs -f stage1"
+    echo "📊 Monitoring Media Conversion processing..."
+    echo "   Run: docker compose logs -f media-conversion"
     echo ""
     echo "🔍 Check backend logs:"
     echo "   Run: docker compose logs -f backend"

@@ -66,13 +66,13 @@ If your machine has under 64gb of RAM, first run the following commands to build
 ```bash
 docker compose build web
 docker compose build backend
-docker compose build stage1
-docker compose build stage2
-docker compose build stage3
-docker compose build stage4
-docker compose build stage5
-docker compose build stage6
-docker compose build stage7
+docker compose build media-conversion
+docker compose build validity-check
+docker compose build reframing
+docker compose build pose-estimation
+docker compose build cycle-detection
+docker compose build prediction
+docker compose build finalize
 ```
 
 Once you've built this initial cache, you can build and run iGait with the following:

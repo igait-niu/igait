@@ -16,14 +16,14 @@ This is the **iGait Backend** repository - a multi-service gait analysis pipelin
 ### Project Structure
 - **`igait-backend/`** - Main Rust backend API server
 - **`igait-lib/`** - Shared Rust library for all microservices
-- **`igait-stages/`** - 7 processing stage microservices:
-  - Stage 1: Media conversion (FFmpeg)
-  - Stage 2: Validity check
-  - Stage 3: Video reframing (FFmpeg)
-  - Stage 4: Pose estimation (MediaPipe/Python)
-  - Stage 5: Cycle detection
-  - Stage 6: ML prediction (TensorFlow/Python)
-  - Stage 7: Finalize & email
+- **`igait-stages/`** - Processing stage microservices, each in its own named directory:
+  - `media-conversion/` - FFmpeg
+  - `validity-check/` - Python submodule
+  - `reframing/` - FFmpeg
+  - `pose-estimation/` - MediaPipe/Python
+  - `cycle-detection/` - Python submodule
+  - `prediction/` - TensorFlow/Python
+  - `finalize/` - Sends email & archives results
 - **`igait-frontend/`** - Frontend (Bun/SvelteKit/TypeScript)
 
 ### Technology Stack

@@ -41,14 +41,14 @@
             nodejs
             
             # Useful for microservices development
-            ffmpeg  # Stage 1: media conversion
-            python  # Stage 2, 5, 6: Python processing
+            ffmpeg  # media-conversion, reframing, pose-estimation
+            python  # validity-check, pose-estimation, cycle-detection, prediction
           ];
           shellHook = 
             ''
             python -m venv .venv
             source .venv/bin/activate
-            pip install -r ./igait-stages/igait-stage4-pose-estimation/igait-mediapipe/requirements.txt
+            pip install -r ./igait-stages/pose-estimation/igait-mediapipe/requirements.txt
             export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath (buildInputs ++ [ pkgs.stdenv.cc.cc ])}
             '';
           
