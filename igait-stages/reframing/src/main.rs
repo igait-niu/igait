@@ -7,7 +7,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use igait_lib::microservice::{
-    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker,
+    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageId, StageWorker,
 };
 use std::collections::HashMap;
 use std::time::Instant;
@@ -17,8 +17,8 @@ pub struct ReframingWorker;
 
 #[async_trait]
 impl StageWorker for ReframingWorker {
-    fn stage(&self) -> StageNumber {
-        StageNumber::Stage3Reframing
+    fn stage(&self) -> StageId {
+        StageId::new("reframing")
     }
 
     fn service_name(&self) -> &'static str {
@@ -32,7 +32,7 @@ impl StageWorker for ReframingWorker {
         println!("Processing job {}: Reframing (pass-through)", job.job_id);
         logs.push_str(&format!("Starting reframing for job {}\n", job.job_id));
 
-        let stage = StageNumber::Stage3Reframing;
+        let stage = StageId::new("reframing");
 
         // Get input paths (from stage 2)
         let front_input = job.input_front_video(stage);

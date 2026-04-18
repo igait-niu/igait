@@ -11,7 +11,7 @@ use crate::microservice::{
         queue_config_path, queue_item_path, queue_path, result_notification_path,
     },
     backend_status::{JobStatus, StageStatus},
-    StageNumber,
+    StageId,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -344,7 +344,7 @@ impl QueueOps {
     /// state, then each is claimed via a per-path CAS transaction. If two
     /// workers see the same unclaimed item, at most one `put_if_match` wins;
     /// the loser's transform re-reads, sees it's now claimed, and aborts.
-    pub async fn claim_job(&self, stage: StageNumber) -> ClaimResult<QueueItem> {
+    pub async fn claim_job(&self, stage: StageId) -> ClaimResult<QueueItem> {
         let path = queue_path(stage);
 
         let config_path = queue_config_path(stage);
@@ -440,7 +440,7 @@ impl QueueOps {
     ///
     /// Returns `Ok(false)` when the epoch has changed (the lease has been lost
     /// to another worker). Callers should stop processing and exit cleanly.
-    pub async fn heartbeat(&self, stage: StageNumber, job_id: &str, epoch: u64) -> Result<bool> {
+    pub async fn heartbeat(&self, stage: StageId, job_id: &str, epoch: u64) -> Result<bool> {
         let path = queue_item_path(stage, job_id);
         let outcome = self.db
             .transaction::<QueueItem, _>(&path, move |current| {
@@ -459,7 +459,7 @@ impl QueueOps {
     }
 
     /// Releases a claim back to the queue, iff the caller's epoch still matches.
-    pub async fn release_job(&self, stage: StageNumber, job_id: &str, epoch: u64) -> Result<bool> {
+    pub async fn release_job(&self, stage: StageId, job_id: &str, epoch: u64) -> Result<bool> {
         let path = queue_item_path(stage, job_id);
         let outcome = self.db
             .transaction::<QueueItem, _>(&path, move |current| {
@@ -485,7 +485,7 @@ impl QueueOps {
     /// read before performing the atomic multi-path move.
     pub async fn move_to_next_stage(
         &self,
-        current_stage: StageNumber,
+        current_stage: StageId,
         job: &QueueItem,
         output_keys: HashMap<String, String>,
     ) -> Result<bool> {
@@ -518,7 +518,7 @@ impl QueueOps {
     /// Moves a job to the finalize queue after successful pipeline completion.
     pub async fn move_to_finalize_success(
         &self,
-        current_stage: StageNumber,
+        current_stage: StageId,
         job: &QueueItem,
         output_keys: HashMap<String, String>,
     ) -> Result<bool> {
@@ -536,7 +536,7 @@ impl QueueOps {
             job.approved,
         );
 
-        let finalize_path = queue_item_path(StageNumber::Stage7Finalize, &job.job_id);
+        let finalize_path = queue_item_path(StageId::new("finalize"), &job.job_id);
 
         let mut updates = HashMap::new();
         updates.insert(current_path, Value::Null);
@@ -550,7 +550,7 @@ impl QueueOps {
     /// Moves a job to the finalize queue after a stage failure.
     pub async fn move_to_finalize_failure(
         &self,
-        current_stage: StageNumber,
+        current_stage: StageId,
         job: &QueueItem,
         error: String,
         error_logs: Option<String>,
@@ -563,13 +563,13 @@ impl QueueOps {
         let finalize_item = FinalizeQueueItem::failure(
             job.job_id.clone(),
             job.user_id.clone(),
-            current_stage.as_u8(),
+            current_stage.position(),
             error,
             error_logs,
             job.metadata.clone(),
         );
 
-        let finalize_path = queue_item_path(StageNumber::Stage7Finalize, &job.job_id);
+        let finalize_path = queue_item_path(StageId::new("finalize"), &job.job_id);
 
         let mut updates = HashMap::new();
         updates.insert(current_path, Value::Null);
@@ -590,9 +590,9 @@ impl QueueOps {
     /// Claims a job from the finalize queue via per-path CAS transaction.
     /// Honors `queue_config/stage_7.requires_approval` — parity with claim_job.
     pub async fn claim_finalize_job(&self) -> ClaimResult<FinalizeQueueItem> {
-        let path = queue_path(StageNumber::Stage7Finalize);
+        let path = queue_path(StageId::new("finalize"));
 
-        let config_path = queue_config_path(StageNumber::Stage7Finalize);
+        let config_path = queue_config_path(StageId::new("finalize"));
         let queue_config: QueueConfig = match self.db.get(&config_path).await {
             Ok(Some(cfg)) => cfg,
             Ok(None) => QueueConfig::default(),
@@ -683,7 +683,7 @@ impl QueueOps {
 
     /// Removes a completed job from the finalize queue.
     pub async fn complete_finalize(&self, job_id: &str) -> Result<()> {
-        let path = queue_item_path(StageNumber::Stage7Finalize, job_id);
+        let path = queue_item_path(StageId::new("finalize"), job_id);
         self.db.delete(&path).await
     }
 
@@ -879,7 +879,7 @@ impl QueueOps {
 #[async_trait]
 pub trait StageWorker: Send + Sync + 'static {
     /// Which stage this worker handles.
-    fn stage(&self) -> StageNumber;
+    fn stage(&self) -> StageId;
     
     /// Human-readable service name.
     fn service_name(&self) -> &'static str;
@@ -968,7 +968,7 @@ impl<W: StageWorker> WorkerRunner<W> {
             "[{}] Starting worker {} for stage {} ({})",
             self.worker_id,
             self.worker.service_name(),
-            stage.as_u8(),
+            stage.position(),
             stage.name()
         );
 
@@ -1044,7 +1044,7 @@ impl<W: StageWorker> WorkerRunner<W> {
         );
         
         // Update job status to "Processing" and stage status to "Running" in RTDB
-        let stage_num = stage.as_u8();
+        let stage_num = stage.position();
         self.update_job_status(&job.job_id, JobStatus::processing(stage_num)).await;
         self.update_stage_status(&job.job_id, stage_num, StageStatus::Running).await;
 
@@ -1218,13 +1218,13 @@ impl<W: StageWorker> WorkerRunner<W> {
 /// # Example
 /// 
 /// ```ignore
-/// use igait_lib::microservice::{run_stage_worker, StageWorker, StageNumber, QueueItem, ProcessingResult};
+/// use igait_lib::microservice::{run_stage_worker, StageWorker, StageId, QueueItem, ProcessingResult};
 /// 
 /// struct MyStageWorker;
 /// 
 /// #[async_trait::async_trait]
 /// impl StageWorker for MyStageWorker {
-///     fn stage(&self) -> StageNumber { StageNumber::Stage2ValidityCheck }
+///     fn stage(&self) -> StageId { StageId::new("validity-check") }
 ///     fn service_name(&self) -> &'static str { "validity-check" }
 ///     
 ///     async fn process(&self, job: &QueueItem) -> ProcessingResult {
@@ -1312,7 +1312,7 @@ macro_rules! stage_worker_main {
 /// - 1: Fatal error (couldn't read env, connect to RTDB, etc.)
 pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
     let stage = worker.stage();
-    let stage_num = stage.as_u8();
+    let stage_num = stage.position();
 
     println!(
         "[job-mode] Starting {} for stage {} ({})",

@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use igait_lib::microservice::{
-    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker,
+    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageId, StageWorker,
     StorageClient,
 };
 use std::collections::HashMap;
@@ -25,8 +25,8 @@ pub struct PoseEstimationWorker;
 
 #[async_trait]
 impl StageWorker for PoseEstimationWorker {
-    fn stage(&self) -> StageNumber {
-        StageNumber::Stage4PoseEstimation
+    fn stage(&self) -> StageId {
+        StageId::new("pose-estimation")
     }
 
     fn service_name(&self) -> &'static str {
@@ -75,7 +75,7 @@ impl PoseEstimationWorker {
         job: &QueueItem,
         logs: &mut String,
     ) -> Result<HashMap<String, String>> {
-        let stage = StageNumber::Stage4PoseEstimation;
+        let stage = StageId::new("pose-estimation");
 
         // Get input paths from stage 1's keys
         let front_input = job
@@ -166,7 +166,7 @@ impl PoseEstimationWorker {
             .context("Failed to re-encode side pose video to H.264")?;
 
         // Construct output storage keys
-        let stage_num = stage.as_u8();
+        let stage_num = stage.position();
         let front_pose_key = format!("jobs/{}/stage_{}/front_pose.mp4", job.job_id, stage_num);
         let side_pose_key = format!("jobs/{}/stage_{}/side_pose.mp4", job.job_id, stage_num);
         let front_landmarks_key =

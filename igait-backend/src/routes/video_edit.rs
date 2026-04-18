@@ -17,7 +17,7 @@ use firebase_auth::FirebaseUser;
 use serde::{Deserialize, Serialize};
 
 use igait_lib::microservice::{
-    FirebaseRtdb, JobMetadata, QueueItem, StageNumber, StoragePaths, VideoEditFlags,
+    FirebaseRtdb, JobMetadata, QueueItem, StageId, StoragePaths, VideoEditFlags,
     queue_item_path,
 };
 
@@ -221,7 +221,7 @@ pub async fn video_edit_entrypoint(
     queue_item.approved = true; // Admin-initiated
 
     // ── 8. Push into Stage 1 queue ──────────────────────────────────
-    let target_stage = StageNumber::Stage1MediaConversion;
+    let target_stage = StageId::new("media-conversion");
     let path = queue_item_path(target_stage, &job_id);
     rtdb.set(&path, &queue_item)
         .await

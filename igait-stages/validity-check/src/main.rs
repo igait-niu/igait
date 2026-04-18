@@ -12,7 +12,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use igait_lib::microservice::{
-    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker,
+    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageId, StageWorker,
     StorageClient,
 };
 use serde::{Deserialize, Serialize};
@@ -54,8 +54,8 @@ pub struct ValidityCheckWorker;
 
 #[async_trait]
 impl StageWorker for ValidityCheckWorker {
-    fn stage(&self) -> StageNumber {
-        StageNumber::Stage2ValidityCheck
+    fn stage(&self) -> StageId {
+        StageId::new("validity-check")
     }
 
     fn service_name(&self) -> &'static str {
@@ -104,7 +104,7 @@ impl ValidityCheckWorker {
         job: &QueueItem,
         logs: &mut String,
     ) -> Result<HashMap<String, String>> {
-        let stage = StageNumber::Stage2ValidityCheck;
+        let stage = StageId::new("validity-check");
 
         // Get input paths from previous stage
         let front_input_key = job
@@ -216,7 +216,7 @@ impl ValidityCheckWorker {
             .context("Failed to serialize combined validity")?;
 
         // Construct S3 output keys
-        let stage_num = stage.as_u8();
+        let stage_num = stage.position();
         let validity_key = format!("jobs/{}/stage_{}/validity.json", job.job_id, stage_num);
         let front_annotated_key = format!(
             "jobs/{}/stage_{}/front_annotated.mp4",

@@ -8,7 +8,7 @@
 //! declared [`inputs`](StageSpec::inputs) to reconstruct
 //! `input_keys` without hardcoding stage knowledge anywhere else.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Static description of a single pipeline stage.
@@ -210,6 +210,101 @@ impl StageSpec {
             })
             .collect()
     }
+
+    /// Convenience: the [`StageId`] for this spec.
+    pub fn id(&self) -> StageId {
+        StageId::new(self.key)
+    }
+}
+
+// ── StageId — typed stage identifier ──────────────────────────────
+
+/// Runtime-validated stage identifier. Wraps a `&'static str` that
+/// must reference a key in [`STAGES`].
+///
+/// Constructed either by string literal via [`StageId::new`] (no
+/// runtime validation — the caller must pass a registered key) or
+/// via [`StageId::try_new`] / [`StageId::from_position`] which
+/// return `None` for unknown keys. Invalid ids only surface when
+/// [`StageId::spec`] is called; the registry invariant tests ensure
+/// every declared id in this repo is valid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StageId(&'static str);
+
+impl StageId {
+    /// Create from a `&'static str`. No validation — use for string
+    /// literals in `const` context. `spec()` will panic if the key
+    /// is not in [`STAGES`].
+    pub const fn new(key: &'static str) -> Self {
+        Self(key)
+    }
+
+    /// Create from a runtime string by looking it up in [`STAGES`].
+    /// Returns `None` if the key is not registered.
+    pub fn try_new(key: &str) -> Option<Self> {
+        stage_by_key(key).map(|s| Self(s.key))
+    }
+
+    /// Create from a 1-indexed position (`1..=STAGES.len()`).
+    pub fn from_position(n: u8) -> Option<Self> {
+        stage_by_index(n.saturating_sub(1) as usize).map(|s| Self(s.key))
+    }
+
+    /// The registry key.
+    pub const fn key(&self) -> &'static str {
+        self.0
+    }
+
+    /// The matching [`StageSpec`] from [`STAGES`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key is not registered. Use [`StageId::try_new`]
+    /// / [`StageId::from_position`] for fallible construction.
+    pub fn spec(&self) -> &'static StageSpec {
+        stage_by_key(self.0)
+            .unwrap_or_else(|| panic!("StageId holds unregistered key: {:?}", self.0))
+    }
+
+    /// 1-indexed position of this stage in [`STAGES`].
+    pub fn position(&self) -> u8 {
+        (stage_index_of(self.0)
+            .unwrap_or_else(|| panic!("StageId holds unregistered key: {:?}", self.0)) as u8)
+            + 1
+    }
+
+    /// True if this is the terminal stage.
+    pub fn terminal(&self) -> bool {
+        self.spec().terminal
+    }
+
+    /// Human-readable display name for this stage (shortcut for
+    /// `self.spec().display_name`).
+    pub fn name(&self) -> &'static str {
+        self.spec().display_name
+    }
+
+    /// The next stage in the pipeline, or this stage if it is terminal.
+    pub fn next(&self) -> StageId {
+        match stage_after(self.0) {
+            Some(spec) => StageId(spec.key),
+            None => *self,
+        }
+    }
+}
+
+impl Serialize for StageId {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_str(self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for StageId {
+    fn deserialize<D: serde::Deserializer<'de>>(deser: D) -> Result<Self, D::Error> {
+        let key = String::deserialize(deser)?;
+        StageId::try_new(&key)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown stage: {:?}", key)))
+    }
 }
 
 #[cfg(test)]
@@ -401,5 +496,28 @@ mod tests {
         let spec = stage_by_key("finalize").unwrap();
         let keys = spec.build_input_keys("user_0");
         assert!(keys.is_empty());
+    }
+
+    #[test]
+    fn stage_id_wire_format_is_the_bare_key() {
+        // Guards against accidentally wrapping in `{"key":...}` or
+        // re-introducing the legacy `stage_N_name` snake_case format.
+        // A wire-format change here would break every existing job
+        // stored in RTDB.
+        let id = StageId::new("media-conversion");
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"media-conversion\"");
+        let round_tripped: StageId = serde_json::from_str(&json).unwrap();
+        assert_eq!(round_tripped, id);
+    }
+
+    #[test]
+    fn stage_id_deserialize_rejects_unknown_key() {
+        // Unlike plain `&str`, a StageId must reference a registered
+        // stage. Incoming data with typos or from an old deploy with
+        // different stages should fail loudly, not silently produce
+        // a StageId that panics on first `.spec()`.
+        let result: Result<StageId, _> = serde_json::from_str("\"not-a-real-stage\"");
+        assert!(result.is_err());
     }
 }

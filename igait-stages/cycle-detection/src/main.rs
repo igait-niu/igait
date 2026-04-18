@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use igait_lib::microservice::{
-    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker,
+    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageId, StageWorker,
     StorageClient,
 };
 use std::collections::HashMap;
@@ -25,8 +25,8 @@ pub struct CycleDetectionWorker;
 
 #[async_trait]
 impl StageWorker for CycleDetectionWorker {
-    fn stage(&self) -> StageNumber {
-        StageNumber::Stage5CycleDetection
+    fn stage(&self) -> StageId {
+        StageId::new("cycle-detection")
     }
 
     fn service_name(&self) -> &'static str {
@@ -75,7 +75,7 @@ impl CycleDetectionWorker {
         job: &QueueItem,
         logs: &mut String,
     ) -> Result<HashMap<String, String>> {
-        let stage = StageNumber::Stage5CycleDetection;
+        let stage = StageId::new("cycle-detection");
 
         // Get input landmark keys from stage 4
         let front_landmarks_input = job
@@ -180,7 +180,7 @@ impl CycleDetectionWorker {
         logs.push_str("Side gait cycle detection complete.\n");
 
         // Construct output storage keys
-        let stage_num = stage.as_u8();
+        let stage_num = stage.position();
         let front_gait_key = format!(
             "jobs/{}/stage_{}/front_gait_analysis.json",
             job.job_id, stage_num

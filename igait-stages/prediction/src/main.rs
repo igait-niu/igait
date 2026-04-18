@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use igait_lib::microservice::{
-    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker,
+    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageId, StageWorker,
     StorageClient,
 };
 use std::collections::HashMap;
@@ -27,8 +27,8 @@ pub struct PredictionWorker;
 
 #[async_trait]
 impl StageWorker for PredictionWorker {
-    fn stage(&self) -> StageNumber {
-        StageNumber::Stage6Prediction
+    fn stage(&self) -> StageId {
+        StageId::new("prediction")
     }
 
     fn service_name(&self) -> &'static str {
@@ -74,7 +74,7 @@ impl PredictionWorker {
         job: &QueueItem,
         logs: &mut String,
     ) -> Result<HashMap<String, String>> {
-        let stage = StageNumber::Stage6Prediction;
+        let stage = StageId::new("prediction");
 
         // Get input keys from stage 5
         let front_gait_input = job

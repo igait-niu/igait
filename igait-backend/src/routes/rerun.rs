@@ -14,7 +14,7 @@ use firebase_auth::FirebaseUser;
 use serde::{Deserialize, Serialize};
 
 use igait_lib::microservice::{
-    JobMetadata, QueueItem, QueueOps, StageNumber, StageStatus, StoragePaths,
+    JobMetadata, QueueItem, QueueOps, StageId, StageStatus, StoragePaths,
     FirebaseRtdb, queue_item_path,
 };
 use tracing::{info, instrument, warn};
@@ -103,7 +103,7 @@ pub async fn rerun_entrypoint(
     }
 
     // ── 1. Validate stage number ────────────────────────────────────
-    let target_stage = StageNumber::from_u8(stage)
+    let target_stage = StageId::from_position(stage)
         .ok_or_else(|| anyhow!(
             "Invalid stage number {}. Must be between 1 and {}.",
             stage, NUM_STAGES
@@ -194,7 +194,7 @@ async fn run_rerun_under_lease(
     job_key: &str,
     job_id: &str,
     stage: u8,
-    target_stage: StageNumber,
+    target_stage: StageId,
     job: crate::helper::lib::Job,
 ) -> Result<usize, AppError> {
     // ── 3. Cancel any still-running K8s Jobs for this job_id ────────

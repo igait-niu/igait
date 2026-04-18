@@ -9,7 +9,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use igait_lib::microservice::{
-    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageNumber, StageWorker,
+    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageId, StageWorker,
     StorageClient, VideoEditFlags, VideoTransform,
 };
 use std::collections::HashMap;
@@ -23,8 +23,8 @@ pub struct MediaConversionWorker;
 
 #[async_trait]
 impl StageWorker for MediaConversionWorker {
-    fn stage(&self) -> StageNumber {
-        StageNumber::Stage1MediaConversion
+    fn stage(&self) -> StageId {
+        StageId::new("media-conversion")
     }
 
     fn service_name(&self) -> &'static str {
@@ -70,7 +70,7 @@ impl MediaConversionWorker {
         job: &QueueItem,
         logs: &mut String,
     ) -> Result<HashMap<String, String>> {
-        let stage = StageNumber::Stage1MediaConversion;
+        let stage = StageId::new("media-conversion");
 
         // Check for video edit flags in metadata.extra
         let video_edit: Option<VideoEditFlags> = job
