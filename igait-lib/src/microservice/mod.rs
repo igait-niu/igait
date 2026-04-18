@@ -7,6 +7,7 @@ mod types;
 mod storage;
 mod queue;
 mod backend_status;
+mod registry;
 
 #[cfg(feature = "microservice")]
 mod worker;
@@ -21,6 +22,7 @@ pub use types::*;
 pub use storage::*;
 pub use queue::*;
 pub use backend_status::*;
+pub use registry::*;
 
 #[cfg(feature = "microservice")]
 pub use worker::*;
