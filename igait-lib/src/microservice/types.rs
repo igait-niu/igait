@@ -59,6 +59,20 @@ impl StageNumber {
         }
     }
 
+    /// Resolves a registry key back to its `StageNumber` variant.
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "media-conversion" => Some(Self::Stage1MediaConversion),
+            "validity-check" => Some(Self::Stage2ValidityCheck),
+            "reframing" => Some(Self::Stage3Reframing),
+            "pose-estimation" => Some(Self::Stage4PoseEstimation),
+            "cycle-detection" => Some(Self::Stage5CycleDetection),
+            "prediction" => Some(Self::Stage6Prediction),
+            "finalize" => Some(Self::Stage7Finalize),
+            _ => None,
+        }
+    }
+
     /// The registry entry describing this stage.
     pub fn spec(&self) -> &'static super::registry::StageSpec {
         super::registry::stage_by_key(self.key())

@@ -538,16 +538,13 @@ pub struct JobResult {
 /// orders of magnitude larger than normal — only trips on true crashes.
 pub const JOB_RESULT_TAKE_TIMEOUT_MS: u64 = 30_000;
 
-/// Returns the next stage in the pipeline, or Stage7Finalize if at the end.
+/// Returns the next stage in the pipeline. The terminal stage maps
+/// to itself (sink behavior).
 pub fn next_stage(current: StageNumber) -> StageNumber {
-    match current {
-        StageNumber::Stage1MediaConversion => StageNumber::Stage2ValidityCheck,
-        StageNumber::Stage2ValidityCheck => StageNumber::Stage3Reframing,
-        StageNumber::Stage3Reframing => StageNumber::Stage4PoseEstimation,
-        StageNumber::Stage4PoseEstimation => StageNumber::Stage5CycleDetection,
-        StageNumber::Stage5CycleDetection => StageNumber::Stage6Prediction,
-        StageNumber::Stage6Prediction => StageNumber::Stage7Finalize,
-        StageNumber::Stage7Finalize => StageNumber::Stage7Finalize, // Terminal
+    match super::registry::stage_after(current.key()) {
+        Some(next) => StageNumber::from_key(next.key)
+            .expect("every registry key must map to a StageNumber variant"),
+        None => current,
     }
 }
 
