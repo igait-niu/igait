@@ -12,14 +12,20 @@
 		approveQueueItem,
 		queueItemToJob,
 		type QueuesState,
-		type QueuesData,
 		type QueueConfigState,
 		type QueueItem,
 		type FinalizeQueueItem
 	} from '$lib/hooks';
+	import {
+		registryStore,
+		queuePathSegment,
+		isRegistryLoaded,
+		isRegistryError
+	} from '$lib/stores';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Switch } from '$lib/components/ui/switch';
 	import { JobsDataTable } from '$lib/components/jobs';
+	import { StageTab } from '$lib/components';
 	import { Inbox, Activity, ShieldCheck } from '@lucide/svelte';
 	import AdminLoadingState from '../AdminLoadingState.svelte';
 	import AdminErrorState from '../AdminErrorState.svelte';
@@ -29,7 +35,7 @@
 
 	let queuesState: QueuesState = $state({ status: 'loading' });
 	let configState: QueueConfigState = $state({ status: 'loading' });
-	let activeStage: string = $state('stage_1');
+	let activeStageKey: string = $state('');
 
 	let approveError: string | null = $state(null);
 	let approveSuccess: string | null = $state(null);
@@ -49,31 +55,36 @@
 		unsubConfigs();
 	});
 
-	// ── Stage info ─────────────────────────────────────────
+	// ── Registry-driven stage list ─────────────────────────
 
-	const stageInfo = [
-		{ key: 'stage_1', name: 'Stage 1', description: 'Media Conversion' },
-		{ key: 'stage_2', name: 'Stage 2', description: 'Validity Check' },
-		{ key: 'stage_3', name: 'Stage 3', description: 'Reframing' },
-		{ key: 'stage_4', name: 'Stage 4', description: 'Pose Estimation' },
-		{ key: 'stage_5', name: 'Stage 5', description: 'Cycle Detection' },
-		{ key: 'stage_6', name: 'Stage 6', description: 'ML Prediction' },
-		{ key: 'finalize', name: 'Stage 7', description: 'Finalize' }
-	] as const;
+	const registryState = $derived(registryStore.state);
+	const stages = $derived(isRegistryLoaded(registryState) ? registryState.stages : []);
+
+	// Default the active stage to the first one once the registry loads.
+	$effect(() => {
+		if (stages.length > 0 && !stages.some((s) => s.key === activeStageKey)) {
+			activeStageKey = stages[0].key;
+		}
+	});
+
+	const activeStage = $derived(stages.find((s) => s.key === activeStageKey));
+	const activeQueueSegment = $derived(
+		activeStage ? queuePathSegment(activeStage) : ''
+	);
 
 	// ── Derived data ───────────────────────────────────────
 
-	/** Get the count of items in a queue */
-	function getQueueItemCount(key: string): number {
+	/** Count of items in a given stage's queue. */
+	function getQueueItemCount(queueSegment: string): number {
 		if (!isQueuesLoaded(queuesState)) return 0;
-		const queue = queuesState.queues[key as keyof QueuesData];
+		const queue = queuesState.queues[queueSegment];
 		return Object.keys(queue || {}).length;
 	}
 
-	/** Items for the active stage, preserving RTDB keys */
+	/** Entries for the active stage's queue, preserving RTDB keys. */
 	const activeQueueEntries = $derived.by(() => {
-		if (!isQueuesLoaded(queuesState)) return [];
-		const queue = queuesState.queues[activeStage as keyof QueuesData];
+		if (!isQueuesLoaded(queuesState) || !activeQueueSegment) return [];
+		const queue = queuesState.queues[activeQueueSegment];
 		if (!queue) return [];
 		return Object.entries(queue).map(([key, item]) => ({
 			key,
@@ -81,30 +92,30 @@
 		}));
 	});
 
-	/** Queue items converted to Job format for the data table */
-	const jobsForTable = $derived(activeQueueEntries.map(({ item }) => queueItemToJob(item)));
+	/** Queue items converted to Job format for the data table. */
+	const jobsForTable = $derived(
+		activeQueueEntries.map(({ item }) => queueItemToJob(item))
+	);
 
-	/** Total jobs across all queues */
-	const totalJobs = $derived.by(() => {
-		return stageInfo.reduce((total, stage) => total + getQueueItemCount(stage.key), 0);
-	});
+	/** Total jobs across all queues. */
+	const totalJobs = $derived.by(() =>
+		stages.reduce((total, s) => total + getQueueItemCount(queuePathSegment(s)), 0)
+	);
 
-	/** Whether the active stage's queue requires manual approval */
+	/** Whether the active stage's queue requires manual approval. */
 	const activeRequiresApproval = $derived.by(() => {
-		if (!isQueueConfigLoaded(configState)) return false;
-		return configState.configs[activeStage]?.requires_approval ?? false;
+		if (!isQueueConfigLoaded(configState) || !activeQueueSegment) return false;
+		return configState.configs[activeQueueSegment]?.requires_approval ?? false;
 	});
 
-	/** Active stage display info */
-	const activeStageInfo = $derived(stageInfo.find((s) => s.key === activeStage) ?? stageInfo[0]);
-
-	/** Count for active stage */
-	const activeStageCount = $derived(getQueueItemCount(activeStage));
+	const activeStageCount = $derived(
+		activeQueueSegment ? getQueueItemCount(activeQueueSegment) : 0
+	);
 
 	// ── Handlers ───────────────────────────────────────────
 
 	function handleSelectStage(stageKey: string) {
-		activeStage = stageKey;
+		activeStageKey = stageKey;
 		approveError = null;
 		approveSuccess = null;
 	}
@@ -114,7 +125,8 @@
 	}
 
 	async function handleToggleApproval(value: boolean) {
-		await setQueueRequiresApproval(activeStage, value);
+		if (!activeQueueSegment) return;
+		await setQueueRequiresApproval(activeQueueSegment, value);
 	}
 
 	async function handleApproveJobs(jobIds: string[]) {
@@ -129,7 +141,7 @@
 		}
 
 		const results = await Promise.allSettled(
-			targets.map(({ key, item }) => approveQueueItem(activeStage, key, item))
+			targets.map(({ key, item }) => approveQueueItem(activeQueueSegment, key, item))
 		);
 
 		const failures = results.filter(
@@ -160,11 +172,13 @@
 	<title>Queue Overview - Admin - iGait</title>
 </svelte:head>
 
-{#if isQueuesLoading(queuesState)}
+{#if isQueuesLoading(queuesState) || registryState.status === 'loading'}
 	<AdminLoadingState message="Loading queues..." />
 {:else if isQueuesError(queuesState)}
 	<AdminErrorState message="Failed to load queues: {queuesState.error}" />
-{:else if isQueuesLoaded(queuesState)}
+{:else if isRegistryError(registryState)}
+	<AdminErrorState message="Failed to load stage registry: {registryState.error}" />
+{:else if isQueuesLoaded(queuesState) && activeStage}
 	<div class="queue-overview">
 		<!-- Pipeline Status Summary -->
 		<div class="pipeline-summary">
@@ -177,19 +191,13 @@
 		<div class="stage-content-wrapper">
 			<div class="stage-tabs-container">
 				<div class="stage-tabs">
-					{#each stageInfo as stage (stage.key)}
-						{@const count = getQueueItemCount(stage.key)}
-						<button
-							class="stage-tab"
-							class:active={activeStage === stage.key}
+					{#each stages as stage (stage.key)}
+						<StageTab
+							{stage}
+							active={activeStageKey === stage.key}
+							count={getQueueItemCount(queuePathSegment(stage))}
 							onclick={() => handleSelectStage(stage.key)}
-						>
-							<span class="tab-name">{stage.name}</span>
-							<span class="tab-desc">{stage.description}</span>
-							{#if count > 0}
-								<Badge variant="default" class="stage-count-badge">{count}</Badge>
-							{/if}
-						</button>
+						/>
 					{/each}
 				</div>
 			</div>
@@ -199,7 +207,7 @@
 				<!-- Controls Row -->
 				<div class="controls-row">
 					<div class="controls-left">
-						<span class="active-stage-label">{activeStageInfo.description}</span>
+						<span class="active-stage-label">{activeStage.display_name}</span>
 						<Badge
 							variant="outline"
 							class="queue-count-badge {activeStageCount === 0 ? 'queue-count-zero' : ''}"
@@ -213,6 +221,8 @@
 						<Switch checked={activeRequiresApproval} onCheckedChange={handleToggleApproval} />
 					</label>
 				</div>
+
+				<p class="stage-description">{activeStage.description}</p>
 
 				{#if approveError}
 					<div class="approve-banner approve-banner--error" role="alert">
@@ -232,7 +242,7 @@
 							<Inbox class="empty-icon" />
 							<p class="empty-title">No jobs in queue</p>
 							<p class="empty-description">
-								{activeStageInfo.description} has no pending items right now.
+								{activeStage.display_name} has no pending items right now.
 							</p>
 						</div>
 					{:else}
@@ -306,64 +316,6 @@
 		justify-content: center;
 	}
 
-	.stage-tab {
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.125rem;
-		padding: 0.5rem 1rem;
-		border: 1px solid transparent;
-		background: none;
-		cursor: pointer;
-		color: var(--muted-foreground);
-		transition: all 0.15s ease;
-		white-space: nowrap;
-		border-radius: var(--radius-sm);
-	}
-
-	.stage-tab:hover {
-		color: var(--foreground);
-		background-color: oklch(from var(--primary) l c h / 0.06);
-	}
-
-	.stage-tab.active {
-		color: var(--primary);
-		background-color: var(--background);
-		border-color: oklch(from var(--primary) l c h / 0.3);
-		box-shadow: 0 1px 3px oklch(from var(--primary) l c h / 0.1);
-	}
-
-	.tab-name {
-		font-size: 0.8125rem;
-		font-weight: 600;
-	}
-
-	.stage-tab.active .tab-name {
-		color: var(--primary);
-	}
-
-	.tab-desc {
-		font-size: 0.6875rem;
-		font-weight: 400;
-		opacity: 0.7;
-	}
-
-	.stage-tab.active .tab-desc {
-		opacity: 1;
-	}
-
-	:global(.stage-count-badge) {
-		position: absolute;
-		top: -0.25rem;
-		right: -0.25rem;
-		font-size: 0.5625rem !important;
-		padding: 0 0.3rem !important;
-		height: 1rem !important;
-		min-width: 1rem !important;
-		line-height: 1rem !important;
-	}
-
 	/* ── Main Content Card ────────────────────────────────── */
 
 	.main-content-card {
@@ -392,6 +344,14 @@
 		font-size: 0.8125rem;
 		font-weight: 600;
 		color: var(--foreground);
+	}
+
+	.stage-description {
+		margin: 0;
+		padding: 0.5rem 0.875rem 0;
+		font-size: 0.75rem;
+		color: var(--muted-foreground);
+		line-height: 1.4;
 	}
 
 	:global(.queue-count-badge) {

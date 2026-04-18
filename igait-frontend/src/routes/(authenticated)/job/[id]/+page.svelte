@@ -5,7 +5,7 @@
 	import { rerunJob } from '$lib/api';
 	import { getJobFiles } from '$lib/api';
 	import type { FileEntry, JobFilesResponse } from '$lib/api';
-	import { FileViewer } from '$lib/components';
+	import { FileViewer, StageTab } from '$lib/components';
 	import CycleEditor from '$lib/components/CycleEditor.svelte';
 	import VideoEditor from '$lib/components/VideoEditor.svelte';
 	import { Badge } from '$lib/components/ui/badge';
@@ -23,14 +23,21 @@
 		CheckCircle2,
 		XCircle,
 		Clock,
-		ShieldCheck,
 		Loader2,
 		AlertCircle,
 		Film
 	} from '@lucide/svelte';
-	import type { Job } from '../../../../types/Job';
 	import type { JobStatus } from '../../../../types/JobStatus';
 	import type { StageStatus } from '../../../../types/StageStatus';
+	import {
+		registryStore,
+		stageLogsKey,
+		stageFilesKey,
+		stageNumber,
+		isRegistryLoaded,
+		isRegistryError,
+		type StageSpec
+	} from '$lib/stores';
 
 	// ── Auth ──────────────────────────────────────────────
 	const user = getUser();
@@ -41,7 +48,7 @@
 
 	// ── State ──────────────────────────────────────────────
 	let jobState = $state<SingleJobState>({ status: 'loading' });
-	let activeStage: string = $state('stage_1');
+	let activeStageKey: string = $state('');
 	let activeSubTab: 'output' | 'logs' = $state('output');
 	let showRerunDialog = $state(false);
 	let rerunLoading = $state(false);
@@ -93,40 +100,33 @@
 		}
 	});
 
-	// ── Stage info ─────────────────────────────────────────
-	const stageInfo = [
-		{ key: 'stage_1', name: 'Stage 1', description: 'Media Conversion' },
-		{ key: 'stage_2', name: 'Stage 2', description: 'Validity Check' },
-		{ key: 'stage_3', name: 'Stage 3', description: 'Reframing' },
-		{ key: 'stage_4', name: 'Stage 4', description: 'Pose Estimation' },
-		{ key: 'stage_5', name: 'Stage 5', description: 'Cycle Detection' },
-		{ key: 'stage_6', name: 'Stage 6', description: 'ML Prediction' },
-		{ key: 'stage_7', name: 'Stage 7', description: 'Finalize' }
-	] as const;
+	// ── Registry-driven stage list ──────────────────────────
+	const registryState = $derived(registryStore.state);
+	const stages = $derived(isRegistryLoaded(registryState) ? registryState.stages : []);
+
+	// Default the active stage to the first one once the registry loads.
+	$effect(() => {
+		if (stages.length > 0 && !stages.some((s) => s.key === activeStageKey)) {
+			activeStageKey = stages[0].key;
+		}
+	});
+
+	const activeStage = $derived(stages.find((s) => s.key === activeStageKey));
 
 	// ── Derived ────────────────────────────────────────────
 	const job = $derived(jobState.status === 'loaded' ? jobState.job : null);
 
-	const activeStageInfo = $derived(stageInfo.find((s) => s.key === activeStage) ?? stageInfo[0]);
-
-	const activeStageNumber = $derived(parseInt(activeStage.replace('stage_', ''), 10));
+	const activeStageNumber = $derived(activeStage ? stageNumber(activeStage) : 1);
 
 	const currentStageLogs = $derived.by(() => {
-		if (!job?.stage_logs) return null;
-		return job.stage_logs[activeStage] ?? null;
-	});
-
-	const jobIndex = $derived.by(() => {
-		const lastUnderscore = jobId.lastIndexOf('_');
-		if (lastUnderscore === -1) return 0;
-		return parseInt(jobId.slice(lastUnderscore + 1), 10);
+		if (!job?.stage_logs || !activeStage) return null;
+		return job.stage_logs[stageLogsKey(activeStage)] ?? null;
 	});
 
 	// ── Files for active stage ──────────────────────────
 	const outputFiles = $derived.by((): FileEntry[] | undefined => {
-		if (!filesData) return undefined;
-		const outputStageKey = `stage_${activeStageNumber}`;
-		return filesData.stages[outputStageKey] ?? [];
+		if (!filesData || !activeStage) return undefined;
+		return filesData.stages[stageFilesKey(activeStage)] ?? [];
 	});
 
 	// ── Tab counts ──────────────────────────────────────
@@ -136,44 +136,54 @@
 		return currentStageLogs.split('\n').length;
 	});
 
-	// ── Cycle editor file lookups ────────────────────────
-	const stage1Files = $derived((filesData as JobFilesResponse | null)?.stages['stage_1'] ?? []);
-
-	const stage1FrontVideo = $derived(
-		stage1Files.find((f: FileEntry) => f.name.startsWith('front') && f.name.endsWith('.mp4')) ??
-			null
-	);
-	const stage1SideVideo = $derived(
-		stage1Files.find((f: FileEntry) => f.name.startsWith('side') && f.name.endsWith('.mp4')) ?? null
-	);
-	const canOpenVideoEditor = $derived(!!(stage1FrontVideo || stage1SideVideo));
-
-	const stage4Files = $derived((filesData as JobFilesResponse | null)?.stages['stage_4'] ?? []);
-	const stage5Files = $derived((filesData as JobFilesResponse | null)?.stages['stage_5'] ?? []);
-
-	const frontVideoFile = $derived(
-		stage4Files.find((f: FileEntry) => f.name.startsWith('front') && f.name.endsWith('.mp4')) ??
-			null
-	);
-	const sideVideoFile = $derived(
-		stage4Files.find((f: FileEntry) => f.name.startsWith('side') && f.name.endsWith('.mp4')) ?? null
-	);
-	const frontJsonFile = $derived(
-		stage5Files.find((f: FileEntry) => f.name === 'front_gait_analysis.json') ?? null
-	);
-	const sideJsonFile = $derived(
-		stage5Files.find((f: FileEntry) => f.name === 'side_gait_analysis.json') ?? null
-	);
-	const canOpenCycleEditor = $derived(
-		!!(frontVideoFile || sideVideoFile) && !!(frontJsonFile || sideJsonFile)
-	);
-
-	// ── Stage status helpers ────────────────────────────────
-	function getStageStatus(stageKey: string): StageStatus {
-		return job?.stage_statuses?.[stageKey] ?? 'not_started';
+	// ── Custom editor prerequisites (registry-driven lookups) ──
+	function filesForStage(stageKey: string): FileEntry[] {
+		const spec = stages.find((s) => s.key === stageKey);
+		if (!spec || !filesData) return [];
+		return filesData.stages[stageFilesKey(spec)] ?? [];
 	}
 
-	const activeStageStatus = $derived(getStageStatus(activeStage));
+	const videoEditFrontVideo = $derived(
+		filesForStage('media-conversion').find(
+			(f) => f.name.startsWith('front') && f.name.endsWith('.mp4')
+		) ?? null
+	);
+	const videoEditSideVideo = $derived(
+		filesForStage('media-conversion').find(
+			(f) => f.name.startsWith('side') && f.name.endsWith('.mp4')
+		) ?? null
+	);
+	const canOpenVideoEditor = $derived(!!(videoEditFrontVideo || videoEditSideVideo));
+
+	const cycleFrontVideo = $derived(
+		filesForStage('pose-estimation').find(
+			(f) => f.name.startsWith('front') && f.name.endsWith('.mp4')
+		) ?? null
+	);
+	const cycleSideVideo = $derived(
+		filesForStage('pose-estimation').find(
+			(f) => f.name.startsWith('side') && f.name.endsWith('.mp4')
+		) ?? null
+	);
+	const cycleFrontJsonFile = $derived(
+		filesForStage('cycle-detection').find((f) => f.name === 'front_gait_analysis.json') ?? null
+	);
+	const cycleSideJsonFile = $derived(
+		filesForStage('cycle-detection').find((f) => f.name === 'side_gait_analysis.json') ?? null
+	);
+	const canOpenCycleEditor = $derived(
+		!!(cycleFrontVideo || cycleSideVideo) && !!(cycleFrontJsonFile || cycleSideJsonFile)
+	);
+
+	/** Stages with a non-default panel — each renders a global action button. */
+	const customPanelStages = $derived(stages.filter((s) => s.panel !== 'default'));
+
+	// ── Stage status helpers ────────────────────────────────
+	function getStageStatus(stage: StageSpec): StageStatus {
+		return job?.stage_statuses?.[stageLogsKey(stage)] ?? 'not_started';
+	}
+
+	const activeStageStatus = $derived(activeStage ? getStageStatus(activeStage) : 'not_started');
 	const stageHasContent = $derived(activeStageStatus !== 'not_started');
 
 	// ── Status helpers ─────────────────────────────────────
@@ -229,7 +239,7 @@
 	}
 
 	function handleStageClick(stageKey: string) {
-		activeStage = stageKey;
+		activeStageKey = stageKey;
 	}
 
 	function handleSubTabClick(tab: 'output' | 'logs') {
@@ -261,13 +271,41 @@
 			rerunLoading = false;
 		}
 	}
+
+	function handleOpenPanel(panel: StageSpec['panel']) {
+		if (panel === 'video-edit') {
+			videoEditorOpen = true;
+		} else if (panel === 'gait-cycles') {
+			cycleEditorOpen = true;
+		}
+	}
+
+	function canOpenPanel(panel: StageSpec['panel']): boolean {
+		if (panel === 'video-edit') return canOpenVideoEditor;
+		if (panel === 'gait-cycles') return canOpenCycleEditor;
+		return false;
+	}
+
+	function panelButtonLabel(panel: StageSpec['panel']): string {
+		if (panel === 'video-edit') return 'Video Editor';
+		if (panel === 'gait-cycles') return 'Cycle Editor';
+		return '';
+	}
+
+	function panelButtonTitle(panel: StageSpec['panel']): string {
+		if (panel === 'video-edit')
+			return 'Media-conversion outputs must exist to use the Video Editor';
+		if (panel === 'gait-cycles')
+			return 'Pose-estimation videos and cycle-detection JSON must exist';
+		return '';
+	}
 </script>
 
 <svelte:head>
 	<title>Job {formatJobId(jobId)} - iGait</title>
 </svelte:head>
 
-{#if jobState.status === 'loading'}
+{#if jobState.status === 'loading' || registryState.status === 'loading'}
 	<div class="state-message">
 		<Loader2 class="spinner" />
 		<p>Loading job details...</p>
@@ -277,7 +315,12 @@
 		<AlertCircle class="error-icon" />
 		<p>{jobState.error}</p>
 	</div>
-{:else if job}
+{:else if isRegistryError(registryState)}
+	<div class="state-message">
+		<AlertCircle class="error-icon" />
+		<p>Failed to load stage registry: {registryState.error}</p>
+	</div>
+{:else if job && activeStage}
 	<div class="job-detail-page">
 		<!-- Header -->
 		<header class="detail-header">
@@ -409,27 +452,13 @@
 		{#if isAdmin}
 			<div class="stage-tabs-container">
 				<div class="stage-tabs">
-					{#each stageInfo as stage}
-						{@const status = getStageStatus(stage.key)}
-						<button
-							class="stage-tab stage-tab--{status}"
-							class:active={activeStage === stage.key}
+					{#each stages as stage (stage.key)}
+						<StageTab
+							{stage}
+							active={activeStageKey === stage.key}
+							status={getStageStatus(stage)}
 							onclick={() => handleStageClick(stage.key)}
-						>
-							<span class="tab-header">
-								{#if status === 'complete'}
-									<CheckCircle2 class="tab-status-icon tab-status-icon--complete" />
-								{:else if status === 'running'}
-									<Loader2 class="tab-status-icon tab-status-icon--running" />
-								{:else if status === 'error'}
-									<XCircle class="tab-status-icon tab-status-icon--error" />
-								{:else}
-									<Clock class="tab-status-icon tab-status-icon--not-started" />
-								{/if}
-								<span class="tab-name">{stage.name}</span>
-							</span>
-							<span class="tab-desc">{stage.description}</span>
-						</button>
+						/>
 					{/each}
 				</div>
 			</div>
@@ -471,28 +500,19 @@
 						</div>
 
 						<div class="sub-tab-actions">
-							{#if canOpenVideoEditor}
-								<Button variant="outline" size="sm" onclick={() => (videoEditorOpen = true)}>
-									<Film class="mr-1 h-4 w-4" />
-									Video Editor
-								</Button>
-							{:else}
+							{#each customPanelStages as panelStage (panelStage.key)}
+								{@const enabled = canOpenPanel(panelStage.panel)}
 								<Button
 									variant="outline"
 									size="sm"
-									disabled
-									title="Stage 1 outputs must exist to use the Video Editor"
+									disabled={!enabled}
+									title={enabled ? '' : panelButtonTitle(panelStage.panel)}
+									onclick={() => handleOpenPanel(panelStage.panel)}
 								>
 									<Film class="mr-1 h-4 w-4" />
-									Video Editor
+									{panelButtonLabel(panelStage.panel)}
 								</Button>
-							{/if}
-							{#if canOpenCycleEditor}
-								<Button variant="outline" size="sm" onclick={() => (cycleEditorOpen = true)}>
-									<Film class="mr-1 h-4 w-4" />
-									Cycle Editor
-								</Button>
-							{/if}
+							{/each}
 							<Button variant="destructive" size="sm" onclick={handleRerunClick}>
 								<RotateCcw class="mr-1 h-4 w-4" />
 								Re-Run
@@ -531,7 +551,8 @@
 				{:else}
 					<div class="stage-not-started">
 						<Clock class="not-started-icon" />
-						<p class="not-started-title">{activeStageInfo.name}: {activeStageInfo.description}</p>
+						<p class="not-started-title">{activeStage.display_name}</p>
+						<p class="not-started-description">{activeStage.description}</p>
 						<p class="not-started-subtitle">This stage hasn't started yet</p>
 						<Button variant="destructive" size="sm" onclick={handleRerunClick}>
 							<RotateCcw class="mr-1 h-4 w-4" />
@@ -557,13 +578,13 @@
 			<div class="rerun-warning-body">
 				<p>
 					You are about to re-run <strong>{formatJobId(jobId)}</strong> starting from
-					<strong>{activeStageInfo.name} ({activeStageInfo.description})</strong>.
+					<strong>{activeStage.display_name}</strong>.
 				</p>
 				<div class="warning-callout">
 					<AlertTriangle class="callout-icon" />
 					<span>
-						This will <strong>clear all outputs</strong> from Stage {activeStageNumber}
-						onward (through Stage 7). The job will be re-queued for processing.
+						This will <strong>clear all outputs</strong> from {activeStage.display_name}
+						onward. The job will be re-queued for processing.
 					</span>
 				</div>
 
@@ -583,7 +604,7 @@
 						Re-Running…
 					{:else}
 						<RotateCcw class="mr-1 h-4 w-4" />
-						Re-Run from Stage {activeStageNumber}
+						Re-Run from {activeStage.display_name}
 					{/if}
 				</Button>
 			</Dialog.Footer>
@@ -594,18 +615,18 @@
 		open={cycleEditorOpen}
 		onclose={() => (cycleEditorOpen = false)}
 		{jobId}
-		frontVideo={frontVideoFile}
-		sideVideo={sideVideoFile}
-		{frontJsonFile}
-		{sideJsonFile}
+		frontVideo={cycleFrontVideo}
+		sideVideo={cycleSideVideo}
+		frontJsonFile={cycleFrontJsonFile}
+		sideJsonFile={cycleSideJsonFile}
 	/>
 
 	<VideoEditor
 		open={videoEditorOpen}
 		onclose={() => (videoEditorOpen = false)}
 		{jobId}
-		frontVideo={stage1FrontVideo}
-		sideVideo={stage1SideVideo}
+		frontVideo={videoEditFrontVideo}
+		sideVideo={videoEditSideVideo}
 	/>
 {/if}
 
@@ -805,114 +826,13 @@
 		justify-content: center;
 	}
 
-	.stage-tab {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.125rem;
-		padding: 0.5rem 1rem;
-		border: 1px solid transparent;
-		background: none;
-		cursor: pointer;
-		color: hsl(var(--muted-foreground));
-		transition: all 0.15s ease;
-		white-space: nowrap;
-		border-radius: var(--radius-sm);
-	}
-
-	.stage-tab:hover {
-		color: hsl(var(--foreground));
-		background-color: hsl(var(--primary) / 0.06);
-	}
-
-	.stage-tab.active {
-		background-color: hsl(var(--background));
-		box-shadow: 0 1px 3px hsl(var(--primary) / 0.1);
-	}
-
-	/* Stage status color variants */
-	.stage-tab--complete {
-		color: hsl(142 76% 36%);
-	}
-	.stage-tab--complete.active {
-		border-color: hsl(142 76% 36% / 0.4);
-	}
-
-	.stage-tab--running {
-		color: hsl(var(--primary));
-	}
-	.stage-tab--running.active {
-		border-color: hsl(var(--primary) / 0.4);
-	}
-
-	.stage-tab--error {
-		color: hsl(var(--destructive));
-	}
-	.stage-tab--error.active {
-		border-color: hsl(var(--destructive) / 0.4);
-	}
-
-	.stage-tab--not_started {
-		color: hsl(var(--muted-foreground));
-		opacity: 0.7;
-	}
-	.stage-tab--not_started.active {
-		border-color: hsl(var(--border));
-		opacity: 1;
-	}
-
-	.tab-header {
-		display: flex;
-		align-items: center;
-		gap: 0.3rem;
-	}
-
-	:global(.tab-status-icon) {
-		width: 0.8125rem;
-		height: 0.8125rem;
-		flex-shrink: 0;
-	}
-
-	:global(.tab-status-icon--complete) {
-		color: hsl(142 76% 36%);
-	}
-
-	:global(.tab-status-icon--running) {
-		color: hsl(var(--primary));
-		animation: spin 1s linear infinite;
-	}
-
-	:global(.tab-status-icon--error) {
-		color: hsl(var(--destructive));
-	}
-
-	:global(.tab-status-icon--not-started) {
-		color: hsl(var(--muted-foreground));
-		opacity: 0.5;
-	}
-
-	.tab-name {
-		font-size: 0.8125rem;
-		font-weight: 600;
-	}
-
-	.tab-desc {
-		font-size: 0.6875rem;
-		font-weight: 400;
-		opacity: 0.7;
-	}
-
-	.stage-tab.active .tab-desc {
-		opacity: 1;
-	}
-
 	/* Stage not started placeholder */
 	.stage-not-started {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 0.625rem;
+		gap: 0.5rem;
 		padding: 3rem 1.5rem;
 		color: hsl(var(--muted-foreground));
 	}
@@ -929,9 +849,17 @@
 		margin: 0;
 	}
 
+	.not-started-description {
+		font-size: 0.75rem;
+		margin: 0;
+		max-width: 34rem;
+		text-align: center;
+		line-height: 1.4;
+	}
+
 	.not-started-subtitle {
 		font-size: 0.8125rem;
-		margin: 0;
+		margin: 0.25rem 0 0;
 		opacity: 0.7;
 	}
 
