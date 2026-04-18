@@ -1117,8 +1117,9 @@ impl<W: StageWorker> WorkerRunner<W> {
                 // Mark this stage as complete
                 self.update_stage_status(&job.job_id, stage_num, StageStatus::Complete).await;
 
-                // Stage 7 is finalize, so stage 6 sends to finalize on success.
-                let moved = if stage == StageNumber::Stage6Prediction {
+                // If our successor is terminal, route directly to its
+                // (finalize-style) queue instead of a standard inter-stage one.
+                let moved = if next_stage(stage).spec().terminal {
                     self.queue_ops
                         .move_to_finalize_success(stage, &job, output_keys)
                         .await
