@@ -1,10 +1,10 @@
 //! Central registry of pipeline stages — the single source of truth
-//! for stage identity, ordering, and user-visible metadata.
+//! for stage identity, ordering, and UI metadata.
 //!
 //! Adding, removing, or reordering stages is expressed by editing the
-//! [`STAGES`] constant below. The backend publishes this list to RTDB
-//! on startup; the frontend reads it from there and renders every stage
-//! through a single uniform component.
+//! [`STAGES`] constant below. The backend publishes this registry to
+//! RTDB on launch; the frontend reads it from there to render stage
+//! tabs generically.
 
 use serde::Serialize;
 
@@ -16,14 +16,31 @@ pub struct StageSpec {
     pub key: &'static str,
     /// Human-readable name for logs and UI.
     pub display_name: &'static str,
-    /// One-line summary for cards, tooltips, and list views.
-    pub short_description: &'static str,
-    /// Longer prose describing what this stage does and what it emits.
-    /// Shown in admin detail panels.
+    /// One-line description shown in the admin UI.
     pub description: &'static str,
     /// True for the terminal stage, which handles email + archiving and
     /// uses a distinct queue schema (`FinalizeQueueItem`).
     pub terminal: bool,
+    /// Which custom UI panel (if any) the frontend should mount for
+    /// this stage's tab. Everything else uses the default tab layout.
+    pub panel: StagePanel,
+}
+
+/// Closed set of custom UI panels the frontend can mount inside a
+/// generic `<StageTab>`. Adding a new panel variant is a deliberate
+/// cross-language change: a new Rust variant here, a new Svelte
+/// component keyed by the variant on the frontend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StagePanel {
+    /// No custom panel — the generic `<StageTab>` renders status, logs,
+    /// and artifacts only.
+    Default,
+    /// Rotation / crop / trim flags applied on media-conversion rerun.
+    VideoEdit,
+    /// Admin override of the gait-cycle index array produced by
+    /// cycle-detection.
+    GaitCycles,
 }
 
 /// The ordered pipeline. Position determines execution order.
@@ -31,51 +48,51 @@ pub const STAGES: &[StageSpec] = &[
     StageSpec {
         key: "media-conversion",
         display_name: "Media Conversion",
-        short_description: "Standardize uploaded videos to 1920x1080 @ 60fps H.264.",
-        description: "Converts front and side uploads to a single canonical format — 1920x1080 padded, 60fps, H.264/AAC — and applies any rotation, trim, or crop requested via the video-edit flags on the job. Downstream stages can assume uniform input.",
+        description: "Standardizes uploaded videos — resolution, frame rate, codec, and optional rotation/crop/trim.",
         terminal: false,
+        panel: StagePanel::VideoEdit,
     },
     StageSpec {
         key: "validity-check",
         display_name: "Validity Check",
-        short_description: "Confirm each video contains one walking person.",
-        description: "Runs a YOLO + SlowFast + DeepSORT detection pipeline on both videos. A job proceeds only if a human is detected in both clips; otherwise the job errors out of the pipeline with a failure notification.",
+        description: "Verifies both front and side videos contain exactly one person walking, via YOLO + SlowFast + DeepSORT.",
         terminal: false,
+        panel: StagePanel::Default,
     },
     StageSpec {
         key: "reframing",
         display_name: "Reframing",
-        short_description: "Passthrough — reserved for automatic reframing.",
-        description: "Placeholder stage that currently passes its inputs through unchanged. Reserved for future logic that reframes videos around the detected person's bounding box.",
+        description: "Adjusts video framing and cropping based on detected person position (currently a pass-through placeholder).",
         terminal: false,
+        panel: StagePanel::Default,
     },
     StageSpec {
         key: "pose-estimation",
         display_name: "Pose Estimation",
-        short_description: "Extract 3D body keypoints with MediaPipe.",
-        description: "Runs MediaPipe Holistic on each video, producing per-frame 3D landmark JSON for downstream analysis plus pose-overlay preview videos re-encoded to browser-playable H.264.",
+        description: "Extracts body keypoints using MediaPipe's Holistic model, producing pose overlay videos and landmark JSON.",
         terminal: false,
+        panel: StagePanel::Default,
     },
     StageSpec {
         key: "cycle-detection",
         display_name: "Cycle Detection",
-        short_description: "Identify individual gait cycles in pose data.",
-        description: "Analyzes the landmark streams with rhythmic template matching to identify individual gait cycles. Emits a gait-analysis JSON per side, consumed by the prediction stage.",
+        description: "Analyzes pose landmarks to identify individual gait cycles via rhythmic template matching.",
         terminal: false,
+        panel: StagePanel::GaitCycles,
     },
     StageSpec {
         key: "prediction",
         display_name: "Prediction",
-        short_description: "Run ensemble ASD classification on gait features.",
-        description: "Runs the ensemble ML model over the gait-cycle features and emits a prediction.json describing the classification outcome. The finalize stage interprets this payload.",
+        description: "Runs the ML ensemble to classify ASD from gait analysis data.",
         terminal: false,
+        panel: StagePanel::Default,
     },
     StageSpec {
         key: "finalize",
         display_name: "Finalize",
-        short_description: "Send the result email and archive job outputs.",
-        description: "Reads the prediction outcome from storage, sends the success or failure email to the submitter, and archives the job's artifacts. Terminal stage — does not enqueue further work.",
+        description: "Sends the result email, archives artifacts, and closes out the job.",
         terminal: true,
+        panel: StagePanel::Default,
     },
 ];
 
@@ -134,6 +151,13 @@ mod tests {
     }
 
     #[test]
+    fn descriptions_non_empty() {
+        for s in STAGES {
+            assert!(!s.description.is_empty(), "stage {:?} has empty description", s.key);
+        }
+    }
+
+    #[test]
     fn exactly_one_terminal_and_it_is_last() {
         let terminal_indices: Vec<usize> = STAGES
             .iter()
@@ -172,11 +196,20 @@ mod tests {
     }
 
     #[test]
-    fn every_stage_has_non_empty_metadata() {
-        for s in STAGES {
-            assert!(!s.display_name.is_empty(), "{} has empty display_name", s.key);
-            assert!(!s.short_description.is_empty(), "{} has empty short_description", s.key);
-            assert!(!s.description.is_empty(), "{} has empty description", s.key);
-        }
+    fn panel_serializes_as_kebab_case() {
+        assert_eq!(serde_json::to_string(&StagePanel::Default).unwrap(), "\"default\"");
+        assert_eq!(serde_json::to_string(&StagePanel::VideoEdit).unwrap(), "\"video-edit\"");
+        assert_eq!(serde_json::to_string(&StagePanel::GaitCycles).unwrap(), "\"gait-cycles\"");
+    }
+
+    #[test]
+    fn stage_spec_serializes_to_expected_shape() {
+        let spec = &STAGES[0];
+        let json = serde_json::to_value(spec).unwrap();
+        assert_eq!(json["key"], "media-conversion");
+        assert_eq!(json["display_name"], "Media Conversion");
+        assert!(json["description"].as_str().unwrap().len() > 0);
+        assert_eq!(json["terminal"], false);
+        assert_eq!(json["panel"], "video-edit");
     }
 }
