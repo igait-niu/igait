@@ -45,17 +45,29 @@ impl StageNumber {
         }
     }
 
+    /// Registry key for this stage. Matches the `key` field on the
+    /// corresponding [`StageSpec`](super::registry::StageSpec) entry.
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::Stage1MediaConversion => "media-conversion",
+            Self::Stage2ValidityCheck => "validity-check",
+            Self::Stage3Reframing => "reframing",
+            Self::Stage4PoseEstimation => "pose-estimation",
+            Self::Stage5CycleDetection => "cycle-detection",
+            Self::Stage6Prediction => "prediction",
+            Self::Stage7Finalize => "finalize",
+        }
+    }
+
+    /// The registry entry describing this stage.
+    pub fn spec(&self) -> &'static super::registry::StageSpec {
+        super::registry::stage_by_key(self.key())
+            .expect("StageNumber variant must map to a registered stage")
+    }
+
     /// Returns the human-readable name for this stage.
     pub fn name(&self) -> &'static str {
-        match self {
-            Self::Stage1MediaConversion => "Media Conversion",
-            Self::Stage2ValidityCheck => "Validity Check",
-            Self::Stage3Reframing => "Reframing",
-            Self::Stage4PoseEstimation => "Pose Estimation",
-            Self::Stage5CycleDetection => "Cycle Detection",
-            Self::Stage6Prediction => "Prediction",
-            Self::Stage7Finalize => "Finalize",
-        }
+        self.spec().display_name
     }
 
     /// Returns the storage path prefix for this stage's outputs.
