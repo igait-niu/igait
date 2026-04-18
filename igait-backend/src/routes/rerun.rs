@@ -103,17 +103,20 @@ pub async fn rerun_entrypoint(
     }
 
     // ── 1. Validate stage number ────────────────────────────────────
-    // Stage 7 is the finalize stage and uses FinalizeQueueItem, not QueueItem.
-    // We don't support rerunning from stage 7 since it would require a different payload.
-    if stage < 1 || stage > 6 {
+    let target_stage = StageNumber::from_u8(stage)
+        .ok_or_else(|| anyhow!(
+            "Invalid stage number {}. Must be between 1 and {}.",
+            stage, NUM_STAGES
+        ))?;
+
+    // Terminal stages use FinalizeQueueItem (not QueueItem) and aren't
+    // reachable through this endpoint — the payload shape is different.
+    if target_stage.spec().terminal {
         return Err(AppError(anyhow!(
-            "Invalid stage number {}. Must be between 1 and 6. (Note: stage 7 uses a different queue type and cannot be rerun via this endpoint)",
-            stage
+            "Cannot rerun the {} stage — it uses a different queue type.",
+            target_stage.spec().display_name
         )));
     }
-
-    let target_stage = StageNumber::from_u8(stage)
-        .ok_or_else(|| anyhow!("Failed to convert stage number {} to StageNumber", stage))?;
 
     // ── 2. Fetch the job ────────────────────────────────────────────
     let job = app
@@ -239,7 +242,7 @@ async fn run_rerun_under_lease(
     }
 
     // ── 7. Build a fresh QueueItem and write it to the target queue ─
-    let input_keys = build_input_keys(job_id, stage);
+    let input_keys = target_stage.spec().build_input_keys(job_id);
 
     let mut extra = HashMap::new();
     if stage == 1 {
@@ -287,85 +290,3 @@ async fn run_rerun_under_lease(
     Ok(total_deleted)
 }
 
-/// Builds the `input_keys` map for the target stage.
-///
-/// The expected keys are **stage-specific**:
-/// - Stages 1–3: `front_video`, `side_video` (video-based processing)
-/// - Stage 4:    `front_video`, `side_video` (from stage 2 — stage 3 is a passthrough)
-/// - Stage 5:    `front_landmarks`, `side_landmarks`, `front_video`, `side_video` (from pose estimation)
-/// - Stage 6:    `front_gait_analysis`, `side_gait_analysis` (from cycle detection)
-///
-/// All keys point at the previous stage's outputs for the given job.
-fn build_input_keys(job_id: &str, stage: u8) -> HashMap<String, String> {
-    let prev = stage.saturating_sub(1);
-    let mut keys = HashMap::new();
-
-    match stage {
-        // Stages 1–3 consume video outputs from the previous stage.
-        1..=3 => {
-            keys.insert(
-                "front_video".to_string(),
-                StoragePaths::stage_front_video(job_id, prev, "mp4"),
-            );
-            keys.insert(
-                "side_video".to_string(),
-                StoragePaths::stage_side_video(job_id, prev, "mp4"),
-            );
-        }
-        // Stage 4 reads from stage 2 because stage 3 is a passthrough
-        // that does not produce its own files.
-        4 => {
-            keys.insert(
-                "front_video".to_string(),
-                StoragePaths::stage_front_video(job_id, 2, "mp4"),
-            );
-            keys.insert(
-                "side_video".to_string(),
-                StoragePaths::stage_side_video(job_id, 2, "mp4"),
-            );
-        }
-        // Stage 5 consumes pose landmarks AND videos from stage 4.
-        5 => {
-            keys.insert(
-                "front_video".to_string(),
-                StoragePaths::stage_front_video(job_id, prev, "mp4"),
-            );
-            keys.insert(
-                "side_video".to_string(),
-                StoragePaths::stage_side_video(job_id, prev, "mp4"),
-            );
-            keys.insert(
-                "front_landmarks".to_string(),
-                format!("jobs/{}/stage_{}/front_landmarks.json", job_id, prev),
-            );
-            keys.insert(
-                "side_landmarks".to_string(),
-                format!("jobs/{}/stage_{}/side_landmarks.json", job_id, prev),
-            );
-        }
-        // Stage 6 consumes gait analysis outputs from stage 5.
-        6 => {
-            keys.insert(
-                "front_gait_analysis".to_string(),
-                format!("jobs/{}/stage_{}/front_gait_analysis.json", job_id, prev),
-            );
-            keys.insert(
-                "side_gait_analysis".to_string(),
-                format!("jobs/{}/stage_{}/side_gait_analysis.json", job_id, prev),
-            );
-        }
-        // Fallback: default to the legacy video keys.
-        _ => {
-            keys.insert(
-                "front_video".to_string(),
-                StoragePaths::stage_front_video(job_id, prev, "mp4"),
-            );
-            keys.insert(
-                "side_video".to_string(),
-                StoragePaths::stage_side_video(job_id, prev, "mp4"),
-            );
-        }
-    }
-
-    keys
-}
