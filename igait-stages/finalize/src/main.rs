@@ -9,8 +9,8 @@
 
 use anyhow::{Context, Result};
 use igait_lib::microservice::{
-    EmailClient, EmailTemplates, FinalizeQueueItem, JobResult, ProcessingResult, StorageClient,
-    JobStatus, StageStatus, QueueOps, FirebaseRtdb, job_result_path,
+    EmailClient, EmailTemplates, FinalizeQueueItem, JobResult, ProcessingResult, StageId,
+    StorageClient, JobStatus, StageStatus, QueueOps, FirebaseRtdb, job_result_path,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -66,7 +66,7 @@ impl FinalizeStageWorker {
     /// (1 = ASD, 0 = no ASD). Returns `Some(is_asd)` if found and valid,
     /// `None` otherwise.
     async fn get_prediction_class(&self, job_id: &str) -> Option<bool> {
-        let prediction_path = format!("jobs/{}/stage_6/prediction.json", job_id);
+        let prediction_path = format!("jobs/{}/prediction/prediction.json", job_id);
 
         match self.storage.download(&prediction_path).await {
             Ok(data) => {
@@ -209,10 +209,11 @@ impl FinalizeStageWorker {
 
     /// Upload stage logs to Firebase RTDB
     async fn upload_stage_logs(&self, job_id: &str, logs: &str) {
+        let finalize_id = StageId::new("finalize");
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_stage_logs(&user_id, &job_index, 7, logs).await {
-                    eprintln!("Failed to upload stage 7 logs to RTDB: {:?}", e);
+                if let Err(e) = self.queue_ops.update_stage_logs(&user_id, &job_index, finalize_id, logs).await {
+                    eprintln!("Failed to upload finalize logs to RTDB: {:?}", e);
                 }
             }
             Err(e) => {
@@ -222,11 +223,11 @@ impl FinalizeStageWorker {
     }
 
     /// Update per-stage status in RTDB
-    async fn update_stage_status(&self, job_id: &str, stage: u8, status: StageStatus) {
+    async fn update_stage_status(&self, job_id: &str, stage: StageId, status: StageStatus) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
                 if let Err(e) = self.queue_ops.update_stage_status(&user_id, &job_index, stage, &status).await {
-                    eprintln!("Failed to update stage {} status in RTDB: {:?}", stage, e);
+                    eprintln!("Failed to update {} status in RTDB: {:?}", stage, e);
                 }
             }
             Err(e) => {
@@ -245,9 +246,10 @@ impl FinalizeStageWorker {
         logs.push_str(&format!("Starting finalization for job {}\n", job.job_id));
         logs.push_str(&format!("Queue item success flag: {}\n", job.success));
 
-        // Update status to stage 7 on entry
-        self.update_job_status(&job.job_id, JobStatus::processing(7)).await;
-        self.update_stage_status(&job.job_id, 7, StageStatus::Running).await;
+        // Mark the finalize stage as running on entry.
+        let finalize_id = StageId::new("finalize");
+        self.update_job_status(&job.job_id, JobStatus::processing(finalize_id.position())).await;
+        self.update_stage_status(&job.job_id, finalize_id, StageStatus::Running).await;
 
         // Check for prediction.json in S3 - this is the source of truth
         let prediction_class = self.get_prediction_class(&job.job_id).await;

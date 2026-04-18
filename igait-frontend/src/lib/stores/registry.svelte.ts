@@ -84,24 +84,25 @@ class RegistryStore {
 
 export const registryStore = new RegistryStore();
 
-// ── Legacy-path helpers ────────────────────────────────────────────
-// The registry uses kebab-case keys, but RTDB queues and stage_logs
-// still use the legacy `stage_N` / `finalize` naming. These helpers
-// bridge the two worlds until a future migration unifies them.
+// ── Path helpers ───────────────────────────────────────────────────
+// Every runtime path now uses the stage key directly. These helpers
+// exist so callers don't have to remember which field to use — and
+// so we have one place to change if the naming convention ever
+// shifts again.
 
-/** RTDB `/queues/...` segment for a stage. */
+/** RTDB `/queues/{stage.key}` segment. */
 export function queuePathSegment(stage: StageSpec): string {
-	return stage.terminal ? 'finalize' : `stage_${stage.order + 1}`;
+	return stage.key;
 }
 
-/** Key into `job.stage_logs` / `job.stage_statuses`. Always `stage_N`. */
+/** Key into `job.stage_logs` / `job.stage_statuses`. */
 export function stageLogsKey(stage: StageSpec): string {
-	return `stage_${stage.order + 1}`;
+	return stage.key;
 }
 
-/** Key into the files-API response (`stages.stage_N`). */
+/** Key into the files-API response (`stages.{stage.key}`). */
 export function stageFilesKey(stage: StageSpec): string {
-	return `stage_${stage.order + 1}`;
+	return stage.key;
 }
 
 /** 1-indexed stage number, for APIs that still expect a number (e.g. /rerun). */

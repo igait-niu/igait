@@ -180,15 +180,9 @@ impl CycleDetectionWorker {
         logs.push_str("Side gait cycle detection complete.\n");
 
         // Construct output storage keys
-        let stage_num = stage.position();
-        let front_gait_key = format!(
-            "jobs/{}/stage_{}/front_gait_analysis.json",
-            job.job_id, stage_num
-        );
-        let side_gait_key = format!(
-            "jobs/{}/stage_{}/side_gait_analysis.json",
-            job.job_id, stage_num
-        );
+        let key = stage.key();
+        let front_gait_key = format!("jobs/{}/{}/front_gait_analysis.json", job.job_id, key);
+        let side_gait_key = format!("jobs/{}/{}/side_gait_analysis.json", job.job_id, key);
 
         // Upload front gait analysis JSON
         let front_gait_path = front_output_dir.join(format!(

@@ -216,16 +216,10 @@ impl ValidityCheckWorker {
             .context("Failed to serialize combined validity")?;
 
         // Construct S3 output keys
-        let stage_num = stage.position();
-        let validity_key = format!("jobs/{}/stage_{}/validity.json", job.job_id, stage_num);
-        let front_annotated_key = format!(
-            "jobs/{}/stage_{}/front_annotated.mp4",
-            job.job_id, stage_num
-        );
-        let side_annotated_key = format!(
-            "jobs/{}/stage_{}/side_annotated.mp4",
-            job.job_id, stage_num
-        );
+        let key = stage.key();
+        let validity_key = format!("jobs/{}/{}/validity.json", job.job_id, key);
+        let front_annotated_key = format!("jobs/{}/{}/front_annotated.mp4", job.job_id, key);
+        let side_annotated_key = format!("jobs/{}/{}/side_annotated.mp4", job.job_id, key);
 
         // Upload validity.json (always, even on failure — useful for debugging)
         logs.push_str("Uploading validity.json...\n");

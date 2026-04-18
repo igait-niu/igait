@@ -204,8 +204,7 @@ impl PredictionWorker {
         // Upload the raw prediction result as prediction.json for stage 7.
         // Stage 7 is responsible for interpreting the result (averaging
         // probabilities, checking status, etc.).
-        let stage_num = stage.as_u8();
-        let prediction_key = format!("jobs/{}/stage_{}/prediction.json", job.job_id, stage_num);
+        let prediction_key = format!("jobs/{}/{}/prediction.json", job.job_id, stage.key());
         logs.push_str(&format!(
             "Uploading prediction.json to {}...\n",
             prediction_key

@@ -12,7 +12,7 @@ use anyhow::{Context, anyhow};
 use firebase_auth::FirebaseUser;
 use serde::{Deserialize, Serialize};
 
-use igait_lib::microservice::StoragePaths;
+use igait_lib::microservice::{StageId, StoragePaths};
 
 use crate::helper::lib::{AppError, AppStatePtr};
 
@@ -106,7 +106,7 @@ pub async fn cycles_entrypoint(
     // ── 3. Build the S3 key and download existing JSON ──────────────
     let s3_key = format!(
         "{}{}",
-        StoragePaths::stage_dir(&job_id, 5),
+        StoragePaths::stage_dir(&job_id, StageId::new("cycle-detection")),
         request.file_name
     );
 

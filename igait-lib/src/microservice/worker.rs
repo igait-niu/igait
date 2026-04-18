@@ -9,6 +9,7 @@ use crate::microservice::{
         ProcessingResult, QueueConfig, QueueItem, CLAIM_TIMEOUT_MS, HEARTBEAT_INTERVAL_SECS,
         generate_worker_id, job_coordination_path, job_result_path, next_stage, now_ms,
         queue_config_path, queue_item_path, queue_path, result_notification_path,
+        stage_logs_path, stage_status_path,
     },
     backend_status::{JobStatus, StageStatus},
     StageId,
@@ -839,19 +840,16 @@ impl QueueOps {
         self.db.set(&path, status).await
     }
 
-    /// Updates the per-stage status in Firebase RTDB.
-    ///
-    /// This writes to `users/{user_id}/jobs/{job_key}/stage_statuses/stage_{n}`
-    pub async fn update_stage_status(&self, user_id: &str, job_key: &str, stage: u8, status: &StageStatus) -> Result<()> {
-        let path = format!("users/{}/jobs/{}/stage_statuses/stage_{}", user_id, job_key, stage);
+    /// Updates the per-stage status in Firebase RTDB, keyed by
+    /// `stage_statuses/{stage.key}`.
+    pub async fn update_stage_status(&self, user_id: &str, job_key: &str, stage: StageId, status: &StageStatus) -> Result<()> {
+        let path = stage_status_path(user_id, job_key, stage);
         self.db.set(&path, status).await
     }
 
-    /// Uploads stage logs to Firebase RTDB.
-    ///
-    /// This writes to `users/{user_id}/jobs/{job_key}/stage_logs/stage_{n}`
-    pub async fn update_stage_logs(&self, user_id: &str, job_key: &str, stage: u8, logs: &str) -> Result<()> {
-        let path = format!("users/{}/jobs/{}/stage_logs/stage_{}", user_id, job_key, stage);
+    /// Uploads stage logs to Firebase RTDB, keyed by `stage_logs/{stage.key}`.
+    pub async fn update_stage_logs(&self, user_id: &str, job_key: &str, stage: StageId, logs: &str) -> Result<()> {
+        let path = stage_logs_path(user_id, job_key, stage);
         self.db.set(&path, &logs).await
     }
 
@@ -1046,7 +1044,7 @@ impl<W: StageWorker> WorkerRunner<W> {
         // Update job status to "Processing" and stage status to "Running" in RTDB
         let stage_num = stage.position();
         self.update_job_status(&job.job_id, JobStatus::processing(stage_num)).await;
-        self.update_stage_status(&job.job_id, stage_num, StageStatus::Running).await;
+        self.update_stage_status(&job.job_id, stage, StageStatus::Running).await;
 
         let heartbeat_db = self.queue_ops.db.clone();
         let heartbeat_worker_id = self.worker_id.clone();
@@ -1112,10 +1110,10 @@ impl<W: StageWorker> WorkerRunner<W> {
                 );
 
                 // Upload stage logs to Firebase RTDB
-                self.upload_stage_logs(&job.job_id, stage_num, &logs).await;
+                self.upload_stage_logs(&job.job_id, stage, &logs).await;
 
                 // Mark this stage as complete
-                self.update_stage_status(&job.job_id, stage_num, StageStatus::Complete).await;
+                self.update_stage_status(&job.job_id, stage, StageStatus::Complete).await;
 
                 // If our successor is terminal, route directly to its
                 // (finalize-style) queue instead of a standard inter-stage one.
@@ -1143,8 +1141,8 @@ impl<W: StageWorker> WorkerRunner<W> {
                     self.worker_id, job.job_id, duration_ms, error
                 );
 
-                self.upload_stage_logs(&job.job_id, stage_num, &logs).await;
-                self.update_stage_status(&job.job_id, stage_num, StageStatus::Error).await;
+                self.upload_stage_logs(&job.job_id, stage, &logs).await;
+                self.update_stage_status(&job.job_id, stage, StageStatus::Error).await;
                 self.update_job_status(&job.job_id, JobStatus::error(logs.clone())).await;
 
                 let moved = self.queue_ops
@@ -1164,11 +1162,11 @@ impl<W: StageWorker> WorkerRunner<W> {
     }
     
     /// Upload stage logs to Firebase RTDB
-    async fn upload_stage_logs(&self, job_id: &str, stage: u8, logs: &str) {
+    async fn upload_stage_logs(&self, job_id: &str, stage: StageId, logs: &str) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
                 if let Err(e) = self.queue_ops.update_stage_logs(&user_id, &job_index, stage, logs).await {
-                    eprintln!("Failed to upload stage {} logs to RTDB: {:?}", stage, e);
+                    eprintln!("Failed to upload {} logs to RTDB: {:?}", stage, e);
                 }
             }
             Err(e) => {
@@ -1192,11 +1190,11 @@ impl<W: StageWorker> WorkerRunner<W> {
     }
 
     /// Update per-stage status directly in RTDB
-    async fn update_stage_status(&self, job_id: &str, stage: u8, status: StageStatus) {
+    async fn update_stage_status(&self, job_id: &str, stage: StageId, status: StageStatus) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
                 if let Err(e) = self.queue_ops.update_stage_status(&user_id, &job_index, stage, &status).await {
-                    eprintln!("Failed to update stage {} status in RTDB: {:?}", stage, e);
+                    eprintln!("Failed to update {} status in RTDB: {:?}", stage, e);
                 }
             }
             Err(e) => {
@@ -1347,12 +1345,12 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
             );
         }
         if let Err(e) = queue_ops
-            .update_stage_status(&user_id, &job_index, stage_num, &StageStatus::Running)
+            .update_stage_status(&user_id, &job_index, stage, &StageStatus::Running)
             .await
         {
             eprintln!(
-                "[job-mode] Failed to mark stage {} Running for {}: {:?}",
-                stage_num, job.job_id, e
+                "[job-mode] Failed to mark {} Running for {}: {:?}",
+                stage, job.job_id, e
             );
         }
     }

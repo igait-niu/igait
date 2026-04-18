@@ -166,13 +166,11 @@ impl PoseEstimationWorker {
             .context("Failed to re-encode side pose video to H.264")?;
 
         // Construct output storage keys
-        let stage_num = stage.position();
-        let front_pose_key = format!("jobs/{}/stage_{}/front_pose.mp4", job.job_id, stage_num);
-        let side_pose_key = format!("jobs/{}/stage_{}/side_pose.mp4", job.job_id, stage_num);
-        let front_landmarks_key =
-            format!("jobs/{}/stage_{}/front_landmarks.json", job.job_id, stage_num);
-        let side_landmarks_key =
-            format!("jobs/{}/stage_{}/side_landmarks.json", job.job_id, stage_num);
+        let key = stage.key();
+        let front_pose_key = format!("jobs/{}/{}/front_pose.mp4", job.job_id, key);
+        let side_pose_key = format!("jobs/{}/{}/side_pose.mp4", job.job_id, key);
+        let front_landmarks_key = format!("jobs/{}/{}/front_landmarks.json", job.job_id, key);
+        let side_landmarks_key = format!("jobs/{}/{}/side_landmarks.json", job.job_id, key);
 
         // Upload front pose video
         logs.push_str(&format!(

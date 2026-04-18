@@ -286,47 +286,53 @@ impl std::fmt::Debug for StorageClient {
 pub struct StoragePaths;
 
 impl StoragePaths {
-    /// Returns the base path for a job's files.
-    /// Format: `jobs/{job_id}/`
+    /// Returns the base path for a job's files: `jobs/{job_id}/`.
     pub fn job_base(job_id: &str) -> String {
         format!("jobs/{}/", job_id)
     }
 
-    /// Returns the path for a stage's output directory.
-    /// Format: `jobs/{job_id}/stage_{n}/`
-    pub fn stage_dir(job_id: &str, stage: u8) -> String {
-        format!("jobs/{}/stage_{}/", job_id, stage)
+    /// Returns a stage's output directory: `jobs/{job_id}/{stage.key}/`.
+    pub fn stage_dir(job_id: &str, stage: crate::microservice::StageId) -> String {
+        format!("jobs/{}/{}/", job_id, stage.key())
     }
 
-    /// Returns the path for the original uploaded files.
-    /// Format: `jobs/{job_id}/stage_0/`
+    /// Returns the raw-upload directory: `jobs/{job_id}/upload/`.
     pub fn uploads_dir(job_id: &str) -> String {
-        format!("jobs/{}/stage_0/", job_id)
+        format!("jobs/{}/upload/", job_id)
     }
 
     /// Returns the full path for an uploaded front video.
     pub fn upload_front_video(job_id: &str, extension: &str) -> String {
-        format!("jobs/{}/stage_0/front.{}", job_id, extension)
+        format!("jobs/{}/upload/front.{}", job_id, extension)
     }
 
     /// Returns the full path for an uploaded side video.
     pub fn upload_side_video(job_id: &str, extension: &str) -> String {
-        format!("jobs/{}/stage_0/side.{}", job_id, extension)
+        format!("jobs/{}/upload/side.{}", job_id, extension)
     }
 
     /// Returns the full path for a stage output front video.
-    pub fn stage_front_video(job_id: &str, stage: u8, extension: &str) -> String {
-        format!("jobs/{}/stage_{}/front.{}", job_id, stage, extension)
+    pub fn stage_front_video(
+        job_id: &str,
+        stage: crate::microservice::StageId,
+        extension: &str,
+    ) -> String {
+        format!("jobs/{}/{}/front.{}", job_id, stage.key(), extension)
     }
 
     /// Returns the full path for a stage output side video.
-    pub fn stage_side_video(job_id: &str, stage: u8, extension: &str) -> String {
-        format!("jobs/{}/stage_{}/side.{}", job_id, stage, extension)
+    pub fn stage_side_video(
+        job_id: &str,
+        stage: crate::microservice::StageId,
+        extension: &str,
+    ) -> String {
+        format!("jobs/{}/{}/side.{}", job_id, stage.key(), extension)
     }
 
-    /// Returns the path for the final results archive.
+    /// Returns the path for the final results archive, written under
+    /// the terminal stage's directory.
     pub fn results_archive(job_id: &str) -> String {
-        format!("jobs/{}/stage_7/results.zip", job_id)
+        format!("jobs/{}/finalize/results.zip", job_id)
     }
 
     /// Extracts the job_id from a storage path.
@@ -368,17 +374,17 @@ mod tests {
         );
         
         assert_eq!(
-            StoragePaths::stage_dir("user123_5", 1),
-            "jobs/user123_5/stage_1/"
+            StoragePaths::stage_dir("user123_5", crate::microservice::StageId::new("media-conversion")),
+            "jobs/user123_5/media-conversion/"
         );
-        
+
         assert_eq!(
             StoragePaths::upload_front_video("user123_5", "mp4"),
-            "jobs/user123_5/stage_0/front.mp4"
+            "jobs/user123_5/upload/front.mp4"
         );
-        
+
         assert_eq!(
-            StoragePaths::extract_job_id("jobs/user123_5/stage_1/front.mp4"),
+            StoragePaths::extract_job_id("jobs/user123_5/media-conversion/front.mp4"),
             Some("user123_5")
         );
     }

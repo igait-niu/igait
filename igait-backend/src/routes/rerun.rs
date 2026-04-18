@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use igait_lib::microservice::{
     JobMetadata, QueueItem, QueueOps, StageId, StageStatus, StoragePaths,
-    FirebaseRtdb, queue_item_path,
+    FirebaseRtdb, queue_item_path, stage_logs_path, stage_status_path, stages_from,
 };
 use tracing::{info, instrument, warn};
 
@@ -216,29 +216,29 @@ async fn run_rerun_under_lease(
         .context("Failed to bump job epoch")?;
     info!(new_epoch, "bumped job epoch");
 
-    // ── 5. Delete S3 outputs for stages `stage..=7` ────────────────
+    // ── 5. Delete S3 outputs for the target stage onward ─────────
     let mut total_deleted: usize = 0;
-    for s in stage..=NUM_STAGES {
-        let prefix = StoragePaths::stage_dir(job_id, s);
+    for id in stages_from(target_stage) {
+        let prefix = StoragePaths::stage_dir(job_id, id);
         let deleted = app
             .storage
             .delete_by_prefix(&prefix)
             .await
-            .context(format!("Failed to delete S3 objects for stage {}", s))?;
+            .context(format!("Failed to delete S3 objects for {}", id))?;
         info!(deleted, prefix = %prefix, "deleted S3 objects for stage");
         total_deleted += deleted;
     }
 
-    // ── 6. Clear stage logs + reset stage statuses for `stage..=7` ──
-    for s in stage..=NUM_STAGES {
-        let log_path = format!("users/{}/jobs/{}/stage_logs/stage_{}", target_uid, job_key, s);
+    // ── 6. Clear stage logs + reset statuses for the target stage onward ──
+    for id in stages_from(target_stage) {
+        let log_path = stage_logs_path(target_uid, job_key, id);
         rtdb.delete(&log_path)
             .await
-            .context(format!("Failed to delete logs for stage {}", s))?;
-        let status_path = format!("users/{}/jobs/{}/stage_statuses/stage_{}", target_uid, job_key, s);
+            .context(format!("Failed to delete logs for {}", id))?;
+        let status_path = stage_status_path(target_uid, job_key, id);
         rtdb.set(&status_path, &StageStatus::NotStarted)
             .await
-            .context(format!("Failed to reset stage status for stage {}", s))?;
+            .context(format!("Failed to reset stage status for {}", id))?;
     }
 
     // ── 7. Build a fresh QueueItem and write it to the target queue ─

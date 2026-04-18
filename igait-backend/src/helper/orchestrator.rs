@@ -319,7 +319,7 @@ impl Orchestrator {
                 labels: Some(std::collections::BTreeMap::from([
                     ("app".to_string(), "igait-pipeline".to_string()),
                     ("managed-by".to_string(), "igait-backend".to_string()),
-                    ("igait.niu.edu/stage".to_string(), stage.position().to_string()),
+                    ("igait.niu.edu/stage".to_string(), stage.key().to_string()),
                 ])),
                 annotations: Some(std::collections::BTreeMap::from([
                     ("igait.niu.edu/job-id".to_string(), job_id.to_string()),
@@ -602,11 +602,11 @@ impl Orchestrator {
             info!("Job {} stage {} completed successfully", job_id, stage_num);
 
             updates.insert(
-                stage_status_path(user_id, job_key, stage_num),
+                stage_status_path(user_id, job_key, stage),
                 serde_json::to_value(StageStatus::Complete)?,
             );
             updates.insert(
-                stage_logs_path(user_id, job_key, stage_num),
+                stage_logs_path(user_id, job_key, stage),
                 serde_json::Value::String(result.logs.clone()),
             );
 
@@ -670,11 +670,11 @@ impl Orchestrator {
             warn!("Job {} stage {} failed: {}", job_id, stage_num, error_msg);
 
             updates.insert(
-                stage_status_path(user_id, job_key, stage_num),
+                stage_status_path(user_id, job_key, stage),
                 serde_json::to_value(StageStatus::Error)?,
             );
             updates.insert(
-                stage_logs_path(user_id, job_key, stage_num),
+                stage_logs_path(user_id, job_key, stage),
                 serde_json::Value::String(result.logs.clone()),
             );
             updates.insert(
@@ -810,7 +810,10 @@ impl Orchestrator {
                 let stage_str = labels.and_then(|l| l.get("igait.niu.edu/stage"));
 
                 if let (Some(job_id), Some(stage_str)) = (job_id, stage_str) {
-                    let stage_num: u8 = stage_str.parse().unwrap_or(0);
+                    let Some(stage) = StageId::try_new(stage_str) else {
+                        warn!("K8s Job {} has unknown stage label {:?}, skipping cleanup", job_name, stage_str);
+                        continue;
+                    };
 
                     // Only write a failure result if one doesn't already exist
                     let result_path = job_result_path(job_id);
@@ -818,7 +821,7 @@ impl Orchestrator {
 
                     if existing.is_none() {
                         let reason = if is_deadline_exceeded { "timed out" } else { "crashed" };
-                        warn!("Writing synthetic failure result for job {} stage {} ({})", job_id, stage_num, reason);
+                        warn!("Writing synthetic failure result for job {} {} ({})", job_id, stage, reason);
 
                         let user_id_annotation = annotations
                             .and_then(|a| a.get("igait.niu.edu/user-id"))
@@ -831,10 +834,10 @@ impl Orchestrator {
                             .unwrap_or(0);
 
                         let error_text = format!("K8s Job {}: pod {}", reason, job_name);
-                        let logs_text = format!("Stage {} pod {} without writing a result", stage_num, reason);
+                        let logs_text = format!("{} pod {} without writing a result", stage, reason);
 
                         let failure_result = JobResult {
-                            stage: stage_num,
+                            stage: stage.position(),
                             success: false,
                             output_keys: HashMap::new(),
                             error: Some(error_text.clone()),
@@ -862,11 +865,11 @@ impl Orchestrator {
                                 user_id_annotation
                             };
                             updates.insert(
-                                stage_status_path(&uid, &job_key, stage_num),
+                                stage_status_path(&uid, &job_key, stage),
                                 serde_json::to_value(StageStatus::Error)?,
                             );
                             updates.insert(
-                                stage_logs_path(&uid, &job_key, stage_num),
+                                stage_logs_path(&uid, &job_key, stage),
                                 serde_json::Value::String(logs_text),
                             );
                         }

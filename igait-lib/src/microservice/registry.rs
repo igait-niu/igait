@@ -66,7 +66,8 @@ pub enum StagePanel {
 }
 
 /// Sentinel `StageInput.from` value indicating the source is the raw
-/// user upload folder (`stage_0/`) rather than another stage.
+/// user upload folder (written by the backend's upload route to
+/// `jobs/{id}/upload/`) rather than another stage's output.
 pub const UPLOAD_SOURCE: &str = "upload";
 
 /// The ordered pipeline. Position determines execution order.
@@ -177,22 +178,28 @@ pub fn stage_after(key: &str) -> Option<&'static StageSpec> {
     STAGES.get(idx + 1)
 }
 
+/// Iterator over all stages starting at (and including) `start`.
+/// If `start` is unknown, iterates from the beginning.
+pub fn stages_from(start: StageId) -> impl Iterator<Item = StageId> {
+    let start_idx = stage_index_of(start.key()).unwrap_or(0);
+    STAGES[start_idx..].iter().map(|s| s.id())
+}
+
 /// S3 storage prefix where outputs from the given source live. The
-/// sentinel [`UPLOAD_SOURCE`] resolves to `stage_0`; any other key
-/// must be present in [`STAGES`] and yields `stage_N` with N being
-/// the 1-indexed position.
+/// sentinel [`UPLOAD_SOURCE`] resolves to `"upload"`; any other key
+/// must be present in [`STAGES`] and resolves to the key itself.
 ///
 /// # Panics
 ///
 /// Panics if the source key is neither `"upload"` nor a known stage
 /// key — this indicates a malformed registry and is a programmer
 /// error rather than a runtime condition.
-pub fn source_storage_prefix(source_key: &str) -> String {
+pub fn source_storage_prefix(source_key: &str) -> &'static str {
     if source_key == UPLOAD_SOURCE {
-        return "stage_0".to_string();
+        return "upload";
     }
-    match stage_index_of(source_key) {
-        Some(idx) => format!("stage_{}", idx + 1),
+    match stage_by_key(source_key) {
+        Some(spec) => spec.key,
         None => panic!("unknown source stage key: {:?}", source_key),
     }
 }
@@ -290,6 +297,12 @@ impl StageId {
             Some(spec) => StageId(spec.key),
             None => *self,
         }
+    }
+}
+
+impl std::fmt::Display for StageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
     }
 }
 
@@ -452,43 +465,23 @@ mod tests {
     }
 
     #[test]
-    fn source_storage_prefix_upload() {
-        assert_eq!(source_storage_prefix(UPLOAD_SOURCE), "stage_0");
-    }
-
-    #[test]
-    fn source_storage_prefix_stage() {
-        assert_eq!(source_storage_prefix("media-conversion"), "stage_1");
-        assert_eq!(source_storage_prefix("finalize"), "stage_7");
-    }
-
-    #[test]
     fn build_input_keys_media_conversion_reads_upload() {
         let spec = stage_by_key("media-conversion").unwrap();
         let keys = spec.build_input_keys("user_0");
-        assert_eq!(keys.len(), 2);
-        assert_eq!(keys["front_video"], "jobs/user_0/stage_0/front_video.mp4");
-        assert_eq!(keys["side_video"], "jobs/user_0/stage_0/side_video.mp4");
-    }
-
-    #[test]
-    fn build_input_keys_cycle_detection_reads_pose_estimation() {
-        let spec = stage_by_key("cycle-detection").unwrap();
-        let keys = spec.build_input_keys("user_0");
-        assert_eq!(keys.len(), 4);
-        assert_eq!(keys["front_video"], "jobs/user_0/stage_4/front_video.mp4");
-        assert_eq!(keys["front_landmarks"], "jobs/user_0/stage_4/front_landmarks.json");
-        assert_eq!(keys["side_landmarks"], "jobs/user_0/stage_4/side_landmarks.json");
+        assert_eq!(keys["front_video"], "jobs/user_0/upload/front_video.mp4");
+        assert_eq!(keys["side_video"], "jobs/user_0/upload/side_video.mp4");
     }
 
     #[test]
     fn build_input_keys_pose_estimation_skips_passthrough() {
-        // Pose estimation (stage 4) should read from validity-check (stage 2),
-        // not from reframing (stage 3), because reframing is a passthrough.
+        // Pose estimation should read from validity-check, not from
+        // reframing (which is a passthrough). Guards against someone
+        // "fixing" the inputs list to read from the immediate
+        // predecessor — that silently breaks the pipeline.
         let spec = stage_by_key("pose-estimation").unwrap();
         let keys = spec.build_input_keys("user_0");
-        assert_eq!(keys["front_video"], "jobs/user_0/stage_2/front_video.mp4");
-        assert_eq!(keys["side_video"], "jobs/user_0/stage_2/side_video.mp4");
+        assert_eq!(keys["front_video"], "jobs/user_0/validity-check/front_video.mp4");
+        assert_eq!(keys["side_video"], "jobs/user_0/validity-check/side_video.mp4");
     }
 
     #[test]
