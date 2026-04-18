@@ -5,29 +5,29 @@
 mod helper;
 mod routes;
 
-use anyhow::{ Context, Result };
+use anyhow::{Context, Result};
 use axum::{
-    extract::DefaultBodyLimit, routing::{any, get, post}, Router
+    extract::DefaultBodyLimit,
+    routing::{any, get, post},
+    Router,
 };
+use dotenv::dotenv;
 use helper::lib::{AppState, AppStatePtr};
 use helper::orchestrator::{self, Orchestrator};
 use std::sync::Arc;
-use dotenv::dotenv;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-pub const ASD_CLASSIFICATION_THRESHOLD: f32 = 0.5;
-
 /// The main entrypoint for the iGait backend.
-/// 
+///
 /// # Fails
 /// * If the app state fails to initialize
 /// * If the listener fails to start
 /// * If the API fails to serve
-/// 
+///
 /// # Returns
 /// * A successful result if the API is served
-/// 
+///
 /// # Notes
 /// * The API is served on port 3000
 /// * The API is served at the root of the server
@@ -36,7 +36,6 @@ pub const ASD_CLASSIFICATION_THRESHOLD: f32 = 0.5;
 /// * Gracefully shuts down on SIGTERM or Ctrl+C
 #[tokio::main]
 async fn main() -> Result<()> {
-    
     // Install rustls crypto provider (required for kube client on some platforms)
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
@@ -46,8 +45,9 @@ async fn main() -> Result<()> {
     // Initialize tracing subscriber with environment filter
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "igait_backend=info,tower_http=info,axum::rejection=trace".into())
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                "igait_backend=info,tower_http=info,axum::rejection=trace".into()
+            }),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -56,25 +56,61 @@ async fn main() -> Result<()> {
 
     // Create a thread-safe mutex lock to hold the app state
     let state: Arc<AppState> = Arc::new(
-        AppState::new().await.context("Couldn't set up app state!")?
+        AppState::new()
+            .await
+            .context("Couldn't set up app state!")?,
     );
-    let app_state_ptr = AppStatePtr { state: state.clone() };
+    let app_state_ptr = AppStatePtr {
+        state: state.clone(),
+    };
+
+    // Publish the stage registry so the frontend can render stage tabs
+    // directly from /registry/stages instead of a hardcoded list.
+    {
+        use igait_lib::microservice::FirebaseRtdb;
+        let rtdb = FirebaseRtdb::from_env()
+            .context("Failed to initialize RTDB client for registry publish")?;
+        helper::registry_publish::publish(&rtdb)
+            .await
+            .context("Failed to publish stage registry to RTDB")?;
+    }
 
     // Build the V1 API router
     let api_v1 = Router::new()
-        .route("/upload", post(crate::routes::upload::upload_entrypoint) )
-        .route("/contribute", post(crate::routes::contribute::contribute_entrypoint))
+        .route("/upload", post(crate::routes::upload::upload_entrypoint))
+        .route(
+            "/contribute",
+            post(crate::routes::contribute::contribute_entrypoint),
+        )
         .route("/rerun", post(crate::routes::rerun::rerun_entrypoint))
-        .route("/assistant", any(crate::routes::assistant::assistant_entrypoint))
-        .route("/assistant_proxied", any(crate::routes::assistant::assistant_proxied_entrypoint))
-        .route("/files/:job_id", get(crate::routes::files::files_entrypoint))
-        .route("/cycles/:job_id", axum::routing::put(crate::routes::cycles::cycles_entrypoint))
-        .route("/video-edit/:job_id", post(crate::routes::video_edit::video_edit_entrypoint))
+        .route(
+            "/assistant",
+            any(crate::routes::assistant::assistant_entrypoint),
+        )
+        .route(
+            "/assistant_proxied",
+            any(crate::routes::assistant::assistant_proxied_entrypoint),
+        )
+        .route(
+            "/files/:job_id",
+            get(crate::routes::files::files_entrypoint),
+        )
+        .route(
+            "/cycles/:job_id",
+            axum::routing::put(crate::routes::cycles::cycles_entrypoint),
+        )
+        .route(
+            "/video-edit/:job_id",
+            post(crate::routes::video_edit::video_edit_entrypoint),
+        )
         .with_state(app_state_ptr.clone());
-    
+
     // Build the internal API router (for microservice communication)
     let api_internal = Router::new()
-        .route("/update-status", post(crate::routes::internal::update_status))
+        .route(
+            "/update-status",
+            post(crate::routes::internal::update_status),
+        )
         .with_state(app_state_ptr);
 
     // Nest the API into the general app router
@@ -135,9 +171,10 @@ async fn main() -> Result<()> {
     // Serve the API with graceful shutdown
     let port = std::env::var("PORT").unwrap_or("3000".to_string());
     info!("iGait backend listening on port {}", port);
-    let listener = tokio::net::TcpListener::bind(&format!("0.0.0.0:{port}")).await
+    let listener = tokio::net::TcpListener::bind(&format!("0.0.0.0:{port}"))
+        .await
         .context("Couldn't start up listener!")?;
-    
+
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal)
         .await

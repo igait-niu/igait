@@ -60,6 +60,10 @@
       "$stage": {
         ".validate": "newData.hasChild('requires_approval') && newData.child('requires_approval').isBoolean()"
       }
+    },
+    "registry": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('administrator').val() == true"
     }
   }
 }
