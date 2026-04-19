@@ -106,8 +106,13 @@ pub struct Job {
     pub stage_logs: std::collections::HashMap<String, String>,
     /// Per-stage statuses tracking individual stage progress. Keys are
     /// stage registry keys; values are the `StageStatus`.
+    //
+    // The TS override inlines StageStatus's variant strings rather than
+    // naming the type, because ts-rs does not emit an import for types
+    // referenced only in a `#[ts(type = "…")]` string. The hand-written
+    // frontend/src/types/StageStatus.ts declares the same union.
     #[serde(default)]
-    #[ts(type = "Record<string, StageStatus>")]
+    #[ts(type = "Record<string, \"not_started\" | \"running\" | \"complete\" | \"error\">")]
     pub stage_statuses: std::collections::HashMap<String, StageStatus>,
     /// Video editing flags (rotation, trim, crop) to apply on the next
     /// media-conversion run.

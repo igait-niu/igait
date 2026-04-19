@@ -37,7 +37,7 @@ stage_logs: { [key in string]: string },
  * Per-stage statuses tracking individual stage progress. Keys are
  * stage registry keys; values are the `StageStatus`.
  */
-stage_statuses: Record<string, StageStatus>, 
+stage_statuses: Record<string, "not_started" | "running" | "complete" | "error">, 
 /**
  * Video editing flags (rotation, trim, crop) to apply on the next
  * media-conversion run.

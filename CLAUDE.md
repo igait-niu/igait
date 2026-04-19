@@ -44,23 +44,16 @@ bun run lint        # prettier + eslint check
 bun run format      # auto-format
 ```
 
-### Full Stack (Docker)
-```bash
-# First-time: build services individually (parallel build may exhaust RAM)
-docker compose build web
-docker compose build backend
-docker compose build media-conversion  # ...and each other stage
-
-# Run everything
-docker compose up --build
-
-# Frontend at https://localhost:4173
-```
-
 ### Integration Test
 ```bash
-./test.sh  # Uploads test video, monitors media-conversion processing
+./test.sh  # Uploads a test video to a running backend on :3000
 ```
+
+> The top-level `docker-compose.yml` has been removed pending a rewrite.
+> Individual stages still have Dockerfiles under `igait-stages/{key}/`
+> that build via `docker build -f igait-stages/{key}/Dockerfile .`
+> from the repo root; K8s deployments pull each stage's image from
+> `ghcr.io/igait-niu/igait/{key}:sha-<short>`.
 
 ## CI/CD
 

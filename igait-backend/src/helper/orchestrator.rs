@@ -172,24 +172,16 @@ impl Orchestrator {
         let rtdb = FirebaseRtdb::from_env()
             .context("Failed to create Firebase RTDB client")?;
 
-        // Load stage images from environment
-        let stages = [
-            StageId::new("media-conversion"),
-            StageId::new("validity-check"),
-            StageId::new("reframing"),
-            StageId::new("pose-estimation"),
-            StageId::new("cycle-detection"),
-            StageId::new("prediction"),
-            StageId::new("finalize"),
-        ];
-
+        // Load stage images from environment — every stage in the registry
+        // expects a matching STAGE_<KEY>_IMAGE env var.
         let mut stage_images = HashMap::new();
-        for stage in &stages {
-            let env_var = stage_image_env_var(*stage);
+        for spec in igait_lib::microservice::STAGES {
+            let stage = spec.id();
+            let env_var = stage_image_env_var(stage);
             match std::env::var(&env_var) {
                 Ok(image) => {
                     info!("Image for {}: {}", stage, image);
-                    stage_images.insert(*stage, image);
+                    stage_images.insert(stage, image);
                 }
                 Err(_) => {
                     warn!("Missing {} env var — {} Jobs cannot be created", env_var, stage);
@@ -898,16 +890,15 @@ impl Orchestrator {
     }
 }
 
-/// Main orchestration loop — polls all stage queues and dispatches K8s Jobs.
+/// Main orchestration loop — polls every non-terminal stage queue and
+/// dispatches K8s Jobs. The terminal (finalize) queue uses a different
+/// item shape and is polled via its own path.
 pub async fn orchestration_loop(orchestrator: Arc<Orchestrator>) {
-    let stages = [
-        StageId::new("media-conversion"),
-        StageId::new("validity-check"),
-        StageId::new("reframing"),
-        StageId::new("pose-estimation"),
-        StageId::new("cycle-detection"),
-        StageId::new("prediction"),
-    ];
+    let stages: Vec<_> = igait_lib::microservice::STAGES
+        .iter()
+        .filter(|spec| !spec.terminal)
+        .map(|spec| spec.id())
+        .collect();
 
     info!("Orchestration loop started");
 

@@ -49,11 +49,8 @@ echo "HTTP Status: $HTTP_CODE"
 if [ "$HTTP_CODE" = "200" ]; then
     echo "✅ Upload successful!"
     echo ""
-    echo "📊 Monitoring Media Conversion processing..."
-    echo "   Run: docker compose logs -f media-conversion"
-    echo ""
-    echo "🔍 Check backend logs:"
-    echo "   Run: docker compose logs -f backend"
+    echo "📊 Watch the pipeline in Firebase RTDB under queues/media-conversion"
+    echo "   and the per-stage pod logs (kubectl logs -l igait.niu.edu/stage=<key>)."
     echo ""
     echo "Job ID: ${USER_ID}_0"
 else
