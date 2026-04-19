@@ -82,8 +82,8 @@
 		switch (status.code) {
 			case 'Complete':
 				return {
-					label: status.asd ? 'ASD Detected' : 'No ASD',
-					variant: status.asd ? ('destructive' as const) : ('default' as const)
+					label: status.asd ? 'ASD Indicators' : 'No ASD Indicators',
+					variant: 'secondary' as const
 				};
 			case 'Error':
 				return { label: 'Error', variant: 'destructive' as const };
@@ -159,8 +159,7 @@
 	const selectableFilteredData = $derived(filteredData.filter((j) => !j.approved));
 
 	const allFilteredSelected = $derived(
-		selectableFilteredData.length > 0 &&
-			selectableFilteredData.every((j) => selectedIds.has(j.id))
+		selectableFilteredData.length > 0 && selectableFilteredData.every((j) => selectedIds.has(j.id))
 	);
 
 	function toggleSelectAll() {

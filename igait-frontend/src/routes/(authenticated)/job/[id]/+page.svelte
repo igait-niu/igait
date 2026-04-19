@@ -207,7 +207,7 @@
 	): 'default' | 'secondary' | 'destructive' | 'outline' {
 		switch (status.code) {
 			case 'Complete':
-				return status.asd ? 'destructive' : 'default';
+				return 'secondary';
 			case 'Error':
 				return 'destructive';
 			case 'Processing':
