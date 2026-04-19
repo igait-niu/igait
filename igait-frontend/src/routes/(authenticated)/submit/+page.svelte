@@ -198,7 +198,7 @@
 
 					<div class="form-grid">
 						<div class="form-group">
-							<Label for="age">Age *</Label>
+							<Label for="age">Age (years) *</Label>
 							<Input
 								id="age"
 								type="number"
@@ -242,7 +242,7 @@
 						/>
 
 						<div class="form-group height-group">
-							<Label>Height *</Label>
+							<Label>Height (ft / in) *</Label>
 							<div class="height-inputs">
 								<Input
 									id="heightFeet"
@@ -388,6 +388,17 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1.5rem;
+	}
+
+	.submit-form :global(input[type='number']) {
+		-moz-appearance: textfield;
+		appearance: textfield;
+	}
+
+	.submit-form :global(input[type='number']::-webkit-outer-spin-button),
+	.submit-form :global(input[type='number']::-webkit-inner-spin-button) {
+		-webkit-appearance: none;
+		margin: 0;
 	}
 
 	:global(.form-error) {

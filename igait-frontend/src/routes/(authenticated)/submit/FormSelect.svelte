@@ -67,12 +67,12 @@
 		height: 2.25rem;
 		width: 100%;
 		border-radius: var(--radius-md);
-		border: 1px solid hsl(var(--input));
-		background-color: hsl(var(--background));
+		border: 1px solid var(--input);
+		background-color: var(--background);
 		padding: 0 0.75rem;
 		font-size: 0.875rem;
 		font-weight: 500;
-		color: hsl(var(--foreground));
+		color: var(--foreground);
 		box-shadow: var(--shadow-xs);
 		transition:
 			box-shadow 0.2s,
@@ -88,8 +88,8 @@
 	}
 
 	.select-input:focus {
-		border-color: hsl(var(--ring));
-		box-shadow: 0 0 0 2px hsl(var(--ring) / 0.2);
+		border-color: var(--ring);
+		box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 20%, transparent);
 	}
 
 	.select-input:disabled {
@@ -98,15 +98,15 @@
 	}
 
 	.select-input--error {
-		border-color: hsl(var(--destructive));
+		border-color: var(--destructive);
 	}
 
 	.select-input--error:focus {
-		box-shadow: 0 0 0 2px hsl(var(--destructive) / 0.2);
+		box-shadow: 0 0 0 2px color-mix(in oklch, var(--destructive) 20%, transparent);
 	}
 
 	.form-field__error {
 		font-size: 0.75rem;
-		color: hsl(var(--destructive));
+		color: var(--destructive);
 	}
 </style>
