@@ -100,7 +100,7 @@ pub struct Job {
     #[serde(default)]
     pub approved: bool,
     /// Per-stage logs collected during processing. Keys are stage registry
-    /// keys (e.g. "media-conversion", "validity-check"); values are the
+    /// keys (e.g. "media-conversion", "pose-estimation"); values are the
     /// log text.
     #[serde(default)]
     pub stage_logs: std::collections::HashMap<String, String>,

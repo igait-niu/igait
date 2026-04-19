@@ -15,8 +15,6 @@ iGait is a web-based autism screening tool that analyzes gait (walking) patterns
 - **igait-lib/** — Shared Rust library used by backend and all stages. Key modules: `microservice/registry.rs` (the `STAGES` const — single source of truth for stage identity, ordering, UI metadata, and declared inter-stage I/O), `microservice/worker.rs` (StageWorker trait), `microservice/queue.rs` (Firebase RTDB ops), `microservice/storage.rs` (S3 client). Has feature flags: `microservice`, `email`.
 - **igait-stages/** — Rust microservice stages, each following the StageWorker pattern from igait-lib. Each stage lives in its own directory named for what it does:
   - `media-conversion/` — FFmpeg (entry point)
-  - `validity-check/` — Python submodule
-  - `reframing/` — FFmpeg
   - `pose-estimation/` — MediaPipe/Python submodule
   - `cycle-detection/` — Python submodule
   - `prediction/` — TensorFlow/Python submodule
@@ -75,7 +73,7 @@ The refactor in `refactor/stage-unordering` is designed so that inserting a stag
 
 1. **Register the stage.** Add a `StageSpec { key, display_name, description, terminal, panel, inputs }` entry at the desired position in the `STAGES` const in `igait-lib/src/microservice/registry.rs`. Declare the stage's input artifacts via `StageInput { name, ext, from }` entries — `from` is either another stage's key or the sentinel `"upload"` for raw uploads.
 2. **Update the successor's inputs.** If the new stage's outputs should feed the following stage, change that stage's `inputs[*].from` to point at your new key.
-3. **Create the stage crate.** Copy any existing stage's directory under `igait-stages/` (e.g. `cp -r igait-stages/reframing igait-stages/<your-key>`), then edit its `Cargo.toml`, `Dockerfile`, and `src/main.rs` to match — the `StageWorker::stage()` method must return the matching `StageNumber` variant and `service_name()` the key.
+3. **Create the stage crate.** Copy any existing stage's directory under `igait-stages/` (e.g. `cp -r igait-stages/media-conversion igait-stages/<your-key>`), then edit its `Cargo.toml`, `Dockerfile`, and `src/main.rs` to match — the `StageWorker::stage()` method must return the matching `StageNumber` variant and `service_name()` the key.
 4. **Add orchestration glue.** A new service block in `docker-compose.yml` and a workflow file at `.github/workflows/build-<key>.yml` (copy an existing one and globally replace the key). For K8s deployments, add a matching `STAGE{N}_IMAGE` env var in `igait-kubernetes-configs/igait-backend/deployment.yaml`.
 
 After a backend redeploy, the frontend automatically picks up the new stage from the RTDB registry — no frontend code change is required unless you're introducing a new `StagePanel` variant.

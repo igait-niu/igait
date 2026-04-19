@@ -44,8 +44,8 @@
                     nodejs
 
                     # Useful for microservices development
-                    ffmpeg  # media-conversion, reframing, pose-estimation
-                    python  # validity-check, pose-estimation, cycle-detection, prediction
+                    ffmpeg  # media-conversion, pose-estimation
+                    python  # pose-estimation, cycle-detection, prediction
                 ];
                 shellHook =
                     ''

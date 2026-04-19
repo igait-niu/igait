@@ -98,10 +98,6 @@ spec:
         # build workflows on every push to master.
         - name: STAGE_MEDIA_CONVERSION_IMAGE
           value: ghcr.io/igait-niu/igait/media-conversion:sha-0242a8e
-        - name: STAGE_VALIDITY_CHECK_IMAGE
-          value: ghcr.io/igait-niu/igait/validity-check:sha-0242a8e
-        - name: STAGE_REFRAMING_IMAGE
-          value: ghcr.io/igait-niu/igait/reframing:sha-0242a8e
         - name: STAGE_POSE_ESTIMATION_IMAGE
           value: ghcr.io/igait-niu/igait/pose-estimation:sha-0242a8e
         - name: STAGE_CYCLE_DETECTION_IMAGE

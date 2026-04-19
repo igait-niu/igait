@@ -633,7 +633,7 @@ mod tests {
     fn test_next_stage() {
         assert_eq!(
             next_stage(StageId::new("media-conversion")),
-            StageId::new("validity-check")
+            StageId::new("pose-estimation")
         );
         assert_eq!(
             next_stage(StageId::new("prediction")),
