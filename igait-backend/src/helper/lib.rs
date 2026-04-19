@@ -330,6 +330,45 @@ impl std::str::FromStr for Ethnicity {
     }
 }
 
+/// User role options - who is completing the submission form.
+///
+/// # Variants
+/// * `Parent` - Parent of the patient
+/// * `Doctor` - Medical professional
+/// * `SchoolOfficial` - School nurse or administrator
+/// * `Sibling` - Sibling of the patient
+/// * `Grandparent` - Grandparent of the patient
+/// * `Self_` - Patient themselves
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub enum UserRole {
+    Parent,
+    Doctor,
+    SchoolOfficial,
+    Sibling,
+    Grandparent,
+    #[serde(rename = "self")]
+    Self_,
+}
+
+impl std::str::FromStr for UserRole {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "parent" => Ok(UserRole::Parent),
+            "doctor" => Ok(UserRole::Doctor),
+            "schoolOfficial" => Ok(UserRole::SchoolOfficial),
+            "sibling" => Ok(UserRole::Sibling),
+            "grandparent" => Ok(UserRole::Grandparent),
+            "self" => Ok(UserRole::Self_),
+            _ => Err(anyhow::anyhow!("Invalid user role value: {}", s)),
+        }
+    }
+}
+
 /// The state of the entire backend application with handles to the database and storage.
 ///
 /// # Fields
