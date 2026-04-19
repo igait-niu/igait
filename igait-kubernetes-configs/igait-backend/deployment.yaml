@@ -92,20 +92,23 @@ spec:
         # Pipeline orchestrator
         - name: ENABLE_ORCHESTRATOR
           value: "true"
-        # Stage container images (updated by CI/CD)
-        - name: STAGE1_IMAGE
+        # Stage container images (updated by CI/CD). Env var keys are
+        # STAGE_<UPPER_SNAKE_KEY>_IMAGE; values track the ghcr image
+        # tag for each stage and are sed-patched by the per-stage
+        # build workflows on every push to master.
+        - name: STAGE_MEDIA_CONVERSION_IMAGE
           value: ghcr.io/igait-niu/igait/media-conversion:sha-883d03a
-        - name: STAGE2_IMAGE
+        - name: STAGE_VALIDITY_CHECK_IMAGE
           value: ghcr.io/igait-niu/igait/validity-check:sha-883d03a
-        - name: STAGE3_IMAGE
+        - name: STAGE_REFRAMING_IMAGE
           value: ghcr.io/igait-niu/igait/reframing:sha-883d03a
-        - name: STAGE4_IMAGE
+        - name: STAGE_POSE_ESTIMATION_IMAGE
           value: ghcr.io/igait-niu/igait/pose-estimation:sha-883d03a
-        - name: STAGE5_IMAGE
+        - name: STAGE_CYCLE_DETECTION_IMAGE
           value: ghcr.io/igait-niu/igait/cycle-detection:sha-883d03a
-        - name: STAGE6_IMAGE
+        - name: STAGE_PREDICTION_IMAGE
           value: ghcr.io/igait-niu/igait/prediction:sha-883d03a
-        - name: STAGE7_IMAGE
+        - name: STAGE_FINALIZE_IMAGE
           value: ghcr.io/igait-niu/igait/finalize:sha-883d03a
         resources:
           limits:

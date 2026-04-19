@@ -131,11 +131,14 @@ fn stage_resources(stage: StageId) -> StageResources {
     }
 }
 
-/// Environment variable name for a stage's container image. The
-/// backend's deployment.yaml / workflows still use legacy
-/// `STAGE{N}_IMAGE` keys, so we derive the position from the registry.
+/// Environment variable name for a stage's container image, derived
+/// from the stage key: `STAGE_<UPPER_SNAKE_KEY>_IMAGE` (e.g.
+/// `STAGE_MEDIA_CONVERSION_IMAGE`). Keeping the Rust side keyed
+/// means adding a new stage doesn't require touching this function —
+/// just set the matching env var on the K8s deployment.
 fn stage_image_env_var(stage: StageId) -> String {
-    format!("STAGE{}_IMAGE", stage.position())
+    let upper = stage.key().replace('-', "_").to_ascii_uppercase();
+    format!("STAGE_{}_IMAGE", upper)
 }
 
 /// The central pipeline orchestrator.
