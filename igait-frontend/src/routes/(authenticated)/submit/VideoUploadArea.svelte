@@ -99,23 +99,23 @@
 		align-items: center;
 		justify-content: center;
 		padding: 1.25rem;
-		border: 2px dashed hsl(var(--border));
+		border: 2px dashed var(--border);
 		border-radius: var(--radius-lg);
 		cursor: pointer;
 		transition: all 0.2s;
-		background-color: hsl(var(--muted) / 0.3);
+		background-color: color-mix(in oklch, var(--muted) 30%, transparent);
 		min-height: 140px;
 		gap: 0.5rem;
 	}
 
 	.upload-area:hover:not(.disabled) {
-		border-color: hsl(var(--primary));
-		background-color: hsl(var(--primary) / 0.05);
+		border-color: var(--primary);
+		background-color: color-mix(in oklch, var(--primary) 5%, transparent);
 	}
 
 	.upload-area.has-file {
-		border-color: hsl(var(--primary));
-		background-color: hsl(var(--primary) / 0.1);
+		border-color: var(--primary);
+		background-color: color-mix(in oklch, var(--primary) 10%, transparent);
 	}
 
 	.upload-area.disabled {
@@ -124,32 +124,32 @@
 	}
 
 	.upload-area.dragging {
-		border-color: hsl(var(--primary));
-		background-color: hsl(var(--primary) / 0.15);
+		border-color: var(--primary);
+		background-color: color-mix(in oklch, var(--primary) 15%, transparent);
 		transform: scale(1.02);
 	}
 
 	:global(.upload-icon) {
 		width: 2.5rem;
 		height: 2.5rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		transition: transform 0.2s;
 	}
 
 	.dragging :global(.upload-icon) {
 		transform: scale(1.1);
-		color: hsl(var(--primary));
+		color: var(--primary);
 	}
 
 	:global(.upload-icon-success) {
 		width: 2.5rem;
 		height: 2.5rem;
-		color: hsl(var(--primary));
+		color: var(--primary);
 	}
 
 	.upload-placeholder {
 		font-size: 0.8125rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 		text-align: center;
 	}
 
@@ -163,18 +163,18 @@
 
 	.upload-filesize {
 		font-size: 0.75rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 	}
 
 	:global(.upload-icon-success) {
 		width: 3rem;
 		height: 3rem;
-		color: hsl(var(--primary));
+		color: var(--primary);
 	}
 
 	.upload-placeholder {
 		font-size: 0.875rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 	}
 
 	.upload-filename {
@@ -185,7 +185,7 @@
 
 	.upload-filesize {
 		font-size: 0.875rem;
-		color: hsl(var(--muted-foreground));
+		color: var(--muted-foreground);
 	}
 
 	.hidden {
