@@ -99,7 +99,7 @@ spec:
         - name: STAGE_MEDIA_CONVERSION_IMAGE
           value: ghcr.io/igait-niu/igait/media-conversion:sha-8a71bfc
         - name: STAGE_POSE_ESTIMATION_IMAGE
-          value: ghcr.io/igait-niu/igait/pose-estimation:sha-0242a8e
+          value: ghcr.io/igait-niu/igait/pose-estimation:sha-8a71bfc
         - name: STAGE_CYCLE_DETECTION_IMAGE
           value: ghcr.io/igait-niu/igait/cycle-detection:sha-8a71bfc
         - name: STAGE_PREDICTION_IMAGE
