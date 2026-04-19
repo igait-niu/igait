@@ -232,6 +232,18 @@ async fn run_rerun_under_lease(
             .context(format!("Failed to reset stage status for {}", id))?;
     }
 
+    // ── 6a. Reset the job's approval flag ──────────────────────────
+    // A rerun is a fresh pass through the approval gate. The prior
+    // admin greenlight applied to the original submission (and its
+    // original inputs/video_edit); this rerun may have different
+    // parameters and is a new decision to make. Force re-approval by
+    // clearing the flag on the user-visible record. The queue item
+    // below will also default to `approved: false` (via QueueItem::new).
+    let approved_path = format!("users/{}/jobs/{}/approved", target_uid, job_key);
+    rtdb.set(&approved_path, &false)
+        .await
+        .context("Failed to reset job approved flag")?;
+
     // ── 7. Build a fresh QueueItem and write it to the target queue ─
     let input_keys = target_stage.spec().build_input_keys(job_id);
 
@@ -256,14 +268,13 @@ async fn run_rerun_under_lease(
         extra,
     };
 
-    let mut queue_item = QueueItem::new(
+    let queue_item = QueueItem::new(
         job_id.to_string(),
         target_uid.to_string(),
         input_keys,
         metadata,
         job.requires_approval,
     );
-    queue_item.approved = true;
 
     let path = queue_item_path(target_stage, job_id);
     rtdb.set(&path, &queue_item)
