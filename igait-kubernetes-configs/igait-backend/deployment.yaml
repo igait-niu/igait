@@ -97,7 +97,7 @@ spec:
         # tag for each stage and are sed-patched by the per-stage
         # build workflows on every push to master.
         - name: STAGE_MEDIA_CONVERSION_IMAGE
-          value: ghcr.io/igait-niu/igait/media-conversion:sha-0242a8e
+          value: ghcr.io/igait-niu/igait/media-conversion:sha-8a71bfc
         - name: STAGE_POSE_ESTIMATION_IMAGE
           value: ghcr.io/igait-niu/igait/pose-estimation:sha-0242a8e
         - name: STAGE_CYCLE_DETECTION_IMAGE
