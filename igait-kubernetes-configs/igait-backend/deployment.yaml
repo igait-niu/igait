@@ -99,7 +99,7 @@ spec:
         - name: STAGE_MEDIA_CONVERSION_IMAGE
           value: ghcr.io/igait-niu/igait/media-conversion:sha-417cee5
         - name: STAGE_VALIDITY_CHECK_IMAGE
-          value: ghcr.io/igait-niu/igait/validity-check:sha-883d03a
+          value: ghcr.io/igait-niu/igait/validity-check:sha-417cee5
         - name: STAGE_REFRAMING_IMAGE
           value: ghcr.io/igait-niu/igait/reframing:sha-417cee5
         - name: STAGE_POSE_ESTIMATION_IMAGE
