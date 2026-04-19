@@ -3,11 +3,11 @@
 //! This module defines the data structures used for Firebase Realtime Database
 //! queue-based job processing with claim-based distributed locking.
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 
-use crate::microservice::{JobMetadata, StageNumber};
+use crate::microservice::{JobMetadata, StageId};
 
 /// Default timeout for claimed jobs (5 minutes in milliseconds).
 /// If a worker claims a job but doesn't update the heartbeat within this time,
@@ -91,32 +91,32 @@ pub struct QueueConfig {
 }
 
 /// An item in a stage processing queue.
-/// 
+///
 /// This represents a job waiting to be processed by a specific stage.
 /// Workers claim items using Firebase transactions to prevent duplicate processing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueItem {
     /// The job ID (format: "{user_id}_{job_index}")
     pub job_id: String,
-    
+
     /// User ID who owns this job
     pub user_id: String,
-    
+
     /// When the item was added to this queue (Unix timestamp ms)
     pub enqueued_at: u64,
-    
+
     /// Worker ID that claimed this job (None if unclaimed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_by: Option<String>,
-    
+
     /// When the job was claimed (Unix timestamp ms, for timeout detection)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_at: Option<u64>,
-    
+
     /// Storage keys for input files from previous stage
     #[serde(default)]
     pub input_keys: HashMap<String, String>,
-    
+
     /// Job metadata (age, sex, etc. - needed for later stages)
     pub metadata: JobMetadata,
 
@@ -161,7 +161,7 @@ impl QueueItem {
     }
 
     /// Checks if this item is available for claiming.
-    /// 
+    ///
     /// An item is available if:
     /// - It has never been claimed, OR
     /// - It was claimed but the claim has timed out
@@ -211,81 +211,75 @@ impl QueueItem {
     }
 
     /// Gets the input storage key for the front video from the input_keys.
-    /// Falls back to constructing from job_id if not present.
-    pub fn input_front_video(&self, stage: StageNumber) -> String {
+    /// Falls back to constructing a path from `job_id` / current stage key.
+    pub fn input_front_video(&self, stage: StageId) -> String {
         self.input_keys
             .get("front_video")
             .cloned()
-            .unwrap_or_else(|| {
-                let prev_stage = stage.as_u8().saturating_sub(1);
-                format!("jobs/{}/stage_{}/front.mp4", self.job_id, prev_stage)
-            })
+            .unwrap_or_else(|| format!("jobs/{}/{}/front.mp4", self.job_id, stage.key()))
     }
 
     /// Gets the input storage key for the side video from the input_keys.
-    /// Falls back to constructing from job_id if not present.
-    pub fn input_side_video(&self, stage: StageNumber) -> String {
+    /// Falls back to constructing a path from `job_id` / current stage key.
+    pub fn input_side_video(&self, stage: StageId) -> String {
         self.input_keys
             .get("side_video")
             .cloned()
-            .unwrap_or_else(|| {
-                let prev_stage = stage.as_u8().saturating_sub(1);
-                format!("jobs/{}/stage_{}/side.mp4", self.job_id, prev_stage)
-            })
+            .unwrap_or_else(|| format!("jobs/{}/{}/side.mp4", self.job_id, stage.key()))
     }
 
     /// Gets the output storage key for the front video for a given stage.
-    pub fn output_front_video(&self, stage: StageNumber) -> String {
-        format!("jobs/{}/stage_{}/front.mp4", self.job_id, stage.as_u8())
+    pub fn output_front_video(&self, stage: StageId) -> String {
+        format!("jobs/{}/{}/front.mp4", self.job_id, stage.key())
     }
 
     /// Gets the output storage key for the side video for a given stage.
-    pub fn output_side_video(&self, stage: StageNumber) -> String {
-        format!("jobs/{}/stage_{}/side.mp4", self.job_id, stage.as_u8())
+    pub fn output_side_video(&self, stage: StageId) -> String {
+        format!("jobs/{}/{}/side.mp4", self.job_id, stage.key())
     }
 }
 
 /// An item in the finalize queue.
-/// 
+///
 /// This queue receives jobs that have either:
 /// - Successfully completed all stages (success = true)
 /// - Failed at some stage (success = false)
-/// 
+///
 /// The finalize worker sends appropriate emails and updates the database.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinalizeQueueItem {
     /// The job ID (format: "{user_id}_{job_index}")
     pub job_id: String,
-    
+
     /// User ID who owns this job
     pub user_id: String,
-    
+
     /// When the item was added to this queue (Unix timestamp ms)
     pub enqueued_at: u64,
-    
+
     /// Worker ID that claimed this job (None if unclaimed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_by: Option<String>,
-    
+
     /// When the job was claimed (Unix timestamp ms, for timeout detection)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claimed_at: Option<u64>,
-    
+
     /// Whether the pipeline completed successfully
     pub success: bool,
-    
+
     /// If failed, which stage failed (1-6)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub failed_at_stage: Option<u8>,
-    
+    pub failed_at_stage: Option<StageId>,
+
     /// Error message if failed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    
+
     /// Error logs if failed (for debugging)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_logs: Option<String>,
-    
+
     /// Final output keys (if successful - includes prediction results)
     #[serde(default)]
     pub output_keys: HashMap<String, String>,
@@ -337,7 +331,7 @@ impl FinalizeQueueItem {
     pub fn failure(
         job_id: String,
         user_id: String,
-        failed_at_stage: u8,
+        failed_at_stage: StageId,
         error: String,
         error_logs: Option<String>,
         metadata: JobMetadata,
@@ -371,9 +365,7 @@ impl FinalizeQueueItem {
     pub fn is_available(&self) -> bool {
         match self.claimed_at {
             None => true,
-            Some(claimed_time) => {
-                now_ms().saturating_sub(claimed_time) > CLAIM_TIMEOUT_MS
-            }
+            Some(claimed_time) => now_ms().saturating_sub(claimed_time) > CLAIM_TIMEOUT_MS,
         }
     }
 
@@ -393,24 +385,20 @@ impl FinalizeQueueItem {
 // ============================================================================
 
 /// Returns the Firebase RTDB path for a stage's queue.
-/// 
+///
 /// Queue paths are: `queues/stage_{n}` for stages 1-6, `queues/finalize` for stage 7.
-pub fn queue_path(stage: StageNumber) -> String {
-    match stage {
-        StageNumber::Stage7Finalize => "queues/finalize".to_string(),
-        other => format!("queues/stage_{}", other.as_u8()),
-    }
+pub fn queue_path(stage: StageId) -> String {
+    format!("queues/{}", stage.key())
 }
 
-/// Returns the Firebase RTDB path for a queue's configuration.
-///
-/// Config paths are: `queue_config/stage_{n}` for stages 1-6.
-pub fn queue_config_path(stage: StageNumber) -> String {
-    format!("queue_config/stage_{}", stage.as_u8())
+/// Returns the Firebase RTDB path for a queue's configuration:
+/// `queue_config/{stage.key}`.
+pub fn queue_config_path(stage: StageId) -> String {
+    format!("queue_config/{}", stage.key())
 }
 
 /// Returns the Firebase RTDB path for a specific job in a queue.
-pub fn queue_item_path(stage: StageNumber, job_id: &str) -> String {
+pub fn queue_item_path(stage: StageId, job_id: &str) -> String {
     // Replace characters that Firebase doesn't allow in keys
     let safe_job_id = job_id.replace('.', "_").replace('/', "_");
     format!("{}/{}", queue_path(stage), safe_job_id)
@@ -429,12 +417,18 @@ pub fn result_notification_path(user_id: &str, job_key: &str) -> String {
     format!("users/{}/jobs/{}/notifications/result", user_id, job_key)
 }
 
-pub fn stage_status_path(user_id: &str, job_key: &str, stage: u8) -> String {
-    format!("users/{}/jobs/{}/stage_statuses/stage_{}", user_id, job_key, stage)
+pub fn stage_status_path(user_id: &str, job_key: &str, stage: StageId) -> String {
+    format!(
+        "users/{}/jobs/{}/stage_statuses/{}",
+        user_id, job_key, stage.key()
+    )
 }
 
-pub fn stage_logs_path(user_id: &str, job_key: &str, stage: u8) -> String {
-    format!("users/{}/jobs/{}/stage_logs/stage_{}", user_id, job_key, stage)
+pub fn stage_logs_path(user_id: &str, job_key: &str, stage: StageId) -> String {
+    format!(
+        "users/{}/jobs/{}/stage_logs/{}",
+        user_id, job_key, stage.key()
+    )
 }
 
 pub fn job_status_path(user_id: &str, job_key: &str) -> String {
@@ -483,8 +477,8 @@ pub struct EmailNotificationMarker {
 /// succeeded and what the output keys are, then handles stage transitions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobResult {
-    /// Which stage produced this result (1-7).
-    pub stage: u8,
+    /// Which stage produced this result.
+    pub stage: StageId,
     /// Whether processing succeeded.
     pub success: bool,
     /// Output storage keys (empty on failure).
@@ -538,16 +532,12 @@ pub struct JobResult {
 /// orders of magnitude larger than normal — only trips on true crashes.
 pub const JOB_RESULT_TAKE_TIMEOUT_MS: u64 = 30_000;
 
-/// Returns the next stage in the pipeline, or Stage7Finalize if at the end.
-pub fn next_stage(current: StageNumber) -> StageNumber {
-    match current {
-        StageNumber::Stage1MediaConversion => StageNumber::Stage2ValidityCheck,
-        StageNumber::Stage2ValidityCheck => StageNumber::Stage3Reframing,
-        StageNumber::Stage3Reframing => StageNumber::Stage4PoseEstimation,
-        StageNumber::Stage4PoseEstimation => StageNumber::Stage5CycleDetection,
-        StageNumber::Stage5CycleDetection => StageNumber::Stage6Prediction,
-        StageNumber::Stage6Prediction => StageNumber::Stage7Finalize,
-        StageNumber::Stage7Finalize => StageNumber::Stage7Finalize, // Terminal
+/// Returns the next stage in the pipeline. The terminal stage maps
+/// to itself (sink behavior).
+pub fn next_stage(current: StageId) -> StageId {
+    match super::registry::stage_after(current.key()) {
+        Some(next) => StageId::new(next.key),
+        None => current,
     }
 }
 
@@ -564,7 +554,7 @@ pub fn now_ms() -> u64 {
 }
 
 /// Generates a unique worker ID for this instance.
-/// 
+///
 /// Format: `{service_name}_{hostname}_{pid}_{random}`
 pub fn generate_worker_id(service_name: &str) -> String {
     let hostname = std::env::var("HOSTNAME")
@@ -572,7 +562,7 @@ pub fn generate_worker_id(service_name: &str) -> String {
         .unwrap_or_else(|_| "unknown".to_string());
     let pid = std::process::id();
     let random: u32 = rand_u32();
-    
+
     format!("{}_{}_{}_{:08x}", service_name, hostname, pid, random)
 }
 
@@ -580,7 +570,7 @@ pub fn generate_worker_id(service_name: &str) -> String {
 fn rand_u32() -> u32 {
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hasher};
-    
+
     let state = RandomState::new();
     let mut hasher = state.build_hasher();
     hasher.write_u64(now_ms());
@@ -628,16 +618,31 @@ mod tests {
 
     #[test]
     fn test_queue_paths() {
-        assert_eq!(queue_path(StageNumber::Stage1MediaConversion), "queues/stage_1");
-        assert_eq!(queue_path(StageNumber::Stage6Prediction), "queues/stage_6");
-        assert_eq!(queue_path(StageNumber::Stage7Finalize), "queues/finalize");
+        // Every queue lives at queues/{key}; no numbered detour or
+        // finalize special-case. Guards against someone re-introducing
+        // the legacy stage_N convention.
+        assert_eq!(
+            queue_path(StageId::new("media-conversion")),
+            "queues/media-conversion"
+        );
+        assert_eq!(queue_path(StageId::new("prediction")), "queues/prediction");
+        assert_eq!(queue_path(StageId::new("finalize")), "queues/finalize");
     }
 
     #[test]
     fn test_next_stage() {
-        assert_eq!(next_stage(StageNumber::Stage1MediaConversion), StageNumber::Stage2ValidityCheck);
-        assert_eq!(next_stage(StageNumber::Stage6Prediction), StageNumber::Stage7Finalize);
-        assert_eq!(next_stage(StageNumber::Stage7Finalize), StageNumber::Stage7Finalize);
+        assert_eq!(
+            next_stage(StageId::new("media-conversion")),
+            StageId::new("pose-estimation")
+        );
+        assert_eq!(
+            next_stage(StageId::new("prediction")),
+            StageId::new("finalize")
+        );
+        assert_eq!(
+            next_stage(StageId::new("finalize")),
+            StageId::new("finalize")
+        );
     }
 
     #[test]
@@ -649,9 +654,9 @@ mod tests {
             JobMetadata::default(),
             false,
         );
-        
+
         assert!(item.is_available());
-        
+
         let claimed = item.claim("worker_1");
         assert!(!claimed.is_available()); // Just claimed, not timed out yet
     }

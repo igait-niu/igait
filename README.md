@@ -60,31 +60,10 @@ I strongly recommend using [Visual Studio Code](https://code.visualstudio.com/) 
 Additionally, if you choose to use GitHub Copilot, repository context and MCPs are tracked in this repostitory.
 
 ### Starting iGait
-Please save any work open on your machine before starting the application - Docker will try to build the entire application in parallel by default, which even beefy machines will struggle with for a first-time build. My laptop usually bricks itself when I try.
 
-If your machine has under 64gb of RAM, first run the following commands to build a cache - it's normal to take quite a while the first time:
-```bash
-docker compose build web
-docker compose build backend
-docker compose build stage1
-docker compose build stage2
-docker compose build stage3
-docker compose build stage4
-docker compose build stage5
-docker compose build stage6
-docker compose build stage7
-```
-
-Once you've built this initial cache, you can build and run iGait with the following:
-```bash
-docker compose up --build
-```
-
-This will bring the entire stack online - frontend, backend, and pipeline stages! You can view the frontend now at https://localhost:4173.
-
-Other useful commands:
-- `docker compose down` - Takes iGait offline
-- `docker compose logs <container>` - View the logs
+> The top-level Docker Compose setup has been removed pending a rewrite —
+> bring up services individually during development using the commands
+> below.
 
 ### Working on iGait
 **Backend/Pipeline**:

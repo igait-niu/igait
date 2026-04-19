@@ -9,7 +9,7 @@ use axum::{body::Bytes, extract::{Multipart, State}};
 use anyhow::{Result, Context, anyhow};
 use firebase_auth::FirebaseUser;
 
-use igait_lib::microservice::{StoragePaths, JobMetadata, QueueItem, StageNumber, FirebaseRtdb, queue_item_path};
+use igait_lib::microservice::{StoragePaths, JobMetadata, QueueItem, StageId, FirebaseRtdb, queue_item_path};
 
 use crate::helper::{
     email::send_welcome_email,
@@ -376,7 +376,7 @@ async fn upload_and_dispatch(
     let rtdb = FirebaseRtdb::from_env()
         .context("Failed to initialize Firebase RTDB client")?;
     
-    let queue_path = queue_item_path(StageNumber::Stage1MediaConversion, job_id);
+    let queue_path = queue_item_path(StageId::new("media-conversion"), job_id);
     rtdb.set(&queue_path, &queue_item)
         .await
         .context("Failed to push job to Stage 1 queue")?;

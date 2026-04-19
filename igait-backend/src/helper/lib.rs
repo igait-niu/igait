@@ -99,16 +99,23 @@ pub struct Job {
     /// Whether this job has been approved for processing
     #[serde(default)]
     pub approved: bool,
-    /// Per-stage logs collected during processing.
-    /// Keys are "stage_1" through "stage_7", values are the log text.
+    /// Per-stage logs collected during processing. Keys are stage registry
+    /// keys (e.g. "media-conversion", "pose-estimation"); values are the
+    /// log text.
     #[serde(default)]
     pub stage_logs: std::collections::HashMap<String, String>,
-    /// Per-stage statuses tracking individual stage progress.
-    /// Keys are "stage_1" through "stage_7", values are the stage status.
+    /// Per-stage statuses tracking individual stage progress. Keys are
+    /// stage registry keys; values are the `StageStatus`.
+    //
+    // The TS override inlines StageStatus's variant strings rather than
+    // naming the type, because ts-rs does not emit an import for types
+    // referenced only in a `#[ts(type = "…")]` string. The hand-written
+    // frontend/src/types/StageStatus.ts declares the same union.
     #[serde(default)]
-    #[ts(type = "Record<string, StageStatus>")]
+    #[ts(type = "Record<string, \"not_started\" | \"running\" | \"complete\" | \"error\">")]
     pub stage_statuses: std::collections::HashMap<String, StageStatus>,
-    /// Video editing flags (rotation, trim, crop) to apply on the next Stage 1 run.
+    /// Video editing flags (rotation, trim, crop) to apply on the next
+    /// media-conversion run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(
         optional,
@@ -117,8 +124,6 @@ pub struct Job {
     pub video_edit: Option<VideoEditFlags>,
 }
 
-/// The total number of processing stages in the pipeline
-pub const NUM_STAGES: u8 = 7;
 
 /// Simplified job status that gets stored in Firebase RTDB.
 ///
@@ -137,8 +142,8 @@ pub enum JobStatus {
     Submitted { value: String },
     /// Job is currently being processed by a stage
     Processing {
-        stage: u8,
-        num_stages: u8,
+        #[ts(type = "string")]
+        stage: igait_lib::microservice::StageId,
         value: String,
     },
     /// Job completed successfully with prediction results
@@ -165,23 +170,11 @@ impl JobStatus {
         }
     }
 
-    /// Create a new Processing status for a given stage
-    pub fn processing(stage: u8) -> Self {
-        let stage_name = match stage {
-            1 => "Converting video format",
-            2 => "Checking video validity",
-            3 => "Reframing video",
-            4 => "Estimating pose landmarks",
-            5 => "Detecting gait cycles",
-            6 => "Running ML prediction",
-            7 => "Finalizing results",
-            _ => "Processing",
-        };
-
+    /// Create a new Processing status for a given stage.
+    pub fn processing(stage: igait_lib::microservice::StageId) -> Self {
         Self::Processing {
+            value: format!("Processing: {}...", stage.name()),
             stage,
-            num_stages: NUM_STAGES,
-            value: format!("Stage {}/{}: {}...", stage, NUM_STAGES, stage_name),
         }
     }
 

@@ -3,10 +3,8 @@
 //! This module provides utilities for microservices to update job status
 //! directly in Firebase RTDB.
 
+use super::registry::StageId;
 use serde::{Deserialize, Serialize};
-
-/// The total number of processing stages in the pipeline
-pub const NUM_STAGES: u8 = 7;
 
 /// Per-stage status for tracking individual stage progress.
 ///
@@ -37,8 +35,7 @@ pub enum JobStatus {
     },
     /// Job is currently being processed by a stage
     Processing {
-        stage: u8,
-        num_stages: u8,
+        stage: StageId,
         value: String,
     },
     /// Job completed successfully with prediction results
@@ -69,23 +66,11 @@ impl JobStatus {
         }
     }
 
-    /// Create a new Processing status for a given stage
-    pub fn processing(stage: u8) -> Self {
-        let stage_name = match stage {
-            1 => "Converting video format",
-            2 => "Checking video validity",
-            3 => "Reframing video",
-            4 => "Estimating pose landmarks",
-            5 => "Detecting gait cycles",
-            6 => "Running ML prediction",
-            7 => "Finalizing results",
-            _ => "Processing",
-        };
-        
+    /// Create a new Processing status for a given stage.
+    pub fn processing(stage: StageId) -> Self {
         Self::Processing {
+            value: format!("Processing: {}...", stage.name()),
             stage,
-            num_stages: NUM_STAGES,
-            value: format!("Stage {}/{}: {}...", stage, NUM_STAGES, stage_name),
         }
     }
 

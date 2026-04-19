@@ -18,32 +18,22 @@
     "queues": {
       ".read": "auth != null && root.child('users').child(auth.uid).child('administrator').val() == true",
       ".write": "auth != null && root.child('users').child(auth.uid).child('administrator').val() == true",
-      "stage_1": {
+      "media-conversion": {
         "$job_id": {
           ".validate": "newData.hasChildren(['job_id', 'user_id', 'enqueued_at', 'input_keys', 'metadata'])"
         }
       },
-      "stage_2": {
+      "pose-estimation": {
         "$job_id": {
           ".validate": "newData.hasChildren(['job_id', 'user_id', 'enqueued_at', 'input_keys', 'metadata'])"
         }
       },
-      "stage_3": {
+      "cycle-detection": {
         "$job_id": {
           ".validate": "newData.hasChildren(['job_id', 'user_id', 'enqueued_at', 'input_keys', 'metadata'])"
         }
       },
-      "stage_4": {
-        "$job_id": {
-          ".validate": "newData.hasChildren(['job_id', 'user_id', 'enqueued_at', 'input_keys', 'metadata'])"
-        }
-      },
-      "stage_5": {
-        "$job_id": {
-          ".validate": "newData.hasChildren(['job_id', 'user_id', 'enqueued_at', 'input_keys', 'metadata'])"
-        }
-      },
-      "stage_6": {
+      "prediction": {
         "$job_id": {
           ".validate": "newData.hasChildren(['job_id', 'user_id', 'enqueued_at', 'input_keys', 'metadata'])"
         }
@@ -60,6 +50,10 @@
       "$stage": {
         ".validate": "newData.hasChild('requires_approval') && newData.child('requires_approval').isBoolean()"
       }
+    },
+    "registry": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('administrator').val() == true"
     }
   }
 }

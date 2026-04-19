@@ -251,7 +251,7 @@ impl EmailTemplates {
     /// Sent when the pipeline encounters an error at any stage.
     pub fn processing_failure(
         datetime: &str,
-        failed_stage: Option<u8>,
+        failed_stage: Option<crate::microservice::registry::StageId>,
         error: &str,
         uid: &str,
         job_id: &str,

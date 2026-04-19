@@ -1,16 +1,12 @@
-[submodule "igait-stages/igait-stage2-validity-check/igait-human-gait-detection"]
-	path = igait-stages/igait-stage2-validity-check/igait-human-gait-detection
-	url = https://github.com/igait-niu/igait-human-gait-detection
-	
 [submodule "igait-stages/igait-stage4-pose-estimation/igait-mediapipe"]
-	path = igait-stages/igait-stage4-pose-estimation/igait-mediapipe
+	path = igait-stages/pose-estimation/igait-mediapipe
 	url = https://github.com/igait-niu/igait-mediapipe
 
 [submodule "igait-stages/igait-stage5-cycle-detection/igait-gait-cycle-detection"]
-	path = igait-stages/igait-stage5-cycle-detection/igait-gait-cycle-detection
+	path = igait-stages/cycle-detection/igait-gait-cycle-detection
 	url = https://github.com/igait-niu/igait-gait-cycle-detection
 
 [submodule "igait-stages/igait-stage6-prediction/iGAIT_MODEL_IO"]
-	path = igait-stages/igait-stage6-prediction/iGAIT_MODEL_IO
+	path = igait-stages/prediction/iGAIT_MODEL_IO
 	url = https://github.com/igait-niu/iGAIT_MODEL_IO
 

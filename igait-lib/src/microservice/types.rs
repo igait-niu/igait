@@ -4,73 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 
-/// Identifies which stage a microservice handles.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StageNumber {
-    Stage1MediaConversion,
-    Stage2ValidityCheck,
-    Stage3Reframing,
-    Stage4PoseEstimation,
-    Stage5CycleDetection,
-    Stage6Prediction,
-    Stage7Finalize,
-}
-
-impl StageNumber {
-    /// Returns the numeric stage number (1-7).
-    pub fn as_u8(&self) -> u8 {
-        match self {
-            Self::Stage1MediaConversion => 1,
-            Self::Stage2ValidityCheck => 2,
-            Self::Stage3Reframing => 3,
-            Self::Stage4PoseEstimation => 4,
-            Self::Stage5CycleDetection => 5,
-            Self::Stage6Prediction => 6,
-            Self::Stage7Finalize => 7,
-        }
-    }
-
-    /// Creates a StageNumber from a u8 (1-7).
-    pub fn from_u8(n: u8) -> Option<Self> {
-        match n {
-            1 => Some(Self::Stage1MediaConversion),
-            2 => Some(Self::Stage2ValidityCheck),
-            3 => Some(Self::Stage3Reframing),
-            4 => Some(Self::Stage4PoseEstimation),
-            5 => Some(Self::Stage5CycleDetection),
-            6 => Some(Self::Stage6Prediction),
-            7 => Some(Self::Stage7Finalize),
-            _ => None,
-        }
-    }
-
-    /// Returns the human-readable name for this stage.
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Stage1MediaConversion => "Media Conversion",
-            Self::Stage2ValidityCheck => "Validity Check",
-            Self::Stage3Reframing => "Reframing",
-            Self::Stage4PoseEstimation => "Pose Estimation",
-            Self::Stage5CycleDetection => "Cycle Detection",
-            Self::Stage6Prediction => "Prediction",
-            Self::Stage7Finalize => "Finalize",
-        }
-    }
-
-    /// Returns the storage path prefix for this stage's outputs.
-    pub fn storage_prefix(&self) -> &'static str {
-        match self {
-            Self::Stage1MediaConversion => "stage_1",
-            Self::Stage2ValidityCheck => "stage_2",
-            Self::Stage3Reframing => "stage_3",
-            Self::Stage4PoseEstimation => "stage_4",
-            Self::Stage5CycleDetection => "stage_5",
-            Self::Stage6Prediction => "stage_6",
-            Self::Stage7Finalize => "stage_7",
-        }
-    }
-}
+// StageNumber was an enum with one variant per pipeline stage. It has
+// been replaced by [`StageId`](super::registry::StageId) — a validated
+// newtype over the stage's registry key. See igait-lib/src/microservice/registry.rs.
 
 // ============================================================================
 // VIDEO EDIT FLAGS
@@ -179,8 +115,8 @@ pub struct FirestoreJob {
     /// Overall job status
     pub status: FirestoreJobStatus,
     
-    /// Current stage number (0 = uploaded, 1-7 = processing that stage)
-    pub current_stage: u8,
+    /// Current stage id (None = still in upload / not yet claimed by a stage).
+    pub current_stage: Option<super::registry::StageId>,
     
     /// Per-stage results
     pub stages: HashMap<String, FirestoreStageResult>,

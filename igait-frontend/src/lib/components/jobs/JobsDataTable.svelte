@@ -7,6 +7,7 @@
 	import JobsDataTableToolbar from './JobsDataTableToolbar.svelte';
 	import type { Job } from '../../../types/Job';
 	import type { JobStatus } from '../../../types/JobStatus';
+	import { registryStore, isRegistryLoaded } from '$lib/stores';
 
 	type JobWithId = Job & { id: string };
 
@@ -81,16 +82,20 @@
 		switch (status.code) {
 			case 'Complete':
 				return {
-					label: status.asd ? 'ASD Detected' : 'No ASD',
-					variant: status.asd ? ('destructive' as const) : ('default' as const)
+					label: status.asd ? 'ASD Indicators' : 'No ASD Indicators',
+					variant: 'secondary' as const
 				};
 			case 'Error':
 				return { label: 'Error', variant: 'destructive' as const };
-			case 'Processing':
+			case 'Processing': {
+				const registryState = registryStore.state;
+				const stages = isRegistryLoaded(registryState) ? registryState.stages : [];
+				const spec = stages.find((s) => s.key === status.stage);
 				return {
-					label: `Stage ${status.stage}/${status.num_stages}`,
+					label: spec?.display_name ?? status.stage,
 					variant: 'secondary' as const
 				};
+			}
 			case 'Submitted':
 			default:
 				return { label: 'Submitted', variant: 'outline' as const };
@@ -154,8 +159,7 @@
 	const selectableFilteredData = $derived(filteredData.filter((j) => !j.approved));
 
 	const allFilteredSelected = $derived(
-		selectableFilteredData.length > 0 &&
-			selectableFilteredData.every((j) => selectedIds.has(j.id))
+		selectableFilteredData.length > 0 && selectableFilteredData.every((j) => selectedIds.has(j.id))
 	);
 
 	function toggleSelectAll() {

@@ -17,11 +17,12 @@ use firebase_auth::FirebaseUser;
 use serde::{Deserialize, Serialize};
 
 use igait_lib::microservice::{
-    FirebaseRtdb, JobMetadata, QueueItem, StageNumber, StoragePaths, VideoEditFlags,
+    FirebaseRtdb, JobMetadata, QueueItem, StageId, StoragePaths, VideoEditFlags,
+    stage_logs_path, stages_from,
     queue_item_path,
 };
 
-use crate::helper::lib::{AppError, AppStatePtr, JobStatus, NUM_STAGES};
+use crate::helper::lib::{AppError, AppStatePtr, JobStatus};
 
 /// Request body for the video-edit endpoint.
 #[derive(Debug, Deserialize)]
@@ -133,57 +134,55 @@ pub async fn video_edit_entrypoint(
         request.side.is_some()
     );
 
-    // ── 5. Copy Stage 1 outputs → Stage 0 ──────────────────────────
-    let stage1_front = StoragePaths::stage_front_video(&job_id, 1, "mp4");
-    let stage0_front = StoragePaths::stage_front_video(&job_id, 0, "mp4");
-    let stage1_side = StoragePaths::stage_side_video(&job_id, 1, "mp4");
-    let stage0_side = StoragePaths::stage_side_video(&job_id, 0, "mp4");
+    // ── 5. Copy media-conversion outputs → upload folder ───────────
+    let mc_id = StageId::new("media-conversion");
+    let mc_front = StoragePaths::stage_front_video(&job_id, mc_id, "mp4");
+    let upload_front = StoragePaths::upload_front_video(&job_id, "mp4");
+    let mc_side = StoragePaths::stage_side_video(&job_id, mc_id, "mp4");
+    let upload_side = StoragePaths::upload_side_video(&job_id, "mp4");
 
-    // Download from stage 1, upload to stage 0
+    // Download from media-conversion, upload to upload folder
     let front_data = app
         .storage
-        .download(&stage1_front)
+        .download(&mc_front)
         .await
-        .context("Failed to download front video from Stage 1")?;
+        .context("Failed to download front video from media-conversion")?;
     app.storage
-        .upload(&stage0_front, front_data, Some("video/mp4"))
+        .upload(&upload_front, front_data, Some("video/mp4"))
         .await
-        .context("Failed to upload front video to Stage 0")?;
+        .context("Failed to upload front video to upload folder")?;
 
     let side_data = app
         .storage
-        .download(&stage1_side)
+        .download(&mc_side)
         .await
-        .context("Failed to download side video from Stage 1")?;
+        .context("Failed to download side video from media-conversion")?;
     app.storage
-        .upload(&stage0_side, side_data, Some("video/mp4"))
+        .upload(&upload_side, side_data, Some("video/mp4"))
         .await
-        .context("Failed to upload side video to Stage 0")?;
+        .context("Failed to upload side video to upload folder")?;
 
-    println!("Copied Stage 1 outputs → Stage 0 for job {}", job_id);
+    println!("Copied media-conversion outputs → upload folder for job {}", job_id);
 
-    // ── 6. Delete S3 outputs for stages 1..=7 ──────────────────────
+    // ── 6. Delete S3 outputs for every stage ──────────────────────
     let mut total_deleted: usize = 0;
-    for s in 1..=NUM_STAGES {
-        let prefix = StoragePaths::stage_dir(&job_id, s);
+    for id in stages_from(StageId::new("media-conversion")) {
+        let prefix = StoragePaths::stage_dir(&job_id, id);
         let deleted = app
             .storage
             .delete_by_prefix(&prefix)
             .await
-            .context(format!("Failed to delete S3 objects for stage {}", s))?;
+            .context(format!("Failed to delete S3 objects for {}", id))?;
         total_deleted += deleted;
     }
 
-    // ── 6b. Clear stage logs for stages 1..=7 ──────────────────────
+    // ── 6b. Clear stage logs for every stage ──────────────────────
     let rtdb = FirebaseRtdb::from_env().context("Failed to init RTDB for log cleanup")?;
-    for s in 1..=NUM_STAGES {
-        let log_path = format!(
-            "users/{}/jobs/{}/stage_logs/stage_{}",
-            target_uid, job_key, s
-        );
+    for id in stages_from(StageId::new("media-conversion")) {
+        let log_path = stage_logs_path(target_uid, job_key, id);
         rtdb.delete(&log_path)
             .await
-            .context(format!("Failed to delete logs for stage {}", s))?;
+            .context(format!("Failed to delete logs for {}", id))?;
     }
 
     // ── 7. Build QueueItem with video_edit in metadata.extra ────────
@@ -206,8 +205,8 @@ pub async fn video_edit_entrypoint(
 
     let input_keys = {
         let mut keys = HashMap::new();
-        keys.insert("front_video".to_string(), stage0_front);
-        keys.insert("side_video".to_string(), stage0_side);
+        keys.insert("front_video".to_string(), upload_front);
+        keys.insert("side_video".to_string(), upload_side);
         keys
     };
 
@@ -221,14 +220,14 @@ pub async fn video_edit_entrypoint(
     queue_item.approved = true; // Admin-initiated
 
     // ── 8. Push into Stage 1 queue ──────────────────────────────────
-    let target_stage = StageNumber::Stage1MediaConversion;
+    let target_stage = StageId::new("media-conversion");
     let path = queue_item_path(target_stage, &job_id);
     rtdb.set(&path, &queue_item)
         .await
         .context("Failed to push job to Stage 1 queue")?;
 
     // ── 9. Update job status ────────────────────────────────────────
-    let status = JobStatus::processing(1);
+    let status = JobStatus::processing(StageId::new("media-conversion"));
     app.db
         .lock()
         .await

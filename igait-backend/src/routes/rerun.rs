@@ -14,12 +14,12 @@ use firebase_auth::FirebaseUser;
 use serde::{Deserialize, Serialize};
 
 use igait_lib::microservice::{
-    JobMetadata, QueueItem, QueueOps, StageNumber, StageStatus, StoragePaths,
-    FirebaseRtdb, queue_item_path,
+    JobMetadata, QueueItem, QueueOps, StageId, StageStatus, StoragePaths,
+    FirebaseRtdb, queue_item_path, stage_logs_path, stage_status_path, stages_from,
 };
 use tracing::{info, instrument, warn};
 
-use crate::helper::lib::{AppError, AppStatePtr, JobStatus, NUM_STAGES};
+use crate::helper::lib::{AppError, AppStatePtr, JobStatus};
 
 /// Lease TTL for the rerun mutation phase. This guards the *handler's*
 /// work — cancel K8s Jobs, bump epoch, S3 cleanup, write new queue item —
@@ -39,8 +39,8 @@ pub struct RerunRequest {
     pub user_id: String,
     /// The key of the job in the user's job list.
     pub job_key: String,
-    /// The stage number to restart from (1–7).
-    pub stage: u8,
+    /// The stage to restart from (the registry key, e.g. "pose-estimation").
+    pub stage: StageId,
 }
 
 /// Response body for the rerun endpoint.
@@ -74,7 +74,7 @@ pub struct RerunResponse {
     caller_uid = %current_user.user_id,
     target_uid = %request.user_id,
     job_key = %request.job_key,
-    stage = request.stage,
+    stage = %request.stage,
 ))]
 pub async fn rerun_entrypoint(
     current_user: FirebaseUser,
@@ -84,7 +84,7 @@ pub async fn rerun_entrypoint(
     let app = app.state;
     let caller_uid = &current_user.user_id;
     let target_uid = &request.user_id;
-    let stage = request.stage;
+    let target_stage = request.stage;
     let job_key = &request.job_key;
 
     // ── 0. Verify the caller is an administrator ────────────────────
@@ -102,18 +102,15 @@ pub async fn rerun_entrypoint(
         )));
     }
 
-    // ── 1. Validate stage number ────────────────────────────────────
-    // Stage 7 is the finalize stage and uses FinalizeQueueItem, not QueueItem.
-    // We don't support rerunning from stage 7 since it would require a different payload.
-    if stage < 1 || stage > 6 {
+    // ── 1. Validate the target stage ────────────────────────────────
+    // Terminal stages use FinalizeQueueItem (not QueueItem) and aren't
+    // reachable through this endpoint — the payload shape is different.
+    if target_stage.terminal() {
         return Err(AppError(anyhow!(
-            "Invalid stage number {}. Must be between 1 and 6. (Note: stage 7 uses a different queue type and cannot be rerun via this endpoint)",
-            stage
+            "Cannot rerun the {} stage — it uses a different queue type.",
+            target_stage.name()
         )));
     }
-
-    let target_stage = StageNumber::from_u8(stage)
-        .ok_or_else(|| anyhow!("Failed to convert stage number {} to StageNumber", stage))?;
 
     // ── 2. Fetch the job ────────────────────────────────────────────
     let job = app
@@ -149,7 +146,6 @@ pub async fn rerun_entrypoint(
         target_uid,
         job_key,
         &job_id,
-        stage,
         target_stage,
         job,
     )
@@ -169,10 +165,9 @@ pub async fn rerun_entrypoint(
     Ok(Json(RerunResponse {
         success: true,
         message: format!(
-            "Job {} is being re-processed from stage {} ({}).",
+            "Job {} is being re-processed from {}.",
             job_id,
-            stage,
-            target_stage.name()
+            target_stage.name(),
         ),
         objects_deleted: total_deleted,
     }))
@@ -181,7 +176,7 @@ pub async fn rerun_entrypoint(
 /// Executes the mutating portion of a rerun while the caller holds the lease.
 /// Factored out so the outer function can release the lease on every path.
 #[allow(clippy::too_many_arguments)]
-#[instrument(skip_all, fields(job_id = %job_id, stage = stage, lease_id = %lease_id))]
+#[instrument(skip_all, fields(job_id = %job_id, stage = %target_stage, lease_id = %lease_id))]
 async fn run_rerun_under_lease(
     app: std::sync::Arc<crate::helper::lib::AppState>,
     rtdb: FirebaseRtdb,
@@ -190,8 +185,7 @@ async fn run_rerun_under_lease(
     target_uid: &str,
     job_key: &str,
     job_id: &str,
-    stage: u8,
-    target_stage: StageNumber,
+    target_stage: StageId,
     job: crate::helper::lib::Job,
 ) -> Result<usize, AppError> {
     // ── 3. Cancel any still-running K8s Jobs for this job_id ────────
@@ -213,29 +207,29 @@ async fn run_rerun_under_lease(
         .context("Failed to bump job epoch")?;
     info!(new_epoch, "bumped job epoch");
 
-    // ── 5. Delete S3 outputs for stages `stage..=7` ────────────────
+    // ── 5. Delete S3 outputs for the target stage onward ─────────
     let mut total_deleted: usize = 0;
-    for s in stage..=NUM_STAGES {
-        let prefix = StoragePaths::stage_dir(job_id, s);
+    for id in stages_from(target_stage) {
+        let prefix = StoragePaths::stage_dir(job_id, id);
         let deleted = app
             .storage
             .delete_by_prefix(&prefix)
             .await
-            .context(format!("Failed to delete S3 objects for stage {}", s))?;
+            .context(format!("Failed to delete S3 objects for {}", id))?;
         info!(deleted, prefix = %prefix, "deleted S3 objects for stage");
         total_deleted += deleted;
     }
 
-    // ── 6. Clear stage logs + reset stage statuses for `stage..=7` ──
-    for s in stage..=NUM_STAGES {
-        let log_path = format!("users/{}/jobs/{}/stage_logs/stage_{}", target_uid, job_key, s);
+    // ── 6. Clear stage logs + reset statuses for the target stage onward ──
+    for id in stages_from(target_stage) {
+        let log_path = stage_logs_path(target_uid, job_key, id);
         rtdb.delete(&log_path)
             .await
-            .context(format!("Failed to delete logs for stage {}", s))?;
-        let status_path = format!("users/{}/jobs/{}/stage_statuses/stage_{}", target_uid, job_key, s);
+            .context(format!("Failed to delete logs for {}", id))?;
+        let status_path = stage_status_path(target_uid, job_key, id);
         rtdb.set(&status_path, &StageStatus::NotStarted)
             .await
-            .context(format!("Failed to reset stage status for stage {}", s))?;
+            .context(format!("Failed to reset stage status for {}", id))?;
     }
 
     // ── 6a. Reset the job's approval flag ──────────────────────────
@@ -251,10 +245,12 @@ async fn run_rerun_under_lease(
         .context("Failed to reset job approved flag")?;
 
     // ── 7. Build a fresh QueueItem and write it to the target queue ─
-    let input_keys = build_input_keys(job_id, stage);
+    let input_keys = target_stage.spec().build_input_keys(job_id);
 
     let mut extra = HashMap::new();
-    if stage == 1 {
+    // Video-edit flags only apply when re-running from the stage that
+    // reads the raw upload folder (i.e. media-conversion).
+    if target_stage == StageId::new("media-conversion") {
         if let Some(ref video_edit) = job.video_edit {
             if let Ok(val) = serde_json::to_value(video_edit) {
                 extra.insert("video_edit".to_string(), val);
@@ -287,7 +283,7 @@ async fn run_rerun_under_lease(
     info!("pushed job to target stage queue");
 
     // ── 8. Update user-visible job status to Processing for this stage
-    let status = JobStatus::processing(stage);
+    let status = JobStatus::processing(target_stage);
     app.db
         .lock()
         .await
@@ -298,85 +294,3 @@ async fn run_rerun_under_lease(
     Ok(total_deleted)
 }
 
-/// Builds the `input_keys` map for the target stage.
-///
-/// The expected keys are **stage-specific**:
-/// - Stages 1–3: `front_video`, `side_video` (video-based processing)
-/// - Stage 4:    `front_video`, `side_video` (from stage 2 — stage 3 is a passthrough)
-/// - Stage 5:    `front_landmarks`, `side_landmarks`, `front_video`, `side_video` (from pose estimation)
-/// - Stage 6:    `front_gait_analysis`, `side_gait_analysis` (from cycle detection)
-///
-/// All keys point at the previous stage's outputs for the given job.
-fn build_input_keys(job_id: &str, stage: u8) -> HashMap<String, String> {
-    let prev = stage.saturating_sub(1);
-    let mut keys = HashMap::new();
-
-    match stage {
-        // Stages 1–3 consume video outputs from the previous stage.
-        1..=3 => {
-            keys.insert(
-                "front_video".to_string(),
-                StoragePaths::stage_front_video(job_id, prev, "mp4"),
-            );
-            keys.insert(
-                "side_video".to_string(),
-                StoragePaths::stage_side_video(job_id, prev, "mp4"),
-            );
-        }
-        // Stage 4 reads from stage 2 because stage 3 is a passthrough
-        // that does not produce its own files.
-        4 => {
-            keys.insert(
-                "front_video".to_string(),
-                StoragePaths::stage_front_video(job_id, 2, "mp4"),
-            );
-            keys.insert(
-                "side_video".to_string(),
-                StoragePaths::stage_side_video(job_id, 2, "mp4"),
-            );
-        }
-        // Stage 5 consumes pose landmarks AND videos from stage 4.
-        5 => {
-            keys.insert(
-                "front_video".to_string(),
-                StoragePaths::stage_front_video(job_id, prev, "mp4"),
-            );
-            keys.insert(
-                "side_video".to_string(),
-                StoragePaths::stage_side_video(job_id, prev, "mp4"),
-            );
-            keys.insert(
-                "front_landmarks".to_string(),
-                format!("jobs/{}/stage_{}/front_landmarks.json", job_id, prev),
-            );
-            keys.insert(
-                "side_landmarks".to_string(),
-                format!("jobs/{}/stage_{}/side_landmarks.json", job_id, prev),
-            );
-        }
-        // Stage 6 consumes gait analysis outputs from stage 5.
-        6 => {
-            keys.insert(
-                "front_gait_analysis".to_string(),
-                format!("jobs/{}/stage_{}/front_gait_analysis.json", job_id, prev),
-            );
-            keys.insert(
-                "side_gait_analysis".to_string(),
-                format!("jobs/{}/stage_{}/side_gait_analysis.json", job_id, prev),
-            );
-        }
-        // Fallback: default to the legacy video keys.
-        _ => {
-            keys.insert(
-                "front_video".to_string(),
-                StoragePaths::stage_front_video(job_id, prev, "mp4"),
-            );
-            keys.insert(
-                "side_video".to_string(),
-                StoragePaths::stage_side_video(job_id, prev, "mp4"),
-            );
-        }
-    }
-
-    keys
-}
