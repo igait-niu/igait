@@ -23,16 +23,6 @@
           ".validate": "newData.hasChildren(['job_id', 'user_id', 'enqueued_at', 'input_keys', 'metadata'])"
         }
       },
-      "validity-check": {
-        "$job_id": {
-          ".validate": "newData.hasChildren(['job_id', 'user_id', 'enqueued_at', 'input_keys', 'metadata'])"
-        }
-      },
-      "reframing": {
-        "$job_id": {
-          ".validate": "newData.hasChildren(['job_id', 'user_id', 'enqueued_at', 'input_keys', 'metadata'])"
-        }
-      },
       "pose-estimation": {
         "$job_id": {
           ".validate": "newData.hasChildren(['job_id', 'user_id', 'enqueued_at', 'input_keys', 'metadata'])"

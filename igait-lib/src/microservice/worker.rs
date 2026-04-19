@@ -1220,8 +1220,8 @@ impl<W: StageWorker> WorkerRunner<W> {
 /// 
 /// #[async_trait::async_trait]
 /// impl StageWorker for MyStageWorker {
-///     fn stage(&self) -> StageId { StageId::new("validity-check") }
-///     fn service_name(&self) -> &'static str { "validity-check" }
+///     fn stage(&self) -> StageId { StageId::new("pose-estimation") }
+///     fn service_name(&self) -> &'static str { "pose-estimation" }
 ///     
 ///     async fn process(&self, job: &QueueItem) -> ProcessingResult {
 ///         // ... do work ...

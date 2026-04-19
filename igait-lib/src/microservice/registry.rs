@@ -84,38 +84,14 @@ pub const STAGES: &[StageSpec] = &[
         ],
     },
     StageSpec {
-        key: "validity-check",
-        display_name: "Validity Check",
-        description: "Verifies both front and side videos contain exactly one person walking, via YOLO + SlowFast + DeepSORT.",
-        terminal: false,
-        panel: StagePanel::Default,
-        inputs: &[
-            StageInput { name: "front_video", ext: "mp4", from: "media-conversion" },
-            StageInput { name: "side_video",  ext: "mp4", from: "media-conversion" },
-        ],
-    },
-    StageSpec {
-        key: "reframing",
-        display_name: "Reframing",
-        description: "Adjusts video framing and cropping based on detected person position (currently a pass-through placeholder).",
-        terminal: false,
-        panel: StagePanel::Default,
-        inputs: &[
-            StageInput { name: "front_video", ext: "mp4", from: "validity-check" },
-            StageInput { name: "side_video",  ext: "mp4", from: "validity-check" },
-        ],
-    },
-    StageSpec {
         key: "pose-estimation",
         display_name: "Pose Estimation",
         description: "Extracts body keypoints using MediaPipe's Holistic model, producing pose overlay videos and landmark JSON.",
         terminal: false,
         panel: StagePanel::Default,
-        // Reframing is a passthrough that doesn't write its own files,
-        // so we read directly from validity-check's outputs.
         inputs: &[
-            StageInput { name: "front_video", ext: "mp4", from: "validity-check" },
-            StageInput { name: "side_video",  ext: "mp4", from: "validity-check" },
+            StageInput { name: "front_video", ext: "mp4", from: "media-conversion" },
+            StageInput { name: "side_video",  ext: "mp4", from: "media-conversion" },
         ],
     },
     StageSpec {
@@ -464,15 +440,11 @@ mod tests {
     }
 
     #[test]
-    fn build_input_keys_pose_estimation_skips_passthrough() {
-        // Pose estimation should read from validity-check, not from
-        // reframing (which is a passthrough). Guards against someone
-        // "fixing" the inputs list to read from the immediate
-        // predecessor — that silently breaks the pipeline.
+    fn build_input_keys_pose_estimation_reads_media_conversion() {
         let spec = stage_by_key("pose-estimation").unwrap();
         let keys = spec.build_input_keys("user_0");
-        assert_eq!(keys["front_video"], "jobs/user_0/validity-check/front_video.mp4");
-        assert_eq!(keys["side_video"], "jobs/user_0/validity-check/side_video.mp4");
+        assert_eq!(keys["front_video"], "jobs/user_0/media-conversion/front_video.mp4");
+        assert_eq!(keys["side_video"], "jobs/user_0/media-conversion/side_video.mp4");
     }
 
     #[test]
