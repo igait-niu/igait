@@ -1,30 +1,33 @@
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
-use anyhow::{ Result, Context };
+use anyhow::{Context, Result};
+use async_openai::{config::OpenAIConfig, types::AssistantObject, Client};
 use axum::{
-    async_trait, body::Body, extract::FromRequestParts, http::{self, request::Parts}, response::{IntoResponse, Response}
+    async_trait,
+    body::Body,
+    extract::FromRequestParts,
+    http::{self, request::Parts},
+    response::{IntoResponse, Response},
 };
-use serde::{Deserialize, Serialize};
-use async_openai::{
-    config::OpenAIConfig, types::AssistantObject, Client
-};
-use tokio::sync::Mutex;
 use firebase_auth::{FirebaseAuth, FirebaseUser};
-use igait_lib::microservice::{EmailClient, StorageClient, VideoEditFlags, StageStatus};
+use igait_lib::microservice::{EmailClient, StageStatus, StorageClient, VideoEditFlags};
+use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use ts_rs::TS;
 
 use super::database::Database;
 
 /// Custom serialization module for SystemTime as Unix timestamp (seconds)
 mod systemtime_as_secs {
-    use std::time::{SystemTime, UNIX_EPOCH};
     use serde::{Deserialize, Deserializer, Serializer};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     pub fn serialize<S>(time: &SystemTime, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let duration = time.duration_since(UNIX_EPOCH)
+        let duration = time
+            .duration_since(UNIX_EPOCH)
             .map_err(serde::ser::Error::custom)?;
         serializer.serialize_u64(duration.as_secs())
     }
@@ -54,7 +57,7 @@ where
 /// * `uid` - The user ID
 /// * `jobs` - The list of jobs
 /// * `administrator` - Whether the user has administrator privileges
-#[derive( Serialize, Deserialize, Debug, TS )]
+#[derive(Serialize, Deserialize, Debug, TS)]
 #[ts(export)]
 pub struct User {
     pub uid: String,
@@ -65,7 +68,7 @@ pub struct User {
 }
 
 /// The job struct, which contains the job
-/// 
+///
 /// # Fields
 /// * `age` - The age of the patient
 /// * `ethnicity` - The ethnicity of the patient
@@ -77,7 +80,7 @@ pub struct User {
 /// * `email` - The email of the person who submitted the job
 /// * `requires_approval` - Whether the user requested manual approval for this job
 /// * `approved` - Whether this job has been approved for processing
-#[derive( Serialize, Deserialize, Clone, Debug, TS )]
+#[derive(Serialize, Deserialize, Clone, Debug, TS)]
 #[ts(export)]
 pub struct Job {
     pub age: i16,
@@ -96,28 +99,36 @@ pub struct Job {
     /// Whether this job has been approved for processing
     #[serde(default)]
     pub approved: bool,
-    /// Per-stage logs collected during processing.
-    /// Keys are "stage_1" through "stage_7", values are the log text.
+    /// Per-stage logs collected during processing. Keys are stage registry
+    /// keys (e.g. "media-conversion", "validity-check"); values are the
+    /// log text.
     #[serde(default)]
     pub stage_logs: std::collections::HashMap<String, String>,
-    /// Per-stage statuses tracking individual stage progress.
-    /// Keys are "stage_1" through "stage_7", values are the stage status.
+    /// Per-stage statuses tracking individual stage progress. Keys are
+    /// stage registry keys; values are the `StageStatus`.
+    //
+    // The TS override inlines StageStatus's variant strings rather than
+    // naming the type, because ts-rs does not emit an import for types
+    // referenced only in a `#[ts(type = "…")]` string. The hand-written
+    // frontend/src/types/StageStatus.ts declares the same union.
     #[serde(default)]
-    #[ts(type = "Record<string, StageStatus>")]
+    #[ts(type = "Record<string, \"not_started\" | \"running\" | \"complete\" | \"error\">")]
     pub stage_statuses: std::collections::HashMap<String, StageStatus>,
-    /// Video editing flags (rotation, trim, crop) to apply on the next Stage 1 run.
+    /// Video editing flags (rotation, trim, crop) to apply on the next
+    /// media-conversion run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "{ front?: { rotation?: number, trim_start?: number, trim_end?: number, crop_x?: number, crop_y?: number, crop_width?: number, crop_height?: number }, side?: { rotation?: number, trim_start?: number, trim_end?: number, crop_x?: number, crop_y?: number, crop_width?: number, crop_height?: number } }")]
+    #[ts(
+        optional,
+        type = "{ front?: { rotation?: number, trim_start?: number, trim_end?: number, crop_x?: number, crop_y?: number, crop_width?: number, crop_height?: number }, side?: { rotation?: number, trim_start?: number, trim_end?: number, crop_x?: number, crop_y?: number, crop_width?: number, crop_height?: number } }"
+    )]
     pub video_edit: Option<VideoEditFlags>,
 }
 
-/// The total number of processing stages in the pipeline
-pub const NUM_STAGES: u8 = 7;
 
 /// Simplified job status that gets stored in Firebase RTDB.
-/// 
+///
 /// This is a tagged union (discriminated by `code`) with variant-specific fields.
-/// 
+///
 /// # Variants
 /// * `Submitted` - Job has been submitted and is waiting to be processed
 /// * `Processing` - Job is currently being processed by a stage
@@ -128,13 +139,11 @@ pub const NUM_STAGES: u8 = 7;
 #[serde(tag = "code")]
 pub enum JobStatus {
     /// Job has been submitted and is waiting to be processed
-    Submitted {
-        value: String,
-    },
+    Submitted { value: String },
     /// Job is currently being processed by a stage
     Processing {
-        stage: u8,
-        num_stages: u8,
+        #[ts(type = "string")]
+        stage: igait_lib::microservice::StageId,
         value: String,
     },
     /// Job completed successfully with prediction results
@@ -161,34 +170,28 @@ impl JobStatus {
         }
     }
 
-    /// Create a new Processing status for a given stage
-    pub fn processing(stage: u8) -> Self {
-        let stage_name = match stage {
-            1 => "Converting video format",
-            2 => "Checking video validity",
-            3 => "Reframing video",
-            4 => "Estimating pose landmarks",
-            5 => "Detecting gait cycles",
-            6 => "Running ML prediction",
-            7 => "Finalizing results",
-            _ => "Processing",
-        };
-        
+    /// Create a new Processing status for a given stage.
+    pub fn processing(stage: igait_lib::microservice::StageId) -> Self {
         Self::Processing {
+            value: format!("Processing: {}...", stage.name()),
             stage,
-            num_stages: NUM_STAGES,
-            value: format!("Stage {}/{}: {}...", stage, NUM_STAGES, stage_name),
         }
     }
 
     /// Create a new Complete status with prediction results
     pub fn complete(prediction: f32, asd: bool) -> Self {
         let value = if asd {
-            format!("Analysis complete - ASD indicators detected ({:.1}% confidence)", prediction * 100.0)
+            format!(
+                "Analysis complete - ASD indicators detected ({:.1}% confidence)",
+                prediction * 100.0
+            )
         } else {
-            format!("Analysis complete - No ASD indicators ({:.1}% confidence)", (1.0 - prediction) * 100.0)
+            format!(
+                "Analysis complete - No ASD indicators ({:.1}% confidence)",
+                (1.0 - prediction) * 100.0
+            )
         };
-        
+
         Self::Complete {
             prediction,
             asd,
@@ -241,7 +244,7 @@ impl JobStatus {
 }
 
 /// Sex options for job submission.
-/// 
+///
 /// # Variants
 /// * `M` - Male
 /// * `F` - Female
@@ -278,7 +281,7 @@ impl std::str::FromStr for Sex {
 }
 
 /// Ethnicity options for job submission.
-/// 
+///
 /// # Variants
 /// * `AfricanAmerican` - African American/Black
 /// * `NativeAmerican` - Native American/American Indian
@@ -327,46 +330,8 @@ impl std::str::FromStr for Ethnicity {
     }
 }
 
-/// User role options - who is completing the submission form.
-/// 
-/// # Variants
-/// * `Parent` - Parent of the patient
-/// * `Doctor` - Medical professional
-/// * `SchoolOfficial` - School nurse or administrator
-/// * `Sibling` - Sibling of the patient
-/// * `Grandparent` - Grandparent of the patient
-/// * `Self_` - Patient themselves
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, TS)]
-#[ts(export)]
-#[serde(rename_all = "camelCase")]
-pub enum UserRole {
-    Parent,
-    Doctor,
-    SchoolOfficial,
-    Sibling,
-    Grandparent,
-    #[serde(rename = "self")]
-    Self_,
-}
-
-impl std::str::FromStr for UserRole {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self> {
-        match s {
-            "parent" => Ok(UserRole::Parent),
-            "doctor" => Ok(UserRole::Doctor),
-            "schoolOfficial" => Ok(UserRole::SchoolOfficial),
-            "sibling" => Ok(UserRole::Sibling),
-            "grandparent" => Ok(UserRole::Grandparent),
-            "self" => Ok(UserRole::Self_),
-            _ => Err(anyhow::anyhow!("Invalid user role value: {}", s)),
-        }
-    }
-}
-
 /// The state of the entire backend application with handles to the database and storage.
-/// 
+///
 /// # Fields
 /// * `db` - The database handle (Firebase RTDB)
 /// * `storage` - AWS S3 client (GCS-backed)
@@ -374,7 +339,7 @@ impl std::str::FromStr for UserRole {
 /// * `openai_client` - OpenAI client for AI assistant
 /// * `openai_assistant` - The loaded OpenAI assistant
 /// * `firebase_auth` - Firebase Auth for user verification
-/// 
+///
 /// # Notes
 /// * This struct is typically wrapped in an `Arc<>` to allow for concurrent access.
 impl std::fmt::Debug for AppState {
@@ -399,13 +364,16 @@ fn get_bearer_token(header: &str) -> Option<String> {
 }
 #[derive(Debug, Clone)]
 pub struct AppStatePtr {
-    pub state: Arc<AppState>
+    pub state: Arc<AppState>,
 }
 #[async_trait]
 impl FromRequestParts<AppStatePtr> for FirebaseUser {
     type Rejection = UnauthorizedResponse;
 
-    async fn from_request_parts(parts: &mut Parts, app_state_ptr: &AppStatePtr) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        app_state_ptr: &AppStatePtr,
+    ) -> Result<Self, Self::Rejection> {
         let store = &app_state_ptr.state.firebase_auth;
 
         let auth_header = parts
@@ -428,7 +396,7 @@ impl FromRequestParts<AppStatePtr> for FirebaseUser {
                 Err(UnauthorizedResponse {
                     msg: format!("Failed to verify Token: {}", e),
                 })
-            },
+            }
             Ok(current_user) => Ok(current_user),
         }
     }
@@ -457,16 +425,16 @@ pub struct AppState {
 }
 impl AppState {
     /// Initializes the application state with database, storage, and service clients.
-    /// 
+    ///
     /// # Returns
     /// * A successful result with the application state if successful
-    /// 
+    ///
     /// # Fails
     /// * If the database fails to initialize
     /// * If the storage client fails to initialize
     /// * If Firebase Auth fails to initialize
     /// * If the OpenAI assistant can't be loaded
-    /// 
+    ///
     /// # Notes
     /// * This function is typically called at the start of the application.
     /// * Required environment variables:
@@ -476,24 +444,21 @@ impl AppState {
     ///   - AWS credentials for SES
     pub async fn new() -> Result<Self> {
         let client = Client::new();
-        let firebase_auth = FirebaseAuth::new("network-technology-project")
-            .await;
+        let firebase_auth = FirebaseAuth::new("network-technology-project").await;
 
         // Try to initialize the assistant (optional for upload route)
         let assistant = match std::env::var("OPENAI_ASSISTANT_ID") {
-            Ok(assistant_id) => {
-                match client.assistants().retrieve(&assistant_id).await {
-                    Ok(a) => {
-                        println!("✅ OpenAI Assistant loaded successfully");
-                        Some(a)
-                    }
-                    Err(e) => {
-                        eprintln!("⚠️  Failed to load OpenAI Assistant: {}", e);
-                        eprintln!("   Upload and processing will work, but AI assistant features will be disabled");
-                        None
-                    }
+            Ok(assistant_id) => match client.assistants().retrieve(&assistant_id).await {
+                Ok(a) => {
+                    println!("✅ OpenAI Assistant loaded successfully");
+                    Some(a)
                 }
-            }
+                Err(e) => {
+                    eprintln!("⚠️  Failed to load OpenAI Assistant: {}", e);
+                    eprintln!("   Upload and processing will work, but AI assistant features will be disabled");
+                    None
+                }
+            },
             Err(_) => {
                 eprintln!("⚠️  OPENAI_ASSISTANT_ID not set");
                 eprintln!("   Upload and processing will work, but AI assistant features will be disabled");
@@ -512,7 +477,11 @@ impl AppState {
             .context("Failed to initialize email client")?;
 
         Ok(Self {
-            db: Mutex::new(Database::init().await.context("Failed to initialize database while setting up app state!")?),
+            db: Mutex::new(
+                Database::init()
+                    .await
+                    .context("Failed to initialize database while setting up app state!")?,
+            ),
             storage,
             email_client,
             openai_client: client,
@@ -523,12 +492,11 @@ impl AppState {
     }
 }
 
-
 /// The error type for the application.
-/// 
+///
 /// # Fields
 /// * `AppError` - The error type for the application
-/// 
+///
 /// # Notes
 /// * This error type is used to handle errors in the application.
 /// * The reason for its existence is to allow for a more detailed error message to be returned by `axum` routes.
@@ -548,7 +516,7 @@ impl IntoResponse for AppError {
 
         (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Something went wrong: {}",err),
+            format!("Something went wrong: {}", err),
         )
             .into_response()
     }
@@ -561,4 +529,3 @@ where
         Self(err.into())
     }
 }
-

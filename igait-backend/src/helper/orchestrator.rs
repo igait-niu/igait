@@ -13,7 +13,7 @@
 use anyhow::{Context, Result};
 use igait_lib::microservice::{
     CasResult, ClaimResult, FinalizeQueueItem, FirebaseRtdb, JobMetadata, JobResult, JobStatus,
-    QueueItem, QueueOps, RetryPolicy, StageNumber, StageStatus, generate_worker_id,
+    QueueItem, QueueOps, RetryPolicy, StageId, StageStatus, generate_worker_id,
     job_result_path, job_status_path, now_ms, queue_item_path, retry_transient,
     stage_logs_path, stage_status_path, JOB_RESULT_TAKE_TIMEOUT_MS,
 };
@@ -62,9 +62,9 @@ struct StageResources {
 }
 
 /// Returns the resource configuration for a given stage.
-fn stage_resources(stage: StageNumber) -> StageResources {
-    match stage {
-        StageNumber::Stage1MediaConversion => StageResources {
+fn stage_resources(stage: StageId) -> StageResources {
+    match stage.key() {
+        "media-conversion" => StageResources {
             cpu_request: "250m",
             cpu_limit: "2",
             memory_request: "512Mi",
@@ -73,7 +73,7 @@ fn stage_resources(stage: StageNumber) -> StageResources {
             ephemeral_limit: Some("1Gi"),
             active_deadline_secs: 600,
         },
-        StageNumber::Stage2ValidityCheck => StageResources {
+        "validity-check" => StageResources {
             cpu_request: "15m",
             cpu_limit: "8",
             memory_request: "256Mi",
@@ -82,7 +82,7 @@ fn stage_resources(stage: StageNumber) -> StageResources {
             ephemeral_limit: None,
             active_deadline_secs: 1800,
         },
-        StageNumber::Stage3Reframing => StageResources {
+        "reframing" => StageResources {
             cpu_request: "250m",
             cpu_limit: "1",
             memory_request: "256Mi",
@@ -91,7 +91,7 @@ fn stage_resources(stage: StageNumber) -> StageResources {
             ephemeral_limit: None,
             active_deadline_secs: 600,
         },
-        StageNumber::Stage4PoseEstimation => StageResources {
+        "pose-estimation" => StageResources {
             cpu_request: "250m",
             cpu_limit: "1",
             memory_request: "512Mi",
@@ -100,7 +100,7 @@ fn stage_resources(stage: StageNumber) -> StageResources {
             ephemeral_limit: None,
             active_deadline_secs: 1200,
         },
-        StageNumber::Stage5CycleDetection => StageResources {
+        "cycle-detection" => StageResources {
             cpu_request: "1",
             cpu_limit: "1200m",
             memory_request: "1Gi",
@@ -109,7 +109,7 @@ fn stage_resources(stage: StageNumber) -> StageResources {
             ephemeral_limit: None,
             active_deadline_secs: 1800,
         },
-        StageNumber::Stage6Prediction => StageResources {
+        "prediction" => StageResources {
             cpu_request: "250m",
             cpu_limit: "1",
             memory_request: "256Mi",
@@ -118,7 +118,7 @@ fn stage_resources(stage: StageNumber) -> StageResources {
             ephemeral_limit: None,
             active_deadline_secs: 600,
         },
-        StageNumber::Stage7Finalize => StageResources {
+        "finalize" => StageResources {
             cpu_request: "50m",
             cpu_limit: "250m",
             memory_request: "64Mi",
@@ -127,20 +127,18 @@ fn stage_resources(stage: StageNumber) -> StageResources {
             ephemeral_limit: None,
             active_deadline_secs: 300,
         },
+        other => panic!("no StageResources configured for stage {:?}", other),
     }
 }
 
-/// Maps StageNumber to its environment variable name for the container image.
-fn stage_image_env_var(stage: StageNumber) -> &'static str {
-    match stage {
-        StageNumber::Stage1MediaConversion => "STAGE1_IMAGE",
-        StageNumber::Stage2ValidityCheck => "STAGE2_IMAGE",
-        StageNumber::Stage3Reframing => "STAGE3_IMAGE",
-        StageNumber::Stage4PoseEstimation => "STAGE4_IMAGE",
-        StageNumber::Stage5CycleDetection => "STAGE5_IMAGE",
-        StageNumber::Stage6Prediction => "STAGE6_IMAGE",
-        StageNumber::Stage7Finalize => "STAGE7_IMAGE",
-    }
+/// Environment variable name for a stage's container image, derived
+/// from the stage key: `STAGE_<UPPER_SNAKE_KEY>_IMAGE` (e.g.
+/// `STAGE_MEDIA_CONVERSION_IMAGE`). Keeping the Rust side keyed
+/// means adding a new stage doesn't require touching this function —
+/// just set the matching env var on the K8s deployment.
+fn stage_image_env_var(stage: StageId) -> String {
+    let upper = stage.key().replace('-', "_").to_ascii_uppercase();
+    format!("STAGE_{}_IMAGE", upper)
 }
 
 /// The central pipeline orchestrator.
@@ -152,10 +150,10 @@ pub struct Orchestrator {
     kube_client: KubeClient,
     rtdb: FirebaseRtdb,
     /// Container images for each stage, read from env vars at startup.
-    stage_images: HashMap<StageNumber, String>,
+    stage_images: HashMap<StageId, String>,
     /// Set of job IDs that currently have a K8s Job running.
     /// Prevents double-dispatch (in addition to RTDB claiming).
-    in_flight: RwLock<HashMap<String, StageNumber>>,
+    in_flight: RwLock<HashMap<String, StageId>>,
     /// Unique identifier for this replica. Stamped on `taken_by` when
     /// CAS-claiming a JobResult, so sibling replicas skip it.
     orchestrator_id: String,
@@ -174,27 +172,19 @@ impl Orchestrator {
         let rtdb = FirebaseRtdb::from_env()
             .context("Failed to create Firebase RTDB client")?;
 
-        // Load stage images from environment
-        let stages = [
-            StageNumber::Stage1MediaConversion,
-            StageNumber::Stage2ValidityCheck,
-            StageNumber::Stage3Reframing,
-            StageNumber::Stage4PoseEstimation,
-            StageNumber::Stage5CycleDetection,
-            StageNumber::Stage6Prediction,
-            StageNumber::Stage7Finalize,
-        ];
-
+        // Load stage images from environment — every stage in the registry
+        // expects a matching STAGE_<KEY>_IMAGE env var.
         let mut stage_images = HashMap::new();
-        for stage in &stages {
-            let env_var = stage_image_env_var(*stage);
-            match std::env::var(env_var) {
+        for spec in igait_lib::microservice::STAGES {
+            let stage = spec.id();
+            let env_var = stage_image_env_var(stage);
+            match std::env::var(&env_var) {
                 Ok(image) => {
-                    info!("Stage {} image: {}", stage.as_u8(), image);
-                    stage_images.insert(*stage, image);
+                    info!("Image for {}: {}", stage, image);
+                    stage_images.insert(stage, image);
                 }
                 Err(_) => {
-                    warn!("Missing {} env var — stage {} Jobs cannot be created", env_var, stage.as_u8());
+                    warn!("Missing {} env var — {} Jobs cannot be created", env_var, stage);
                 }
             }
         }
@@ -222,10 +212,10 @@ impl Orchestrator {
     }
 
     /// Creates a K8s Job for a standard processing stage (1-6).
-    #[instrument(skip_all, fields(stage = stage.as_u8(), job_id = %job.job_id, epoch = job.epoch))]
-    async fn create_stage_job(&self, stage: StageNumber, job: &QueueItem) -> Result<String> {
+    #[instrument(skip_all, fields(stage = %stage, job_id = %job.job_id, epoch = job.epoch))]
+    async fn create_stage_job(&self, stage: StageId, job: &QueueItem) -> Result<String> {
         let image = self.stage_images.get(&stage)
-            .ok_or_else(|| anyhow::anyhow!("No image configured for stage {}", stage.as_u8()))?;
+            .ok_or_else(|| anyhow::anyhow!("No image configured for {}", stage))?;
 
         let payload = serde_json::to_string(job)
             .context("Failed to serialize QueueItem")?;
@@ -250,15 +240,15 @@ impl Orchestrator {
         jobs_api.create(&PostParams::default(), &k8s_job).await
             .context(format!("Failed to create K8s Job {}", job_name))?;
 
-        info!("Created K8s Job {} for stage {} job {} (job_epoch={})",
-            job_name, stage.as_u8(), job.job_id, job_epoch);
+        info!("Created K8s Job {} for {} job {} (job_epoch={})",
+            job_name, stage, job.job_id, job_epoch);
         Ok(job_name)
     }
 
-    /// Creates a K8s Job for the finalize stage (stage 7).
-    #[instrument(skip_all, fields(stage = 7, job_id = %job.job_id))]
+    /// Creates a K8s Job for the finalize (terminal) stage.
+    #[instrument(skip_all, fields(stage = "finalize", job_id = %job.job_id))]
     async fn create_finalize_job(&self, job: &FinalizeQueueItem) -> Result<String> {
-        let stage = StageNumber::Stage7Finalize;
+        let stage = StageId::new("finalize");
         let image = self.stage_images.get(&stage)
             .ok_or_else(|| anyhow::anyhow!("No image configured for stage 7 (finalize)"))?;
 
@@ -298,7 +288,7 @@ impl Orchestrator {
         payload_env_var: &str,
         payload: &str,
         resources: &StageResources,
-        stage: StageNumber,
+        stage: StageId,
         job_id: &str,
         user_id: &str,
         job_epoch: u64,
@@ -324,7 +314,7 @@ impl Orchestrator {
                 labels: Some(std::collections::BTreeMap::from([
                     ("app".to_string(), "igait-pipeline".to_string()),
                     ("managed-by".to_string(), "igait-backend".to_string()),
-                    ("igait.niu.edu/stage".to_string(), stage.as_u8().to_string()),
+                    ("igait.niu.edu/stage".to_string(), stage.key().to_string()),
                 ])),
                 annotations: Some(std::collections::BTreeMap::from([
                     ("igait.niu.edu/job-id".to_string(), job_id.to_string()),
@@ -388,12 +378,12 @@ impl Orchestrator {
     ///
     /// Format: `igait-s{N}-{sanitized_job_id}-{random}`
     /// Max 63 characters (K8s DNS label limit).
-    fn make_job_name(&self, stage: StageNumber, job_id: &str) -> String {
+    fn make_job_name(&self, stage: StageId, job_id: &str) -> String {
         let sanitized = job_id
             .to_lowercase()
             .replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "-");
         let random = format!("{:05x}", rand::random::<u32>() & 0xFFFFF);
-        let prefix = format!("igait-s{}-", stage.as_u8());
+        let prefix = format!("igait-{}-", stage.key());
         // Leave room for prefix + random suffix + separating dash
         let max_id_len = 63 - prefix.len() - random.len() - 1;
         let truncated_id = if sanitized.len() > max_id_len {
@@ -405,20 +395,20 @@ impl Orchestrator {
     }
 
     /// Attempts to claim and dispatch a job for a standard stage (1-6).
-    #[instrument(skip(self), fields(stage = stage.as_u8(), orchestrator_id = %self.orchestrator_id))]
-    async fn poll_and_dispatch_stage(&self, stage: StageNumber) -> Result<bool> {
+    #[instrument(skip(self), fields(stage = %stage, orchestrator_id = %self.orchestrator_id))]
+    async fn poll_and_dispatch_stage(&self, stage: StageId) -> Result<bool> {
         let queue_ops = QueueOps::new(self.rtdb.clone(), "orchestrator".to_string());
 
         let job = match queue_ops.claim_job(stage).await {
             ClaimResult::Claimed(job) => job,
             ClaimResult::QueueEmpty | ClaimResult::AllClaimed => return Ok(false),
             ClaimResult::Error(e) => {
-                error!("Failed to claim job for stage {}: {}", stage.as_u8(), e);
+                error!("Failed to claim job for {}: {}", stage, e);
                 return Ok(false);
             }
         };
 
-        info!("Claimed job {} for stage {}", job.job_id, stage.as_u8());
+        info!("Claimed job {} for {}", job.job_id, stage);
 
         // Track as in-flight
         self.in_flight.write().await.insert(job.job_id.clone(), stage);
@@ -462,7 +452,7 @@ impl Orchestrator {
 
         info!("Claimed finalize job {}", job.job_id);
 
-        self.in_flight.write().await.insert(job.job_id.clone(), StageNumber::Stage7Finalize);
+        self.in_flight.write().await.insert(job.job_id.clone(), StageId::new("finalize"));
 
         match self.create_finalize_job(&job).await {
             Ok(job_name) => {
@@ -525,13 +515,7 @@ impl Orchestrator {
             };
 
             let job_id = &result.job_id;
-            let Some(stage) = StageNumber::from_u8(result.stage) else {
-                error!("Invalid stage number {} in job result for {}", result.stage, job_id);
-                if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
-                    warn!("Failed to delete malformed job_result {}: {}", safe_job_id, e);
-                }
-                continue;
-            };
+            let stage = result.stage;
 
             let (user_id, job_key) = match QueueOps::parse_job_id(job_id) {
                 Ok(parsed) => parsed,
@@ -543,13 +527,12 @@ impl Orchestrator {
                     continue;
                 }
             };
-            let stage_num = stage.as_u8();
 
             let live_epoch = self.current_job_epoch(job_id).await;
             if result.job_epoch < live_epoch {
                 warn!(
-                    "Discarding stale JobResult for {} stage {} (result_epoch={} live_epoch={})",
-                    job_id, stage_num, result.job_epoch, live_epoch
+                    "Discarding stale JobResult for {} {} (result_epoch={} live_epoch={})",
+                    job_id, stage, result.job_epoch, live_epoch
                 );
                 if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
                     warn!("Failed to delete stale job_result {}: {}", safe_job_id, e);
@@ -559,7 +542,7 @@ impl Orchestrator {
             }
 
             if let Err(e) = self
-                .apply_completion_transition(&result, stage, &user_id, &job_key, stage_num)
+                .apply_completion_transition(&result, stage, &user_id, &job_key)
                 .await
             {
                 error!("Failed to apply completion transition for {}: {:?}", job_id, e);
@@ -588,98 +571,97 @@ impl Orchestrator {
     /// the "queue advanced but status stayed Running" class of stale-state bug.
     #[instrument(skip_all, fields(
         job_id = %result.job_id,
-        stage = stage_num,
+        stage = %stage,
         epoch = result.job_epoch,
         success = result.success,
     ))]
     async fn apply_completion_transition(
         &self,
         result: &JobResult,
-        stage: StageNumber,
+        stage: StageId,
         user_id: &str,
         job_key: &str,
-        stage_num: u8,
     ) -> Result<()> {
         let job_id = &result.job_id;
         let mut updates: HashMap<String, serde_json::Value> = HashMap::new();
 
         if result.success {
-            info!("Job {} stage {} completed successfully", job_id, stage_num);
+            info!("Job {} {} completed successfully", job_id, stage);
 
             updates.insert(
-                stage_status_path(user_id, job_key, stage_num),
+                stage_status_path(user_id, job_key, stage),
                 serde_json::to_value(StageStatus::Complete)?,
             );
             updates.insert(
-                stage_logs_path(user_id, job_key, stage_num),
+                stage_logs_path(user_id, job_key, stage),
                 serde_json::Value::String(result.logs.clone()),
             );
 
-            match stage {
-                StageNumber::Stage6Prediction => {
-                    let finalize_item = FinalizeQueueItem::success(
-                        result.job_id.clone(),
-                        result.user_id.clone(),
-                        result.output_keys.clone(),
-                        result.metadata.clone(),
-                        result.requires_approval,
-                        result.approved,
-                    );
-                    updates.insert(queue_item_path(stage, job_id), serde_json::Value::Null);
+            if stage.terminal() {
+                // Terminal stage completing: clear the finalize queue item
+                // and stamp the final job status.
+                updates.insert(
+                    queue_item_path(stage, job_id),
+                    serde_json::Value::Null,
+                );
+                if let Some(is_asd_raw) = result.output_keys.get("is_asd") {
+                    let is_asd = is_asd_raw == "true";
+                    let prediction = result
+                        .output_keys
+                        .get("prediction")
+                        .and_then(|s| s.parse::<f32>().ok())
+                        .unwrap_or(0.0);
                     updates.insert(
-                        queue_item_path(StageNumber::Stage7Finalize, job_id),
-                        serde_json::to_value(&finalize_item)?,
+                        job_status_path(user_id, job_key),
+                        serde_json::to_value(JobStatus::complete(prediction, is_asd))?,
                     );
                 }
-                StageNumber::Stage7Finalize => {
-                    updates.insert(
-                        queue_item_path(StageNumber::Stage7Finalize, job_id),
-                        serde_json::Value::Null,
-                    );
-                    if let Some(is_asd_raw) = result.output_keys.get("is_asd") {
-                        let is_asd = is_asd_raw == "true";
-                        let prediction = result
-                            .output_keys
-                            .get("prediction")
-                            .and_then(|s| s.parse::<f32>().ok())
-                            .unwrap_or(0.0);
-                        updates.insert(
-                            job_status_path(user_id, job_key),
-                            serde_json::to_value(JobStatus::complete(prediction, is_asd))?,
-                        );
-                    }
-                }
-                _ => {
-                    let mut next_job = QueueItem::new(
-                        result.job_id.clone(),
-                        result.user_id.clone(),
-                        result.output_keys.clone(),
-                        result.metadata.clone(),
-                        result.requires_approval,
-                    );
-                    next_job.approved = result.approved;
+            } else if stage.next().terminal() {
+                // Last non-terminal stage: move the job into the
+                // finalize (terminal) queue with a FinalizeQueueItem.
+                let finalize_item = FinalizeQueueItem::success(
+                    result.job_id.clone(),
+                    result.user_id.clone(),
+                    result.output_keys.clone(),
+                    result.metadata.clone(),
+                    result.requires_approval,
+                    result.approved,
+                );
+                updates.insert(queue_item_path(stage, job_id), serde_json::Value::Null);
+                updates.insert(
+                    queue_item_path(stage.next(), job_id),
+                    serde_json::to_value(&finalize_item)?,
+                );
+            } else {
+                let mut next_job = QueueItem::new(
+                    result.job_id.clone(),
+                    result.user_id.clone(),
+                    result.output_keys.clone(),
+                    result.metadata.clone(),
+                    result.requires_approval,
+                );
+                next_job.approved = result.approved;
 
-                    let next_stage = igait_lib::microservice::next_stage(stage);
-                    updates.insert(queue_item_path(stage, job_id), serde_json::Value::Null);
-                    updates.insert(
-                        queue_item_path(next_stage, job_id),
-                        serde_json::to_value(&next_job)?,
-                    );
-                }
+                let next_stage = igait_lib::microservice::next_stage(stage);
+                updates.insert(queue_item_path(stage, job_id), serde_json::Value::Null);
+                updates.insert(
+                    queue_item_path(next_stage, job_id),
+                    serde_json::to_value(&next_job)?,
+                );
             }
         } else {
             let error_msg = result
                 .error
                 .clone()
                 .unwrap_or_else(|| "Unknown error".to_string());
-            warn!("Job {} stage {} failed: {}", job_id, stage_num, error_msg);
+            warn!("Job {} {} failed: {}", job_id, stage, error_msg);
 
             updates.insert(
-                stage_status_path(user_id, job_key, stage_num),
+                stage_status_path(user_id, job_key, stage),
                 serde_json::to_value(StageStatus::Error)?,
             );
             updates.insert(
-                stage_logs_path(user_id, job_key, stage_num),
+                stage_logs_path(user_id, job_key, stage),
                 serde_json::Value::String(result.logs.clone()),
             );
             updates.insert(
@@ -687,24 +669,24 @@ impl Orchestrator {
                 serde_json::to_value(JobStatus::error(result.logs.clone()))?,
             );
 
-            if stage == StageNumber::Stage7Finalize {
-                error!("Finalize job {} failed: {}", job_id, error_msg);
+            if stage.terminal() {
+                error!("Terminal stage {:?} failed for job {}: {}", stage.key(), job_id, error_msg);
                 updates.insert(
-                    queue_item_path(StageNumber::Stage7Finalize, job_id),
+                    queue_item_path(stage, job_id),
                     serde_json::Value::Null,
                 );
             } else {
                 let finalize_item = FinalizeQueueItem::failure(
                     result.job_id.clone(),
                     result.user_id.clone(),
-                    stage_num,
+                    stage,
                     error_msg,
                     Some(result.logs.clone()),
                     result.metadata.clone(),
                 );
                 updates.insert(queue_item_path(stage, job_id), serde_json::Value::Null);
                 updates.insert(
-                    queue_item_path(StageNumber::Stage7Finalize, job_id),
+                    queue_item_path(StageId::new("finalize"), job_id),
                     serde_json::to_value(&finalize_item)?,
                 );
             }
@@ -815,7 +797,10 @@ impl Orchestrator {
                 let stage_str = labels.and_then(|l| l.get("igait.niu.edu/stage"));
 
                 if let (Some(job_id), Some(stage_str)) = (job_id, stage_str) {
-                    let stage_num: u8 = stage_str.parse().unwrap_or(0);
+                    let Some(stage) = StageId::try_new(stage_str) else {
+                        warn!("K8s Job {} has unknown stage label {:?}, skipping cleanup", job_name, stage_str);
+                        continue;
+                    };
 
                     // Only write a failure result if one doesn't already exist
                     let result_path = job_result_path(job_id);
@@ -823,7 +808,7 @@ impl Orchestrator {
 
                     if existing.is_none() {
                         let reason = if is_deadline_exceeded { "timed out" } else { "crashed" };
-                        warn!("Writing synthetic failure result for job {} stage {} ({})", job_id, stage_num, reason);
+                        warn!("Writing synthetic failure result for job {} {} ({})", job_id, stage, reason);
 
                         let user_id_annotation = annotations
                             .and_then(|a| a.get("igait.niu.edu/user-id"))
@@ -836,10 +821,10 @@ impl Orchestrator {
                             .unwrap_or(0);
 
                         let error_text = format!("K8s Job {}: pod {}", reason, job_name);
-                        let logs_text = format!("Stage {} pod {} without writing a result", stage_num, reason);
+                        let logs_text = format!("{} pod {} without writing a result", stage, reason);
 
                         let failure_result = JobResult {
-                            stage: stage_num,
+                            stage,
                             success: false,
                             output_keys: HashMap::new(),
                             error: Some(error_text.clone()),
@@ -867,11 +852,11 @@ impl Orchestrator {
                                 user_id_annotation
                             };
                             updates.insert(
-                                stage_status_path(&uid, &job_key, stage_num),
+                                stage_status_path(&uid, &job_key, stage),
                                 serde_json::to_value(StageStatus::Error)?,
                             );
                             updates.insert(
-                                stage_logs_path(&uid, &job_key, stage_num),
+                                stage_logs_path(&uid, &job_key, stage),
                                 serde_json::Value::String(logs_text),
                             );
                         }
@@ -905,16 +890,15 @@ impl Orchestrator {
     }
 }
 
-/// Main orchestration loop — polls all stage queues and dispatches K8s Jobs.
+/// Main orchestration loop — polls every non-terminal stage queue and
+/// dispatches K8s Jobs. The terminal (finalize) queue uses a different
+/// item shape and is polled via its own path.
 pub async fn orchestration_loop(orchestrator: Arc<Orchestrator>) {
-    let stages = [
-        StageNumber::Stage1MediaConversion,
-        StageNumber::Stage2ValidityCheck,
-        StageNumber::Stage3Reframing,
-        StageNumber::Stage4PoseEstimation,
-        StageNumber::Stage5CycleDetection,
-        StageNumber::Stage6Prediction,
-    ];
+    let stages: Vec<_> = igait_lib::microservice::STAGES
+        .iter()
+        .filter(|spec| !spec.terminal)
+        .map(|spec| spec.id())
+        .collect();
 
     info!("Orchestration loop started");
 
@@ -928,7 +912,7 @@ pub async fn orchestration_loop(orchestrator: Arc<Orchestrator>) {
                 }
                 Ok(false) => {}
                 Err(e) => {
-                    error!("Orchestrator error for stage {}: {:?}", stage.as_u8(), e);
+                    error!("Orchestrator error for {}: {:?}", stage, e);
                 }
             }
         }

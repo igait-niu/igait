@@ -1,5 +1,7 @@
 {
-  "projects": {},
+  "projects": {
+    "default": "network-technology-project"
+  },
   "targets": {},
   "etags": {}
 }

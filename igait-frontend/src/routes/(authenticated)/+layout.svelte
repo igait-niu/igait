@@ -5,7 +5,7 @@
 <script lang="ts">
 	import { setContext } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { authStore, errorStore } from '$lib/stores';
+	import { authStore, errorStore, registryStore } from '$lib/stores';
 	import { isAuthenticated, isLoading, USER_CONTEXT_KEY } from '$lib/types';
 	import { ErrorBanner, ErrorPage, Footer, LoadingPage } from '$lib/components';
 	import { Button } from '$lib/components/ui/button';
@@ -43,6 +43,14 @@
 	$effect(() => {
 		if (!isLoading(authState) && !isAuthenticated(authState)) {
 			goto('/login');
+		}
+	});
+
+	// Subscribe to the stage registry once the user is authenticated
+	// (reads require auth != null per the RTDB rules).
+	$effect(() => {
+		if (isAuthenticated(authState)) {
+			registryStore.initialize();
 		}
 	});
 

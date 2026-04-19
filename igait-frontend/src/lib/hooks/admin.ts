@@ -40,17 +40,11 @@ export interface FinalizeQueueItem extends QueueItem {
 }
 
 /**
- * All queues data structure
+ * All queues data, keyed by RTDB queue segment (`stage_1`..`stage_6` or `finalize`).
+ * Dynamic by design so inserting a new stage in the registry doesn't require
+ * editing this type.
  */
-export interface QueuesData {
-	stage_1: Record<string, QueueItem>;
-	stage_2: Record<string, QueueItem>;
-	stage_3: Record<string, QueueItem>;
-	stage_4: Record<string, QueueItem>;
-	stage_5: Record<string, QueueItem>;
-	stage_6: Record<string, QueueItem>;
-	finalize: Record<string, FinalizeQueueItem>;
-}
+export type QueuesData = Record<string, Record<string, QueueItem | FinalizeQueueItem>>;
 
 /**
  * State of queues loading
@@ -72,18 +66,7 @@ export function subscribeToQueues(onUpdate: (state: QueuesState) => void): Unsub
 	const unsubscribe = onValue(
 		queuesRef,
 		(snapshot) => {
-			const data = snapshot.val();
-
-			const queues: QueuesData = {
-				stage_1: data?.stage_1 ?? {},
-				stage_2: data?.stage_2 ?? {},
-				stage_3: data?.stage_3 ?? {},
-				stage_4: data?.stage_4 ?? {},
-				stage_5: data?.stage_5 ?? {},
-				stage_6: data?.stage_6 ?? {},
-				finalize: data?.finalize ?? {}
-			};
-
+			const queues = (snapshot.val() ?? {}) as QueuesData;
 			onUpdate({ status: 'loaded', queues });
 		},
 		(error) => {

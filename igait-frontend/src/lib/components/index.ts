@@ -12,3 +12,4 @@ export { default as Footer } from './Footer.svelte';
 export { default as JsonTree } from './JsonTree.svelte';
 export { default as LoadingPage } from './LoadingPage.svelte';
 export { default as Markdown } from './Markdown.svelte';
+export { default as StageTab } from './StageTab.svelte';

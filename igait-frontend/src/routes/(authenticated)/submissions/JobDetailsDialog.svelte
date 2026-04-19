@@ -15,6 +15,7 @@
 	} from '@lucide/svelte';
 	import type { Job } from '../../../types/Job';
 	import type { JobStatus } from '../../../types/JobStatus';
+	import { registryStore, isRegistryLoaded } from '$lib/stores';
 
 	type Props = {
 		job: Job;
@@ -71,12 +72,29 @@
 	const isProcessing = $derived(job.status.code === 'Processing');
 	const isError = $derived(job.status.code === 'Error');
 
-	// Processing progress
+	const registryState = $derived(registryStore.state);
+	const stages = $derived(isRegistryLoaded(registryState) ? registryState.stages : []);
+
+	// Processing progress: position of the active stage over total stage count.
 	const processingProgress = $derived.by(() => {
-		if (job.status.code === 'Processing') {
-			return (job.status.stage / job.status.num_stages) * 100;
-		}
-		return 0;
+		const status = job.status;
+		if (status.code !== 'Processing' || stages.length === 0) return 0;
+		const idx = stages.findIndex((s) => s.key === status.stage);
+		if (idx < 0) return 0;
+		return ((idx + 1) / stages.length) * 100;
+	});
+
+	const processingStageName = $derived.by(() => {
+		const status = job.status;
+		if (status.code !== 'Processing') return '';
+		const spec = stages.find((s) => s.key === status.stage);
+		return spec?.display_name ?? status.stage;
+	});
+
+	const processingStageIndex = $derived.by(() => {
+		const status = job.status;
+		if (status.code !== 'Processing') return -1;
+		return stages.findIndex((s) => s.key === status.stage);
 	});
 
 	// Complete results
@@ -117,11 +135,12 @@
 				</div>
 
 				<!-- Processing Progress Bar -->
-				{#if isProcessing && job.status.code === 'Processing'}
+				{#if isProcessing && stages.length > 0 && processingStageIndex >= 0}
 					<div class="space-y-2">
 						<Progress.Root value={processingProgress} class="w-full" />
 						<p class="text-xs text-muted-foreground">
-							Stage {job.status.stage} of {job.status.num_stages}
+							{processingStageName}
+							({processingStageIndex + 1} of {stages.length})
 						</p>
 					</div>
 				{/if}

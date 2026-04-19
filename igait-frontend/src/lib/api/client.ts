@@ -316,7 +316,7 @@ export async function authenticatedFetch<T>(
  */
 export async function rerunJob(
 	userIdJobIndex: string,
-	stage: number
+	stage: string
 ): Promise<Result<RerunResponse, AppError>> {
 	const lastUnderscore = userIdJobIndex.lastIndexOf('_');
 
