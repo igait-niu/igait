@@ -350,7 +350,7 @@ async fn run_finalize_job_mode() -> Result<()> {
         ProcessingResult::Success { output_keys, logs, duration_ms } => {
             println!("[job-mode] Finalize job {} completed in {}ms", job.job_id, duration_ms);
             JobResult {
-                stage: 7,
+                stage: StageId::new("finalize"),
                 success: true,
                 output_keys: output_keys.clone(),
                 error: None,
@@ -371,7 +371,7 @@ async fn run_finalize_job_mode() -> Result<()> {
         ProcessingResult::Failure { error, logs, duration_ms } => {
             eprintln!("[job-mode] Finalize job {} failed after {}ms: {}", job.job_id, duration_ms, error);
             JobResult {
-                stage: 7,
+                stage: StageId::new("finalize"),
                 success: false,
                 output_keys: HashMap::new(),
                 error: Some(error.clone()),
