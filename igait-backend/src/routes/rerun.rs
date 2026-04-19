@@ -19,7 +19,7 @@ use igait_lib::microservice::{
 };
 use tracing::{info, instrument, warn};
 
-use crate::helper::lib::{AppError, AppStatePtr, JobStatus, NUM_STAGES};
+use crate::helper::lib::{AppError, AppStatePtr, JobStatus};
 
 /// Lease TTL for the rerun mutation phase. This guards the *handler's*
 /// work — cancel K8s Jobs, bump epoch, S3 cleanup, write new queue item —
@@ -39,8 +39,8 @@ pub struct RerunRequest {
     pub user_id: String,
     /// The key of the job in the user's job list.
     pub job_key: String,
-    /// The stage number to restart from (1–7).
-    pub stage: u8,
+    /// The stage to restart from (the registry key, e.g. "pose-estimation").
+    pub stage: StageId,
 }
 
 /// Response body for the rerun endpoint.
@@ -74,7 +74,7 @@ pub struct RerunResponse {
     caller_uid = %current_user.user_id,
     target_uid = %request.user_id,
     job_key = %request.job_key,
-    stage = request.stage,
+    stage = %request.stage,
 ))]
 pub async fn rerun_entrypoint(
     current_user: FirebaseUser,
@@ -84,7 +84,7 @@ pub async fn rerun_entrypoint(
     let app = app.state;
     let caller_uid = &current_user.user_id;
     let target_uid = &request.user_id;
-    let stage = request.stage;
+    let target_stage = request.stage;
     let job_key = &request.job_key;
 
     // ── 0. Verify the caller is an administrator ────────────────────
@@ -102,19 +102,13 @@ pub async fn rerun_entrypoint(
         )));
     }
 
-    // ── 1. Validate stage number ────────────────────────────────────
-    let target_stage = StageId::from_position(stage)
-        .ok_or_else(|| anyhow!(
-            "Invalid stage number {}. Must be between 1 and {}.",
-            stage, NUM_STAGES
-        ))?;
-
+    // ── 1. Validate the target stage ────────────────────────────────
     // Terminal stages use FinalizeQueueItem (not QueueItem) and aren't
     // reachable through this endpoint — the payload shape is different.
-    if target_stage.spec().terminal {
+    if target_stage.terminal() {
         return Err(AppError(anyhow!(
             "Cannot rerun the {} stage — it uses a different queue type.",
-            target_stage.spec().display_name
+            target_stage.name()
         )));
     }
 
@@ -152,7 +146,6 @@ pub async fn rerun_entrypoint(
         target_uid,
         job_key,
         &job_id,
-        stage,
         target_stage,
         job,
     )
@@ -172,10 +165,9 @@ pub async fn rerun_entrypoint(
     Ok(Json(RerunResponse {
         success: true,
         message: format!(
-            "Job {} is being re-processed from stage {} ({}).",
+            "Job {} is being re-processed from {}.",
             job_id,
-            stage,
-            target_stage.name()
+            target_stage.name(),
         ),
         objects_deleted: total_deleted,
     }))
@@ -184,7 +176,7 @@ pub async fn rerun_entrypoint(
 /// Executes the mutating portion of a rerun while the caller holds the lease.
 /// Factored out so the outer function can release the lease on every path.
 #[allow(clippy::too_many_arguments)]
-#[instrument(skip_all, fields(job_id = %job_id, stage = stage, lease_id = %lease_id))]
+#[instrument(skip_all, fields(job_id = %job_id, stage = %target_stage, lease_id = %lease_id))]
 async fn run_rerun_under_lease(
     app: std::sync::Arc<crate::helper::lib::AppState>,
     rtdb: FirebaseRtdb,
@@ -193,7 +185,6 @@ async fn run_rerun_under_lease(
     target_uid: &str,
     job_key: &str,
     job_id: &str,
-    stage: u8,
     target_stage: StageId,
     job: crate::helper::lib::Job,
 ) -> Result<usize, AppError> {
@@ -245,7 +236,9 @@ async fn run_rerun_under_lease(
     let input_keys = target_stage.spec().build_input_keys(job_id);
 
     let mut extra = HashMap::new();
-    if stage == 1 {
+    // Video-edit flags only apply when re-running from the stage that
+    // reads the raw upload folder (i.e. media-conversion).
+    if target_stage == StageId::new("media-conversion") {
         if let Some(ref video_edit) = job.video_edit {
             if let Ok(val) = serde_json::to_value(video_edit) {
                 extra.insert("video_edit".to_string(), val);
@@ -279,7 +272,7 @@ async fn run_rerun_under_lease(
     info!("pushed job to target stage queue");
 
     // ── 8. Update user-visible job status to Processing for this stage
-    let status = JobStatus::processing(stage);
+    let status = JobStatus::processing(target_stage);
     app.db
         .lock()
         .await

@@ -270,7 +270,7 @@ pub struct FinalizeQueueItem {
 
     /// If failed, which stage failed (1-6)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub failed_at_stage: Option<u8>,
+    pub failed_at_stage: Option<StageId>,
 
     /// Error message if failed
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -331,7 +331,7 @@ impl FinalizeQueueItem {
     pub fn failure(
         job_id: String,
         user_id: String,
-        failed_at_stage: u8,
+        failed_at_stage: StageId,
         error: String,
         error_logs: Option<String>,
         metadata: JobMetadata,
@@ -477,8 +477,8 @@ pub struct EmailNotificationMarker {
 /// succeeded and what the output keys are, then handles stage transitions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobResult {
-    /// Which stage produced this result (1-7).
-    pub stage: u8,
+    /// Which stage produced this result.
+    pub stage: StageId,
     /// Whether processing succeeded.
     pub success: bool,
     /// Output storage keys (empty on failure).

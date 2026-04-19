@@ -5,7 +5,7 @@ import type { Sex } from "./Sex";
 
 /**
  * The job struct, which contains the job
- * 
+ *
  * # Fields
  * * `age` - The age of the patient
  * * `ethnicity` - The ethnicity of the patient
@@ -28,16 +28,18 @@ requires_approval: boolean,
  */
 approved: boolean, 
 /**
- * Per-stage logs collected during processing.
- * Keys are "stage_1" through "stage_7", values are the log text.
+ * Per-stage logs collected during processing. Keys are stage registry
+ * keys (e.g. "media-conversion", "validity-check"); values are the
+ * log text.
  */
 stage_logs: { [key in string]: string }, 
 /**
- * Per-stage statuses tracking individual stage progress.
- * Keys are "stage_1" through "stage_7", values are the stage status.
+ * Per-stage statuses tracking individual stage progress. Keys are
+ * stage registry keys; values are the `StageStatus`.
  */
 stage_statuses: Record<string, StageStatus>, 
 /**
- * Video editing flags (rotation, trim, crop) to apply on the next Stage 1 run.
+ * Video editing flags (rotation, trim, crop) to apply on the next
+ * media-conversion run.
  */
 video_edit?: { front?: { rotation?: number, trim_start?: number, trim_end?: number, crop_x?: number, crop_y?: number, crop_width?: number, crop_height?: number }, side?: { rotation?: number, trim_start?: number, trim_end?: number, crop_x?: number, crop_y?: number, crop_width?: number, crop_height?: number } }, };

@@ -248,7 +248,7 @@ impl FinalizeStageWorker {
 
         // Mark the finalize stage as running on entry.
         let finalize_id = StageId::new("finalize");
-        self.update_job_status(&job.job_id, JobStatus::processing(finalize_id.position())).await;
+        self.update_job_status(&job.job_id, JobStatus::processing(finalize_id)).await;
         self.update_stage_status(&job.job_id, finalize_id, StageStatus::Running).await;
 
         // Check for prediction.json in S3 - this is the source of truth

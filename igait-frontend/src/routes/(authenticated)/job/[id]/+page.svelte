@@ -193,8 +193,10 @@
 				return 'Analysis completed';
 			case 'Error':
 				return 'Analysis failed';
-			case 'Processing':
-				return `Stage ${status.stage}/${status.num_stages}`;
+			case 'Processing': {
+				const spec = stages.find((s) => s.key === status.stage);
+				return spec ? `Processing: ${spec.display_name}` : `Processing: ${status.stage}`;
+			}
 			case 'Submitted':
 				return 'Submitted';
 		}
@@ -257,7 +259,7 @@
 		rerunError = null;
 
 		try {
-			const result = await rerunJob(jobId, activeStageNumber);
+			const result = await rerunJob(jobId, activeStage!.key);
 
 			if (result.isOk()) {
 				rerunSuccess = result.value.message;

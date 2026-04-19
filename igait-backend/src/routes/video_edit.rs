@@ -227,7 +227,7 @@ pub async fn video_edit_entrypoint(
         .context("Failed to push job to Stage 1 queue")?;
 
     // ── 9. Update job status ────────────────────────────────────────
-    let status = JobStatus::processing(1);
+    let status = JobStatus::processing(StageId::new("media-conversion"));
     app.db
         .lock()
         .await

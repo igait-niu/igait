@@ -2,7 +2,7 @@
 
 /**
  * Sex options for job submission.
- * 
+ *
  * # Variants
  * * `M` - Male
  * * `F` - Female

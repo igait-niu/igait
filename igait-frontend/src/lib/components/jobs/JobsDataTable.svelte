@@ -7,6 +7,7 @@
 	import JobsDataTableToolbar from './JobsDataTableToolbar.svelte';
 	import type { Job } from '../../../types/Job';
 	import type { JobStatus } from '../../../types/JobStatus';
+	import { registryStore, isRegistryLoaded } from '$lib/stores';
 
 	type JobWithId = Job & { id: string };
 
@@ -86,11 +87,15 @@
 				};
 			case 'Error':
 				return { label: 'Error', variant: 'destructive' as const };
-			case 'Processing':
+			case 'Processing': {
+				const registryState = registryStore.state;
+				const stages = isRegistryLoaded(registryState) ? registryState.stages : [];
+				const spec = stages.find((s) => s.key === status.stage);
 				return {
-					label: `Stage ${status.stage}/${status.num_stages}`,
+					label: spec?.display_name ?? status.stage,
 					variant: 'secondary' as const
 				};
+			}
 			case 'Submitted':
 			default:
 				return { label: 'Submitted', variant: 'outline' as const };

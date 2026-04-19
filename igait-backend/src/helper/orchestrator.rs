@@ -188,11 +188,11 @@ impl Orchestrator {
             let env_var = stage_image_env_var(*stage);
             match std::env::var(&env_var) {
                 Ok(image) => {
-                    info!("Stage {} image: {}", stage.position(), image);
+                    info!("Image for {}: {}", stage, image);
                     stage_images.insert(*stage, image);
                 }
                 Err(_) => {
-                    warn!("Missing {} env var — stage {} Jobs cannot be created", env_var, stage.position());
+                    warn!("Missing {} env var — {} Jobs cannot be created", env_var, stage);
                 }
             }
         }
@@ -220,10 +220,10 @@ impl Orchestrator {
     }
 
     /// Creates a K8s Job for a standard processing stage (1-6).
-    #[instrument(skip_all, fields(stage = stage.position(), job_id = %job.job_id, epoch = job.epoch))]
+    #[instrument(skip_all, fields(stage = %stage, job_id = %job.job_id, epoch = job.epoch))]
     async fn create_stage_job(&self, stage: StageId, job: &QueueItem) -> Result<String> {
         let image = self.stage_images.get(&stage)
-            .ok_or_else(|| anyhow::anyhow!("No image configured for stage {}", stage.position()))?;
+            .ok_or_else(|| anyhow::anyhow!("No image configured for {}", stage))?;
 
         let payload = serde_json::to_string(job)
             .context("Failed to serialize QueueItem")?;
@@ -248,13 +248,13 @@ impl Orchestrator {
         jobs_api.create(&PostParams::default(), &k8s_job).await
             .context(format!("Failed to create K8s Job {}", job_name))?;
 
-        info!("Created K8s Job {} for stage {} job {} (job_epoch={})",
-            job_name, stage.position(), job.job_id, job_epoch);
+        info!("Created K8s Job {} for {} job {} (job_epoch={})",
+            job_name, stage, job.job_id, job_epoch);
         Ok(job_name)
     }
 
-    /// Creates a K8s Job for the finalize stage (stage 7).
-    #[instrument(skip_all, fields(stage = 7, job_id = %job.job_id))]
+    /// Creates a K8s Job for the finalize (terminal) stage.
+    #[instrument(skip_all, fields(stage = "finalize", job_id = %job.job_id))]
     async fn create_finalize_job(&self, job: &FinalizeQueueItem) -> Result<String> {
         let stage = StageId::new("finalize");
         let image = self.stage_images.get(&stage)
@@ -391,7 +391,7 @@ impl Orchestrator {
             .to_lowercase()
             .replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "-");
         let random = format!("{:05x}", rand::random::<u32>() & 0xFFFFF);
-        let prefix = format!("igait-s{}-", stage.position());
+        let prefix = format!("igait-{}-", stage.key());
         // Leave room for prefix + random suffix + separating dash
         let max_id_len = 63 - prefix.len() - random.len() - 1;
         let truncated_id = if sanitized.len() > max_id_len {
@@ -403,7 +403,7 @@ impl Orchestrator {
     }
 
     /// Attempts to claim and dispatch a job for a standard stage (1-6).
-    #[instrument(skip(self), fields(stage = stage.position(), orchestrator_id = %self.orchestrator_id))]
+    #[instrument(skip(self), fields(stage = %stage, orchestrator_id = %self.orchestrator_id))]
     async fn poll_and_dispatch_stage(&self, stage: StageId) -> Result<bool> {
         let queue_ops = QueueOps::new(self.rtdb.clone(), "orchestrator".to_string());
 
@@ -411,12 +411,12 @@ impl Orchestrator {
             ClaimResult::Claimed(job) => job,
             ClaimResult::QueueEmpty | ClaimResult::AllClaimed => return Ok(false),
             ClaimResult::Error(e) => {
-                error!("Failed to claim job for stage {}: {}", stage.position(), e);
+                error!("Failed to claim job for {}: {}", stage, e);
                 return Ok(false);
             }
         };
 
-        info!("Claimed job {} for stage {}", job.job_id, stage.position());
+        info!("Claimed job {} for {}", job.job_id, stage);
 
         // Track as in-flight
         self.in_flight.write().await.insert(job.job_id.clone(), stage);
@@ -523,13 +523,7 @@ impl Orchestrator {
             };
 
             let job_id = &result.job_id;
-            let Some(stage) = StageId::from_position(result.stage) else {
-                error!("Invalid stage number {} in job result for {}", result.stage, job_id);
-                if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
-                    warn!("Failed to delete malformed job_result {}: {}", safe_job_id, e);
-                }
-                continue;
-            };
+            let stage = result.stage;
 
             let (user_id, job_key) = match QueueOps::parse_job_id(job_id) {
                 Ok(parsed) => parsed,
@@ -541,13 +535,12 @@ impl Orchestrator {
                     continue;
                 }
             };
-            let stage_num = stage.position();
 
             let live_epoch = self.current_job_epoch(job_id).await;
             if result.job_epoch < live_epoch {
                 warn!(
-                    "Discarding stale JobResult for {} stage {} (result_epoch={} live_epoch={})",
-                    job_id, stage_num, result.job_epoch, live_epoch
+                    "Discarding stale JobResult for {} {} (result_epoch={} live_epoch={})",
+                    job_id, stage, result.job_epoch, live_epoch
                 );
                 if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
                     warn!("Failed to delete stale job_result {}: {}", safe_job_id, e);
@@ -557,7 +550,7 @@ impl Orchestrator {
             }
 
             if let Err(e) = self
-                .apply_completion_transition(&result, stage, &user_id, &job_key, stage_num)
+                .apply_completion_transition(&result, stage, &user_id, &job_key)
                 .await
             {
                 error!("Failed to apply completion transition for {}: {:?}", job_id, e);
@@ -586,7 +579,7 @@ impl Orchestrator {
     /// the "queue advanced but status stayed Running" class of stale-state bug.
     #[instrument(skip_all, fields(
         job_id = %result.job_id,
-        stage = stage_num,
+        stage = %stage,
         epoch = result.job_epoch,
         success = result.success,
     ))]
@@ -596,13 +589,12 @@ impl Orchestrator {
         stage: StageId,
         user_id: &str,
         job_key: &str,
-        stage_num: u8,
     ) -> Result<()> {
         let job_id = &result.job_id;
         let mut updates: HashMap<String, serde_json::Value> = HashMap::new();
 
         if result.success {
-            info!("Job {} stage {} completed successfully", job_id, stage_num);
+            info!("Job {} {} completed successfully", job_id, stage);
 
             updates.insert(
                 stage_status_path(user_id, job_key, stage),
@@ -670,7 +662,7 @@ impl Orchestrator {
                 .error
                 .clone()
                 .unwrap_or_else(|| "Unknown error".to_string());
-            warn!("Job {} stage {} failed: {}", job_id, stage_num, error_msg);
+            warn!("Job {} {} failed: {}", job_id, stage, error_msg);
 
             updates.insert(
                 stage_status_path(user_id, job_key, stage),
@@ -695,7 +687,7 @@ impl Orchestrator {
                 let finalize_item = FinalizeQueueItem::failure(
                     result.job_id.clone(),
                     result.user_id.clone(),
-                    stage_num,
+                    stage,
                     error_msg,
                     Some(result.logs.clone()),
                     result.metadata.clone(),
@@ -840,7 +832,7 @@ impl Orchestrator {
                         let logs_text = format!("{} pod {} without writing a result", stage, reason);
 
                         let failure_result = JobResult {
-                            stage: stage.position(),
+                            stage,
                             success: false,
                             output_keys: HashMap::new(),
                             error: Some(error_text.clone()),
@@ -929,7 +921,7 @@ pub async fn orchestration_loop(orchestrator: Arc<Orchestrator>) {
                 }
                 Ok(false) => {}
                 Err(e) => {
-                    error!("Orchestrator error for stage {}: {:?}", stage.position(), e);
+                    error!("Orchestrator error for {}: {:?}", stage, e);
                 }
             }
         }

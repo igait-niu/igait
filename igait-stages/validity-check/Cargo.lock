@@ -1474,18 +1474,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "igait-stage2-validity-check"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "igait-lib",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "indexmap"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2746,6 +2734,18 @@ checksum = "a68d3c8f01c0cfa54a75291d83601161799e4a89a39e0929f4b0354d88757a37"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "validity-check"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "igait-lib",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

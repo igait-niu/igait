@@ -1474,16 +1474,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "igait-stage3-reframing"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "igait-lib",
- "tokio",
-]
-
-[[package]]
 name = "indexmap"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1917,6 +1907,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "reframing"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "igait-lib",
+ "tokio",
 ]
 
 [[package]]

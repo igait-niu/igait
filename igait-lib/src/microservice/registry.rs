@@ -229,12 +229,15 @@ impl StageSpec {
 /// Runtime-validated stage identifier. Wraps a `&'static str` that
 /// must reference a key in [`STAGES`].
 ///
-/// Constructed either by string literal via [`StageId::new`] (no
-/// runtime validation — the caller must pass a registered key) or
-/// via [`StageId::try_new`] / [`StageId::from_position`] which
-/// return `None` for unknown keys. Invalid ids only surface when
-/// [`StageId::spec`] is called; the registry invariant tests ensure
-/// every declared id in this repo is valid.
+/// Constructed by string literal via [`StageId::new`] (no runtime
+/// validation — the caller must pass a registered key) or via
+/// [`StageId::try_new`] which returns `None` for unknown keys.
+/// Invalid ids only surface when [`StageId::spec`] is called; the
+/// registry invariant tests ensure every declared id in this repo
+/// is valid.
+///
+/// There is deliberately no conversion to or from a numeric stage
+/// index. The pipeline's identity is the key, end of story.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StageId(&'static str);
 
@@ -252,11 +255,6 @@ impl StageId {
         stage_by_key(key).map(|s| Self(s.key))
     }
 
-    /// Create from a 1-indexed position (`1..=STAGES.len()`).
-    pub fn from_position(n: u8) -> Option<Self> {
-        stage_by_index(n.saturating_sub(1) as usize).map(|s| Self(s.key))
-    }
-
     /// The registry key.
     pub const fn key(&self) -> &'static str {
         self.0
@@ -267,17 +265,10 @@ impl StageId {
     /// # Panics
     ///
     /// Panics if the key is not registered. Use [`StageId::try_new`]
-    /// / [`StageId::from_position`] for fallible construction.
+    /// for fallible construction.
     pub fn spec(&self) -> &'static StageSpec {
         stage_by_key(self.0)
             .unwrap_or_else(|| panic!("StageId holds unregistered key: {:?}", self.0))
-    }
-
-    /// 1-indexed position of this stage in [`STAGES`].
-    pub fn position(&self) -> u8 {
-        (stage_index_of(self.0)
-            .unwrap_or_else(|| panic!("StageId holds unregistered key: {:?}", self.0)) as u8)
-            + 1
     }
 
     /// True if this is the terminal stage.

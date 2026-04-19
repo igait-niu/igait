@@ -564,7 +564,7 @@ impl QueueOps {
         let finalize_item = FinalizeQueueItem::failure(
             job.job_id.clone(),
             job.user_id.clone(),
-            current_stage.position(),
+            current_stage,
             error,
             error_logs,
             job.metadata.clone(),
@@ -963,10 +963,9 @@ impl<W: StageWorker> WorkerRunner<W> {
     pub async fn run(&self) -> Result<()> {
         let stage = self.worker.stage();
         println!(
-            "[{}] Starting worker {} for stage {} ({})",
+            "[{}] Starting worker for {} ({})",
             self.worker_id,
-            self.worker.service_name(),
-            stage.position(),
+            stage,
             stage.name()
         );
 
@@ -1042,8 +1041,7 @@ impl<W: StageWorker> WorkerRunner<W> {
         );
         
         // Update job status to "Processing" and stage status to "Running" in RTDB
-        let stage_num = stage.position();
-        self.update_job_status(&job.job_id, JobStatus::processing(stage_num)).await;
+        self.update_job_status(&job.job_id, JobStatus::processing(stage)).await;
         self.update_stage_status(&job.job_id, stage, StageStatus::Running).await;
 
         let heartbeat_db = self.queue_ops.db.clone();
@@ -1310,12 +1308,10 @@ macro_rules! stage_worker_main {
 /// - 1: Fatal error (couldn't read env, connect to RTDB, etc.)
 pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
     let stage = worker.stage();
-    let stage_num = stage.position();
 
     println!(
-        "[job-mode] Starting {} for stage {} ({})",
-        worker.service_name(),
-        stage_num,
+        "[job-mode] Starting {} ({})",
+        stage,
         stage.name()
     );
 
@@ -1336,7 +1332,7 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
     // rather than aborting the stage for a transient write failure.
     if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
         if let Err(e) = queue_ops
-            .update_job_status(&user_id, &job_index, &JobStatus::processing(stage_num))
+            .update_job_status(&user_id, &job_index, &JobStatus::processing(stage))
             .await
         {
             eprintln!(
@@ -1367,7 +1363,7 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
             println!("[job-mode] Job {} completed successfully in {}ms", job.job_id, duration_ms);
 
             JobResult {
-                stage: stage_num,
+                stage,
                 success: true,
                 output_keys: output_keys.clone(),
                 error: None,
@@ -1389,7 +1385,7 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
             eprintln!("[job-mode] Job {} failed after {}ms: {}", job.job_id, duration_ms, error);
 
             JobResult {
-                stage: stage_num,
+                stage,
                 success: false,
                 output_keys: HashMap::new(),
                 error: Some(error.clone()),

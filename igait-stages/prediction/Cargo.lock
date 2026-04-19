@@ -1474,17 +1474,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "igait-stage6-prediction"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "igait-lib",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "indexmap"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1839,6 +1828,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
+]
+
+[[package]]
+name = "prediction"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "igait-lib",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -769,6 +769,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cycle-detection"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "igait-lib",
+ "tokio",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1471,16 +1481,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tower-http 0.5.2",
-]
-
-[[package]]
-name = "igait-stage5-cycle-detection"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "igait-lib",
- "tokio",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@
 
 /**
  * Ethnicity options for job submission.
- * 
+ *
  * # Variants
  * * `AfricanAmerican` - African American/Black
  * * `NativeAmerican` - Native American/American Indian

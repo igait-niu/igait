@@ -317,10 +317,10 @@
 			await Promise.all(saves);
 			hasChanges = false;
 
-			// Trigger re-run from stage 6 (ML Prediction)
-			const rerunResult = await rerunJob(jobId, 6);
+			// Trigger re-run from the prediction stage.
+			const rerunResult = await rerunJob(jobId, 'prediction');
 			if (rerunResult.isOk()) {
-				toast.success('Cycles saved — re-running from Stage 6!');
+				toast.success('Cycles saved — re-running from Prediction!');
 				onclose();
 			} else {
 				toast.error(`Cycles saved, but re-run failed: ${rerunResult.error.rootCause}`);

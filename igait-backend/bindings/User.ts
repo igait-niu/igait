@@ -9,4 +9,4 @@ import type { Job } from "./Job";
  * * `jobs` - The list of jobs
  * * `administrator` - Whether the user has administrator privileges
  */
-export type User = { uid: string, jobs: Array<Job>, administrator: boolean, };
+export type User = { uid: string, jobs: { [key in string]: Job }, administrator: boolean, };

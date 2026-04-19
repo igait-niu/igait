@@ -115,8 +115,8 @@ pub struct FirestoreJob {
     /// Overall job status
     pub status: FirestoreJobStatus,
     
-    /// Current stage number (0 = uploaded, 1-7 = processing that stage)
-    pub current_stage: u8,
+    /// Current stage id (None = still in upload / not yet claimed by a stage).
+    pub current_stage: Option<super::registry::StageId>,
     
     /// Per-stage results
     pub stages: HashMap<String, FirestoreStageResult>,
