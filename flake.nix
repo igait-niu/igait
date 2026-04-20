@@ -55,9 +55,6 @@
                     ''
                     git submodule init
                     git submodule update
-                    python -m venv .venv
-                    source .venv/bin/activate
-                    pip install -r ./igait-stages/pose-estimation/igait-mediapipe/requirements.txt
                     export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath (buildInputs ++ [ pkgs.stdenv.cc.cc ])}
                     '';
 
