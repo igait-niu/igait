@@ -111,7 +111,7 @@ spec:
         - name: STAGE_POSE_ESTIMATION_IMAGE
           value: ghcr.io/igait-niu/igait/pose-estimation:sha-8a71bfc
         - name: STAGE_CYCLE_DETECTION_IMAGE
-          value: ghcr.io/igait-niu/igait/cycle-detection:sha-8a71bfc
+          value: ghcr.io/igait-niu/igait/cycle-detection:sha-c0e9a0a
         - name: STAGE_PREDICTION_IMAGE
           value: ghcr.io/igait-niu/igait/prediction:sha-c0e9a0a
         - name: STAGE_FINALIZE_IMAGE
