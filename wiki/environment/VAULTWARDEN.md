@@ -151,6 +151,55 @@ kubectl patch secret igait-secrets -n igait --type=json -p='[
 ]'
 ```
 
+## Migrating Keys in Prod (Add→Restart→Verify→Delete)
+
+When Phase-1-style work adds, renames, or removes keys in `igait-secrets`, apply
+the changes in a specific order to avoid crashloops. The principle: **the
+Secret must be a superset of what every running pod needs at every moment.**
+
+1. **Add** all new keys first. If you're renaming, copy the old value into the
+   new key — don't move it.
+2. **Rollout-restart** `igait-backend` (and any other consumers) so pods pick
+   up the new keys.
+3. **Verify** pods reach `Running 1/1` and logs show `Starting iGait backend
+   initialization...` with no `Missing required env vars` error.
+4. **Delete** the obsolete keys only after step 3 succeeds.
+
+If you delete first, the window between "delete" and "next rollout" is a
+crashloop waiting to happen — pods restarting for any reason (node drain, OOM,
+ArgoCD sync) will fail `check_env`.
+
+```bash
+# ssh root@ai-leads first
+
+# Step 1 — add new keys. printf %s avoids trailing newline in base64.
+kubectl patch secret igait-secrets -n igait --type=json -p='[
+  {"op":"add","path":"/data/NEW_VAR","value":"'"$(printf %s "$NEW_VALUE" | base64 -w0)"'"}
+]'
+
+# For renames — copy the existing base64 value server-side (no re-encoding risk):
+OLD_B64=$(kubectl -n igait get secret igait-secrets -o jsonpath='{.data.OLD_NAME}')
+kubectl patch secret igait-secrets -n igait --type=json -p="[
+  {\"op\":\"add\",\"path\":\"/data/NEW_NAME\",\"value\":\"$OLD_B64\"}
+]"
+
+# Step 2 — rollout
+kubectl rollout restart deployment/igait-backend -n igait
+kubectl rollout status deployment/igait-backend -n igait --timeout=3m
+
+# Step 3 — verify
+kubectl logs -n igait -l app=igait-backend --tail=30 | grep -E 'Missing|Starting'
+
+# Step 4 — drop obsolete
+kubectl patch secret igait-secrets -n igait --type=json -p='[
+  {"op":"remove","path":"/data/OLD_NAME"}
+]'
+```
+
+Stage Jobs don't need an explicit restart — they re-read the Secret on every
+new Job spawn via `envFrom`. Only long-lived Deployments (backend) need the
+rollout step.
+
 ## Troubleshooting
 
 | Symptom | Fix |
