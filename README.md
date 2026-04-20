@@ -42,17 +42,26 @@ git clone --recurse-submodules https://github.com/igait-niu/igait.git
 cd igait
 ```
 
-Then, download the `.envrc` and `gcp-key.json` files from "iGait Credentials/Monorepo" in Onedrive. Place `.envrc` in the project root, and `gcp-key.json` at `credentials/gcp-key.json`.
+Then, set up access to secrets. We use [Vaultwarden](https://vault.igaitapp.com) — no more shared dotfiles on OneDrive. Ask @hiibolt for an invite to the `igait-niu` organization if you don't already have one.
 
-If you've correctly hooked your shell with `direnv`, you should see the following:
 ```bash
-direnv: error /home/hiibolt/igait/.envrc is blocked. Run `direnv allow` to approve its content
+# One-time setup on this machine:
+bw config server https://vault.igaitapp.com
+bw login                           # interactive: Vaultwarden email + master password + 2FA
+
+# Every shell (or add to your shell rc for persistence):
+export BW_SESSION=$(bw unlock --raw)
+```
+
+You also need the GCP service-account key. Until that's migrated to Vaultwarden in a later phase, grab `gcp-key.json` from "iGait Credentials/Monorepo" in OneDrive and drop it at `credentials/gcp-key.json`.
+
+If `direnv` is hooked into your shell, entering the repo prints:
+```bash
+direnv: error /home/you/igait/.envrc is blocked. Run `direnv allow` to approve its content
 ```
 ...if not, go back and ensure you installed/hooked correctly.
 
-If you're using WSL2, you may need to normalize `.envrc` from CRLF to LF format. This can be done by selecting the file in Visual Studio Code, clicking the "CRLF" button in the footer panel, and selecting LF instead.
-
-Next, run `direnv allow` as it suggests, and it should automatically download all dependencies, and load all environment variables. Neat, right?
+Run `direnv allow`. The tracked `.envrc` calls `bw get item igait/dev-env` and exports every custom field on that item as an env var in your shell. When another engineer rotates a secret in Vaultwarden, you pick it up on the next shell reload (or explicitly with `bw sync && direnv reload`).
 
 **Optional**:
 I strongly recommend using [Visual Studio Code](https://code.visualstudio.com/) with the Svelte and `rust-analyzer` extensions! 

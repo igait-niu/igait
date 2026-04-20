@@ -4,7 +4,7 @@ output/*
 
 # Ignore environment/testing things
 .env
-.envrc
+.envrc.local.backup
 batch_process.pbs
 !Cargo.toml
 firebase-debug.log

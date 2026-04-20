@@ -43,12 +43,18 @@
                     bun
                     nodejs
 
+                    # Secret fetch for .envrc (pulls igait/dev-env from Vaultwarden)
+                    bitwarden-cli
+                    jq
+
                     # Useful for microservices development
                     ffmpeg  # media-conversion, pose-estimation
                     python  # pose-estimation, cycle-detection, prediction
                 ];
                 shellHook =
                     ''
+                    git submodule init
+                    git submodule update
                     python -m venv .venv
                     source .venv/bin/activate
                     pip install -r ./igait-stages/pose-estimation/igait-mediapipe/requirements.txt
