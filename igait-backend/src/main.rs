@@ -14,6 +14,7 @@ use axum::{
 use dotenv::dotenv;
 use helper::lib::{AppState, AppStatePtr};
 use helper::orchestrator::{self, Orchestrator};
+use igait_lib::microservice::{check_env, BACKEND_REQUIRED_ENV};
 use std::sync::Arc;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -41,6 +42,10 @@ async fn main() -> Result<()> {
 
     // Enable loading on WSL
     dotenv().ok();
+
+    // Fail loudly if any required env var is missing — catches misconfiguration
+    // before we start opening clients that would fail one-by-one.
+    check_env(BACKEND_REQUIRED_ENV)?;
 
     // Initialize tracing subscriber with environment filter
     tracing_subscriber::registry()
