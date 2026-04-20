@@ -2,7 +2,11 @@
  * API configuration and base URL
  */
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api.igaitapp.com/api/v1';
+const apiBase = import.meta.env.VITE_API_BASE_URL;
+if (!apiBase) {
+	throw new Error('VITE_API_BASE_URL must be set at build time');
+}
+export const API_BASE_URL: string = apiBase;
 
 export const API_ENDPOINTS = {
 	contribute: `${API_BASE_URL}/contribute`,

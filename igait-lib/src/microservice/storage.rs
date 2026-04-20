@@ -24,17 +24,17 @@ pub struct StorageConfig {
 
 impl StorageConfig {
     /// Creates a new StorageConfig from environment variables.
-    /// 
+    ///
     /// Reads:
-    /// - `AWS_S3_BUCKET` (defaults to "igait-storage")
-    /// - `AWS_REGION` (defaults to "us-east-2")
+    /// - `IGAIT_S3_BUCKET` — S3 bucket name (required)
+    /// - `AWS_REGION` — AWS region (required; also read by the AWS SDK)
     pub fn from_env() -> Result<Self> {
-        let bucket = std::env::var("AWS_S3_BUCKET")
-            .unwrap_or_else(|_| "igait-storage".to_string());
-        
+        let bucket = std::env::var("IGAIT_S3_BUCKET")
+            .context("IGAIT_S3_BUCKET must be set")?;
+
         let region = std::env::var("AWS_REGION")
-            .unwrap_or_else(|_| "us-east-2".to_string());
-        
+            .context("AWS_REGION must be set")?;
+
         Ok(Self { bucket, region })
     }
 

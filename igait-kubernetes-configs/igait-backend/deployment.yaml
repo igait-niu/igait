@@ -29,21 +29,21 @@ spec:
         - containerPort: 3000
           protocol: TCP
         env:
+        # Per-service runtime config (not a shared secret)
         - name: PORT
-          valueFrom:
-            secretKeyRef:
-              name: igait-secrets
-              key: PORT
+          value: "3000"
         - name: RUST_LOG
-          valueFrom:
-            secretKeyRef:
-              name: igait-secrets
-              key: RUST_LOG
+          value: "info"
         - name: GOOGLE_APPLICATION_CREDENTIALS
           valueFrom:
             secretKeyRef:
               name: igait-secrets
               key: GOOGLE_APPLICATION_CREDENTIALS
+        - name: FIREBASE_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: FIREBASE_PROJECT_ID
         - name: FIREBASE_ACCESS_KEY
           valueFrom:
             secretKeyRef:
@@ -54,11 +54,21 @@ spec:
             secretKeyRef:
               name: igait-secrets
               key: FIREBASE_RTDB_URL
-        - name: AWS_S3_BUCKET
+        - name: IGAIT_S3_BUCKET
           valueFrom:
             secretKeyRef:
               name: igait-secrets
-              key: AWS_S3_BUCKET
+              key: IGAIT_S3_BUCKET
+        - name: SES_FROM_ADDRESS
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: SES_FROM_ADDRESS
+        - name: SES_FROM_IDENTITY_ARN
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: SES_FROM_IDENTITY_ARN
         - name: AWS_REGION
           valueFrom:
             secretKeyRef:
