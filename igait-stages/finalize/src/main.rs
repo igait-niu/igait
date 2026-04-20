@@ -9,8 +9,9 @@
 
 use anyhow::{Context, Result};
 use igait_lib::microservice::{
-    EmailClient, EmailTemplates, FinalizeQueueItem, JobResult, ProcessingResult, StageId,
-    StorageClient, JobStatus, StageStatus, QueueOps, FirebaseRtdb, job_result_path,
+    check_env, EmailClient, EmailTemplates, FinalizeQueueItem, JobResult, ProcessingResult,
+    StageId, StorageClient, JobStatus, StageStatus, QueueOps, FirebaseRtdb, job_result_path,
+    FINALIZE_REQUIRED_ENV, STAGE_REQUIRED_ENV,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -318,6 +319,12 @@ impl FinalizeStageWorker {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let required: Vec<&str> = STAGE_REQUIRED_ENV
+        .iter()
+        .chain(FINALIZE_REQUIRED_ENV.iter())
+        .copied()
+        .collect();
+    check_env(&required)?;
     run_finalize_job_mode().await
 }
 

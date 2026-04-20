@@ -61,9 +61,7 @@ impl FirebaseRtdb {
     /// - `FIREBASE_ACCESS_KEY`: The auth token
     pub fn from_env() -> Result<Self> {
         let base_url = std::env::var("FIREBASE_RTDB_URL")
-            .or_else(|_| Ok::<_, std::env::VarError>(
-                "https://network-technology-project-default-rtdb.firebaseio.com".to_string()
-            ))?;
+            .context("FIREBASE_RTDB_URL must be set")?;
         let auth_token = std::env::var("FIREBASE_ACCESS_KEY")
             .context("Missing FIREBASE_ACCESS_KEY environment variable")?;
         

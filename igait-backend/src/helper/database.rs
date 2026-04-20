@@ -34,8 +34,13 @@ impl Database {
     /// * The Firebase access key is the key that allows you to access the Firebase database.
     /// * The Firebase access key should be stored in the system environment as `FIREBASE_ACCESS_KEY`.
     pub async fn init () -> Result<Self> {
+        let url = std::env::var("FIREBASE_RTDB_URL")
+            .context("FIREBASE_RTDB_URL must be set")?;
+        let url = if url.ends_with('/') { url } else { format!("{url}/") };
+        let access_key = std::env::var("FIREBASE_ACCESS_KEY")
+            .context("Missing FIREBASE_ACCESS_KEY! Make sure it's set in your system environment.")?;
         Ok(Self {
-            _state: Firebase::auth("https://network-technology-project-default-rtdb.firebaseio.com/", &std::env::var("FIREBASE_ACCESS_KEY").context("Missing FIREBASE_ACCESS_KEY! Make sure it's set in your system environment.")?)
+            _state: Firebase::auth(&url, &access_key)
                 .map_err(|e| anyhow!("{e:?}"))
                 .context("Couldn't unwrap the URL while trying to initialize the Firebase wrapper class!")?
                 .at("users")

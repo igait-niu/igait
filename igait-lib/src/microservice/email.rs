@@ -32,11 +32,9 @@ impl EmailClient {
         let ses_client = SesClient::new(&config);
 
         let from_address = std::env::var("SES_FROM_ADDRESS")
-            .unwrap_or_else(|_| "noreply@igaitapp.com".to_string());
+            .context("SES_FROM_ADDRESS must be set")?;
         let from_identity_arn = std::env::var("SES_FROM_IDENTITY_ARN")
-            .unwrap_or_else(|_| {
-                "arn:aws:ses:us-east-2:851725269484:identity/noreply@igaitapp.com".to_string()
-            });
+            .context("SES_FROM_IDENTITY_ARN must be set")?;
 
         Ok(Self {
             ses_client: Arc::new(Mutex::new(ses_client)),

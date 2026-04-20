@@ -478,12 +478,15 @@ impl AppState {
     /// * This function is typically called at the start of the application.
     /// * Required environment variables:
     ///   - `GOOGLE_APPLICATION_CREDENTIALS` - Path to GCP service account JSON
+    ///   - `FIREBASE_PROJECT_ID` - Firebase project identity for token verification
     ///   - `FIREBASE_ACCESS_KEY` - Firebase RTDB access key
     ///   - `OPENAI_ASSISTANT_ID` - OpenAI assistant ID
     ///   - AWS credentials for SES
     pub async fn new() -> Result<Self> {
         let client = Client::new();
-        let firebase_auth = FirebaseAuth::new("network-technology-project").await;
+        let firebase_project_id = std::env::var("FIREBASE_PROJECT_ID")
+            .context("FIREBASE_PROJECT_ID must be set")?;
+        let firebase_auth = FirebaseAuth::new(&firebase_project_id).await;
 
         // Try to initialize the assistant (optional for upload route)
         let assistant = match std::env::var("OPENAI_ASSISTANT_ID") {

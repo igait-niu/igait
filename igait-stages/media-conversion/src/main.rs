@@ -9,8 +9,8 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use igait_lib::microservice::{
-    run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageId, StageWorker,
-    StorageClient, VideoEditFlags, VideoTransform,
+    check_env, run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageId, StageWorker,
+    StorageClient, VideoEditFlags, VideoTransform, STAGE_REQUIRED_ENV,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -289,6 +289,7 @@ async fn standardize_video(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    check_env(STAGE_REQUIRED_ENV)?;
     if std::env::var("IGAIT_JOB_PAYLOAD").is_ok() {
         run_stage_job(MediaConversionWorker).await
     } else {
