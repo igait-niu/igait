@@ -44,5 +44,8 @@ credentials/
 !**/Cargo.toml
 !**/Cargo.lock
 
+# Local-dev-only scaffolding (Firebase emulator config, fixtures, etc.)
+dev/
+
 # Misc
 .DS_Store

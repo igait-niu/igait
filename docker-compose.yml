@@ -1,0 +1,213 @@
+name: igait
+
+# ────────────────────────────────────────────────────────────────────────────
+# Hermetic local dev stack.
+#
+# Brings up the full iGait pipeline against local cloud-service surrogates —
+# no AWS, no Firebase, no SES. See wiki/local-dev/hermetic-stack.md for the
+# design and wiki/architecture/stage-execution-modes.md for why stages are
+# long-running services here (worker mode) rather than one-shot K8s Jobs.
+#
+# Usage:
+#   direnv allow         # loads OPENAI_* + GCP key from Vaultwarden
+#   docker compose up    # browse http://localhost:4173
+# ────────────────────────────────────────────────────────────────────────────
+
+# Pipeline-wide env: every service (backend + stages) gets these, pointed at
+# the local surrogate services below. Overrides via AWS_ENDPOINT_URL_* are
+# honoured automatically by aws-sdk-rust (BehaviorVersion::latest).
+x-pipeline-env: &pipeline-env
+  # AWS / S3 → MinIO
+  AWS_REGION: us-east-2
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: minioadmin
+  AWS_ENDPOINT_URL_S3: http://minio:9000
+  AWS_ENDPOINT_URL_SESV2: http://ses-mock:8005
+  IGAIT_S3_BUCKET: igait-storage
+  # SES → ses-mock
+  SES_FROM_ADDRESS: noreply@local.test
+  SES_FROM_IDENTITY_ARN: arn:aws:ses:us-east-2:000000000000:identity/local
+  # Firebase → emulator (project id is namespace-scoped via ?ns=)
+  FIREBASE_PROJECT_ID: igait-local
+  FIREBASE_ACCESS_KEY: local-emulator-key
+  FIREBASE_RTDB_URL: http://firebase-emulator:9000/?ns=igait-local
+  # GCP credentials — emulator ignores auth, but the SDK still insists on a
+  # file existing. .envrc recreates this from the igait/dev-env VW item.
+  GOOGLE_APPLICATION_CREDENTIALS: /credentials/gcp-key.json
+  RUST_LOG: info
+
+# Stage services share an identical shape — common build + env + wait-for-deps.
+x-stage-service: &stage-service
+  environment: *pipeline-env
+  volumes:
+    - ./credentials/gcp-key.json:/credentials/gcp-key.json:ro
+  depends_on:
+    firebase-emulator:
+      condition: service_healthy
+    minio-bootstrap:
+      condition: service_completed_successfully
+
+services:
+  # ── Cloud-service surrogates ──────────────────────────────────────────────
+
+  firebase-emulator:
+    image: node:20-alpine
+    working_dir: /app
+    # Install firebase-tools on first boot (cold-start is 30-60s; healthcheck
+    # retries cover it). Future optimisation: bake into a custom image.
+    command: >
+      sh -c "
+        npm install -g firebase-tools &&
+        firebase emulators:start --only database --project igait-local
+      "
+    volumes:
+      - ./dev/firebase/firebase.json:/app/firebase.json:ro
+      - ./dev/firebase/.firebaserc:/app/.firebaserc:ro
+      - ./database.rules.json:/app/database.rules.json:ro
+    ports:
+      - "9000:9000"  # RTDB
+      - "4000:4000"  # Emulator UI
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- 'http://localhost:9000/.json?ns=igait-local' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 24  # ~2min grace for cold-start npm install
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9002:9000"  # S3 API (host port avoids 9000 collision with Firebase)
+      - "9001:9001"  # Console
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+    volumes:
+      - minio-data:/data
+
+  minio-bootstrap:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/igait-storage &&
+        echo 'MinIO bucket ready'
+      "
+
+  ses-mock:
+    image: ghcr.io/domdomegg/aws-ses-v2-local:latest
+    environment:
+      AUTH_MODE: open
+    ports:
+      - "8005:8005"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8005/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+  # ── Application services ──────────────────────────────────────────────────
+
+  backend:
+    build:
+      context: .
+      dockerfile: igait-backend/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      <<: *pipeline-env
+      PORT: "3000"
+      # Deliberately DO NOT set ENABLE_ORCHESTRATOR — compose runs stages in
+      # worker mode instead of having the backend spawn K8s Jobs.
+      # Pass-through: OpenAI is prod-only (no local mock). Set via .envrc.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_ASSISTANT_ID: ${OPENAI_ASSISTANT_ID:-}
+      OPENAI_VECTOR_STORE_ID: ${OPENAI_VECTOR_STORE_ID:-}
+    volumes:
+      - ./credentials/gcp-key.json:/credentials/gcp-key.json:ro
+    depends_on:
+      firebase-emulator:
+        condition: service_healthy
+      minio-bootstrap:
+        condition: service_completed_successfully
+      ses-mock:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./igait-frontend
+      dockerfile: Dockerfile
+      # VITE_* vars are baked in at build time. Browser-facing URLs use
+      # localhost because they resolve from the user's machine, not the
+      # compose network.
+      args:
+        VITE_API_BASE_URL: http://localhost:3000
+        VITE_FIREBASE_PROJECT_ID: igait-local
+        VITE_FIREBASE_DATABASE_URL: http://localhost:9000/?ns=igait-local
+        VITE_FIREBASE_API_KEY: local-emulator-key
+        VITE_FIREBASE_AUTH_DOMAIN: localhost
+        VITE_FIREBASE_STORAGE_BUCKET: igait-local.appspot.com
+        VITE_FIREBASE_MESSAGING_SENDER_ID: "0"
+        VITE_FIREBASE_APP_ID: "1:0:web:local"
+    ports:
+      - "4173:4173"
+    depends_on:
+      backend:
+        condition: service_started
+
+  # ── Pipeline stages (worker mode — long-running, poll RTDB) ───────────────
+  # Each stage is a daemon that polls its queue in Firebase RTDB and processes
+  # jobs one at a time. No IGAIT_JOB_PAYLOAD is set, so main.rs selects
+  # run_stage_worker() rather than run_stage_job().
+
+  media-conversion:
+    <<: *stage-service
+    build:
+      context: .
+      dockerfile: igait-stages/media-conversion/Dockerfile
+
+  pose-estimation:
+    <<: *stage-service
+    build:
+      context: .
+      dockerfile: igait-stages/pose-estimation/Dockerfile
+
+  cycle-detection:
+    <<: *stage-service
+    build:
+      context: .
+      dockerfile: igait-stages/cycle-detection/Dockerfile
+
+  prediction:
+    <<: *stage-service
+    build:
+      context: .
+      dockerfile: igait-stages/prediction/Dockerfile
+
+  finalize:
+    # finalize also needs SES to deliver the result email — override
+    # depends_on to add ses-mock as a health-gated dependency.
+    build:
+      context: .
+      dockerfile: igait-stages/finalize/Dockerfile
+    environment: *pipeline-env
+    volumes:
+      - ./credentials/gcp-key.json:/credentials/gcp-key.json:ro
+    depends_on:
+      firebase-emulator:
+        condition: service_healthy
+      minio-bootstrap:
+        condition: service_completed_successfully
+      ses-mock:
+        condition: service_healthy
+
+volumes:
+  minio-data:
