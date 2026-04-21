@@ -58,7 +58,7 @@ services:
     # Future optimisation: bake both into a custom image.
     command: >
       sh -c "
-        apk add --no-cache openjdk17-jre-headless &&
+        apk add --no-cache openjdk21-jre-headless &&
         npm install -g firebase-tools &&
         firebase emulators:start --only database --project igait-local
       "
