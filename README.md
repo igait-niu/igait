@@ -53,7 +53,11 @@ bw login                           # interactive: Vaultwarden email + master pas
 export BW_SESSION=$(bw unlock --raw)
 ```
 
-You also need the GCP service-account key. Until that's migrated to Vaultwarden in a later phase, grab `gcp-key.json` from "iGait Credentials/Monorepo" in OneDrive and drop it at `credentials/gcp-key.json`.
+The GCP service-account key is now stored in the same `igait/dev-env` Vaultwarden
+item as a custom field named `GCP_KEY_JSON`. `.envrc` writes it to
+`credentials/gcp-key.json` (mode 600) on every shell load — no more manual
+OneDrive fetches. If you're setting this up for the first time and the field
+is missing, `.envrc` will warn you; ask @hiibolt for the payload.
 
 If `direnv` is hooked into your shell, entering the repo prints:
 ```bash
@@ -70,9 +74,44 @@ Additionally, if you choose to use GitHub Copilot, repository context and MCPs a
 
 ### Starting iGait
 
-> The top-level Docker Compose setup has been removed pending a rewrite —
-> bring up services individually during development using the commands
-> below.
+The fastest path to a working stack is the **hermetic local stack** — a single
+`docker compose up` brings the backend, frontend, all 5 pipeline stages, and
+three local cloud-service surrogates online. No AWS, no Firebase project, no
+SES identity required; you can develop on airplane wifi.
+
+```bash
+direnv allow        # loads env + materialises credentials/gcp-key.json
+docker compose up   # first boot: ~5-10min for Rust/Python image builds
+```
+
+When it's up, open:
+
+| Endpoint | URL | Notes |
+|----------|-----|-------|
+| Frontend | http://localhost:4173 | SvelteKit preview build |
+| Backend | http://localhost:3000 | API, direct uploads |
+| Firebase emulator UI | http://localhost:4000 | RTDB tree, queues, job state |
+| MinIO console | http://localhost:9001 | login: `minioadmin` / `minioadmin` |
+| SES mock UI | http://localhost:8005 | captured result emails |
+
+**What's tested end-to-end:** upload → S3 → 5 stage pipeline → result email.
+**What's not tested:** the K8s Jobs orchestrator code path (stages run in
+worker mode here; see `wiki/architecture/stage-execution-modes.md`).
+
+**Low-RAM machines (<16GB):** BuildKit parallelises stage image builds by
+default, which can be rough. Serialise with:
+
+```bash
+COMPOSE_BAKE=true docker compose build --parallel 1
+docker compose up -d
+```
+
+**Cold-start note:** the Firebase emulator's first boot installs
+`firebase-tools` via npm and can take 30-60s — its healthcheck has 24
+retries to accommodate. Subsequent boots are instant.
+
+Troubleshooting and deeper design notes live in
+`wiki/local-dev/hermetic-stack.md`.
 
 ### Working on iGait
 **Backend/Pipeline**:
