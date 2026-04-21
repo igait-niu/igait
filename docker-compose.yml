@@ -147,9 +147,9 @@ services:
     build:
       context: ./igait-frontend
       dockerfile: Dockerfile
-      # VITE_* vars are baked in at build time. Browser-facing URLs use
-      # localhost because they resolve from the user's machine, not the
-      # compose network.
+      # VITE_* vars are baked into the bundle at build time. Browser-facing
+      # URLs use localhost because they resolve from the user's machine,
+      # not the compose network.
       args:
         VITE_API_BASE_URL: http://localhost:3000
         VITE_FIREBASE_PROJECT_ID: igait-local
@@ -159,6 +159,11 @@ services:
         VITE_FIREBASE_STORAGE_BUCKET: igait-local.appspot.com
         VITE_FIREBASE_MESSAGING_SENDER_ID: "0"
         VITE_FIREBASE_APP_ID: "1:0:web:local"
+    # vite.config.ts is re-evaluated on `bun run preview` and asserts
+    # VITE_API_BASE_URL is present in process.env. Build ARGs don't survive
+    # into the runtime env, so we mirror the one it checks as a service env.
+    environment:
+      VITE_API_BASE_URL: http://localhost:3000
     ports:
       - "4173:4173"
     depends_on:
