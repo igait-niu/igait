@@ -11,6 +11,9 @@ firebase-debug.log
 .venv
 .codegraph
 
+# Secrets materialised by .envrc at shell load (sourced from Vaultwarden)
+credentials/
+
 # Ignore test content
 *.MOV
 *.mov
