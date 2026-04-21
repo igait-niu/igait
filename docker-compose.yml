@@ -53,10 +53,12 @@ services:
   firebase-emulator:
     image: node:20-alpine
     working_dir: /app
-    # Install firebase-tools on first boot (cold-start is 30-60s; healthcheck
-    # retries cover it). Future optimisation: bake into a custom image.
+    # The RTDB emulator is a JVM process — apk-install openjdk alongside
+    # firebase-tools. Cold-start is ~60-90s; healthcheck retries cover it.
+    # Future optimisation: bake both into a custom image.
     command: >
       sh -c "
+        apk add --no-cache openjdk17-jre-headless &&
         npm install -g firebase-tools &&
         firebase emulators:start --only database --project igait-local
       "
@@ -71,7 +73,8 @@ services:
       test: ["CMD-SHELL", "wget -q -O- 'http://localhost:9000/.json?ns=igait-local' || exit 1"]
       interval: 5s
       timeout: 3s
-      retries: 24  # ~2min grace for cold-start npm install
+      retries: 12
+      start_period: 120s  # JRE + firebase-tools install on first cold boot
 
   minio:
     image: minio/minio:latest
@@ -108,11 +111,10 @@ services:
       AUTH_MODE: open
     ports:
       - "8005:8005"
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8005/health"]
-      interval: 5s
-      timeout: 2s
-      retries: 10
+    # No healthcheck: aws-ses-v2-local has no /health route and the image
+    # ships without curl/wget to probe anything else. It boots in seconds,
+    # and the backend won't touch it until the first job reaches finalize
+    # (~15s into a pipeline run), so service_started is a fine gate.
 
   # ── Application services ──────────────────────────────────────────────────
 
@@ -139,7 +141,7 @@ services:
       minio-bootstrap:
         condition: service_completed_successfully
       ses-mock:
-        condition: service_healthy
+        condition: service_started
 
   frontend:
     build:
@@ -207,7 +209,7 @@ services:
       minio-bootstrap:
         condition: service_completed_successfully
       ses-mock:
-        condition: service_healthy
+        condition: service_started
 
 volumes:
   minio-data:
