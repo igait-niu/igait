@@ -11,10 +11,17 @@
 				'Ricardo Torres',
 				'Alicia LaRouech',
 				'Viviana Cortes',
-				'Noelle Veome'
+				'Noelle Veome',
+				'Hope Larson',
+				'Regan Alzueta',
+				'Nico Edwards-Testolin',
+				'Ipsita Priyadarshinee',
+				'Natalie Quinlan',
+				'Harshitha Maartha'
 			],
 			undergrads: [
 				'John White',
+				'Shaivil Patel',
 				'Michael Sensenbrenner',
 				'Luke Ali',
 				'Angelica Sanyal',
