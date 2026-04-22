@@ -32,7 +32,6 @@ aws-sdk-sesv2 = "1"
 chrono-tz = "0.10"
 dotenv = "0.15"
 firebase-auth = { version = "0.5", features = ["axum"] }
-firebase-rs = { git = "https://github.com/hiibolt/firebase-rs.git" }
 futures-util = "0.3"
 rand = "0.8"
 time-util = { version = "0.3", features = ["chrono", "serde"] }

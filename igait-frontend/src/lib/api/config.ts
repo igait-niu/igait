@@ -8,14 +8,16 @@ if (!apiBase) {
 }
 export const API_BASE_URL: string = apiBase;
 
+const V1 = `${API_BASE_URL}/api/v1`;
+
 export const API_ENDPOINTS = {
-	contribute: `${API_BASE_URL}/contribute`,
-	upload: `${API_BASE_URL}/upload`,
-	assistant: `${API_BASE_URL.replace(/^http/, 'ws')}/assistant_proxied`,
-	rerun: `${API_BASE_URL}/rerun`,
-	files: (jobId: string) => `${API_BASE_URL}/files/${jobId}`,
-	cycles: (jobId: string) => `${API_BASE_URL}/cycles/${jobId}`,
-	videoEdit: (jobId: string) => `${API_BASE_URL}/video-edit/${jobId}`
+	contribute: `${V1}/contribute`,
+	upload: `${V1}/upload`,
+	assistant: `${V1.replace(/^http/, 'ws')}/assistant_proxied`,
+	rerun: `${V1}/rerun`,
+	files: (jobId: string) => `${V1}/files/${jobId}`,
+	cycles: (jobId: string) => `${V1}/cycles/${jobId}`,
+	videoEdit: (jobId: string) => `${V1}/video-edit/${jobId}`
 } as const;
 
 /**

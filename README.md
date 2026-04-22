@@ -34,7 +34,7 @@ Please use Linux or [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install
 You'll want to have the following installed on your machine:
 - [Docker](https://www.docker.com/)
 - [Nix](https://nixos.org/download/). Enable [Nix Flakes](https://nixos.wiki/wiki/flakes)
-- [`direnv`](https://direnv.net/), for fast dev environment loading. Be sure to hook your shell!
+- [Claude Code](https://claude.com/claude-code) — the `/igait-environment` slash command materialises `.env` and `credentials/gcp-key.json` from Vaultwarden
 
 First, download this repository (note the submodules!):
 ```bash
@@ -45,27 +45,20 @@ cd igait
 Then, set up access to secrets. We use [Vaultwarden](https://vault.igaitapp.com) — no more shared dotfiles on OneDrive. Ask @hiibolt for an invite to the `igait-niu` organization if you don't already have one.
 
 ```bash
-# One-time setup on this machine:
+# One-time per machine:
 bw config server https://vault.igaitapp.com
-bw login                           # interactive: Vaultwarden email + master password + 2FA
+bw login                           # interactive: email + master password + 2FA
 
-# Every shell (or add to your shell rc for persistence):
+# One-time per shell (or put in your rc — the session token lives here):
 export BW_SESSION=$(bw unlock --raw)
 ```
 
-The GCP service-account key is now stored in the same `igait/dev-env` Vaultwarden
-item as a custom field named `GCP_KEY_JSON`. `.envrc` writes it to
-`credentials/gcp-key.json` (mode 600) on every shell load — no more manual
-OneDrive fetches. If you're setting this up for the first time and the field
-is missing, `.envrc` will warn you; ask @hiibolt for the payload.
+Then, inside this repo, run the Claude Code slash command **`/igait-environment`**. It reads the `igait/dev-env` item and writes two files at repo root:
 
-If `direnv` is hooked into your shell, entering the repo prints:
-```bash
-direnv: error /home/you/igait/.envrc is blocked. Run `direnv allow` to approve its content
-```
-...if not, go back and ensure you installed/hooked correctly.
+- `.env` — every custom field except `GCP_KEY_JSON`, auto-loaded by `docker compose`.
+- `credentials/gcp-key.json` (mode 600) — the GCP service-account JSON the Firebase SDK insists must exist on disk.
 
-Run `direnv allow`. The tracked `.envrc` calls `bw get item igait/dev-env` and exports every custom field on that item as an env var in your shell. When another engineer rotates a secret in Vaultwarden, you pick it up on the next shell reload (or explicitly with `bw sync && direnv reload`).
+Re-run `/igait-environment` whenever a secret is rotated in Vaultwarden. There is no direnv, no watcher — one command, on demand. See `wiki/environment/VAULTWARDEN.md` for the field-editing workflow.
 
 **Optional**:
 I strongly recommend using [Visual Studio Code](https://code.visualstudio.com/) with the Svelte and `rust-analyzer` extensions! 
@@ -80,7 +73,9 @@ three local cloud-service surrogates online. No AWS, no Firebase project, no
 SES identity required; you can develop on airplane wifi.
 
 ```bash
-direnv allow        # loads env + materialises credentials/gcp-key.json
+# (first time, or after a Vaultwarden rotation)
+/igait-environment  # Claude Code slash command — writes .env + credentials/gcp-key.json
+
 docker compose up   # first boot: ~5-10min for Rust/Python image builds
 ```
 

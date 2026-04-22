@@ -9,8 +9,12 @@ In the pursuit of keeping this file lean, all tribal knowledge is encoded in `./
 - **`./wiki/environment/`** — environment variables, secrets, and the Vaultwarden ↔ `igait-secrets` dev/prod dual-update flow.
 - **`./wiki/deployment/`** — prod cluster access (`ssh root@ai-leads`), `kubectl` recipes, rollout ops, agent access scope.
 - **`./wiki/github/`** — GitHub Project board IDs (canonical is project **#2**), field/option ID reference, and `gh` CLI recipes for moving issues through the board.
-- **`./wiki/architecture/`** — cross-cutting design notes. Stage execution modes (worker vs K8s-Jobs) is the big one.
-- **`./wiki/local-dev/`** — hermetic `docker compose` stack, local surrogates for AWS/Firebase/SES, endpoint map.
+- **`./wiki/architecture/`** — cross-cutting design notes. Stage execution modes (worker vs K8s-Jobs), the unified Firebase RTDB client.
+- **`./wiki/local-dev/`** — hermetic `docker compose` stack, local surrogates for AWS/Firebase/SES, load-bearing env vars.
+
+## Slash commands
+
+- **`/igait-environment`** — materialise `.env` + `credentials/gcp-key.json` from Vaultwarden. One-shot; re-run to resync. Replaces the old direnv flow.
 
 
 ## Tips for Success

@@ -5,12 +5,22 @@ two lifecycles. The choice is made at stage-process startup by a single env
 var check in each stage's `main.rs`:
 
 ```rust
+// Processing stages (media-conversion, pose-estimation,
+// cycle-detection, prediction):
 if std::env::var("IGAIT_JOB_PAYLOAD").is_ok() {
     run_stage_job(Worker).await      // one-shot, K8s-Jobs mode
 } else {
     run_stage_worker(Worker).await   // long-running, worker mode
 }
 ```
+
+**Finalize uses a different payload var — `IGAIT_FINALIZE_PAYLOAD` — because
+its queue item type is `FinalizeQueueItem`, not `QueueItem`.** It has its
+own `run_finalize_worker_mode()` in `igait-stages/finalize/src/main.rs`
+rather than reusing `run_stage_worker()`. Same dispatch shape, different
+function. If you touch `run_stage_worker` assuming finalize shares the code
+path, you'll break only the local compose stack — prod keeps working because
+prod only uses job mode.
 
 Both lifecycles call the same `StageWorker::process(&QueueItem)` business
 logic. Only the *surrounding* lifecycle differs.

@@ -22,6 +22,9 @@ x-pipeline-env: &pipeline-env
   AWS_ACCESS_KEY_ID: minioadmin
   AWS_SECRET_ACCESS_KEY: minioadmin
   AWS_ENDPOINT_URL_S3: http://minio:9000
+  # MinIO requires path-style (host/bucket) — virtual-host would try to
+  # resolve `<bucket>.minio` which has no DNS record in the compose network.
+  AWS_S3_FORCE_PATH_STYLE: "true"
   AWS_ENDPOINT_URL_SESV2: http://ses-mock:8005
   IGAIT_S3_BUCKET: igait-storage
   # SES → ses-mock
@@ -31,6 +34,9 @@ x-pipeline-env: &pipeline-env
   FIREBASE_PROJECT_ID: igait-local
   FIREBASE_ACCESS_KEY: local-emulator-key
   FIREBASE_RTDB_URL: http://firebase-emulator:9000/?ns=igait-local
+  # Signals to the `firebase-auth` crate that ID tokens are unsigned
+  # emulator JWTs — skip RS256 verification and just extract claims.
+  FIREBASE_AUTH_EMULATOR_HOST: firebase-emulator:9099
   # GCP credentials — emulator ignores auth, but the SDK still insists on a
   # file existing. .envrc recreates this from the igait/dev-env VW item.
   GOOGLE_APPLICATION_CREDENTIALS: /credentials/gcp-key.json
@@ -134,6 +140,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_ASSISTANT_ID: ${OPENAI_ASSISTANT_ID:-}
       OPENAI_VECTOR_STORE_ID: ${OPENAI_VECTOR_STORE_ID:-}
+      # Let the browser preview build (localhost:4173) through CORS.
+      CORS_ALLOW_ORIGIN: http://localhost:4173
     volumes:
       - ./credentials/gcp-key.json:/credentials/gcp-key.json:ro
     depends_on:

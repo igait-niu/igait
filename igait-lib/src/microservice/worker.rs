@@ -69,8 +69,21 @@ impl FirebaseRtdb {
     }
 
     /// Builds a URL for a given path.
+    ///
+    /// Handles the case where `base_url` already carries a query string —
+    /// e.g. the Firebase emulator requires `?ns=<project>` on every request,
+    /// so `FIREBASE_RTDB_URL=http://host:9000/?ns=igait-local` must still
+    /// produce `http://host:9000/path.json?auth=<token>&ns=igait-local`
+    /// rather than embedding `?ns=` inside the path segment.
     fn url(&self, path: &str) -> String {
-        format!("{}/{}.json?auth={}", self.base_url, path, self.auth_token)
+        let (origin, extra_query) = match self.base_url.split_once('?') {
+            Some((o, q)) => (o.trim_end_matches('/'), Some(q)),
+            None => (self.base_url.as_str(), None),
+        };
+        match extra_query {
+            Some(q) => format!("{}/{}.json?auth={}&{}", origin, path, self.auth_token, q),
+            None => format!("{}/{}.json?auth={}", origin, path, self.auth_token),
+        }
     }
 
     /// Gets data at a path.
