@@ -8,6 +8,7 @@ on:
       - 'igait-lib/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'Dockerfile'
       - '.github/workflows/build-prediction.yml'
   workflow_dispatch:
 
@@ -51,7 +52,8 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./igait-stages/prediction/Dockerfile
+          file: ./Dockerfile
+          target: prediction
           platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

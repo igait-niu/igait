@@ -8,6 +8,7 @@ on:
       - 'igait-lib/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'Dockerfile'
       - '.github/workflows/build-backend.yml'
   workflow_dispatch:
 
@@ -49,7 +50,8 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./igait-backend/Dockerfile
+          file: ./Dockerfile
+          target: backend
           platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

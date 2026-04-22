@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "igait-lib",
+    "igait-backend",
+    "igait-stages/media-conversion",
+    "igait-stages/pose-estimation",
+    "igait-stages/cycle-detection",
+    "igait-stages/prediction",
+    "igait-stages/finalize",
+]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
