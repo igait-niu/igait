@@ -30,11 +30,13 @@ Run `bw status | jq -r '.status'`. Branch on the output:
   ```
   Then re-invoke `/igait-environment`.
 
-- **`locked`** → Stop and tell the user to run:
+- **`locked`** → Stop and tell the user to:
+  - Close Claude
+  - Run:
   ```
-  !export BW_SESSION=$(bw unlock --raw)
+  export BW_SESSION=$(bw unlock --raw)
   ```
-  Then re-invoke `/igait-environment`. (The `!` prefix matters — `bw unlock` must run in their shell, not a child process, so `BW_SESSION` persists.)
+  - Reload Claude and invoke `/igait-environment`
 
 - **`unlocked`** → Continue.
 
