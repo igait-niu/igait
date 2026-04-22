@@ -9,10 +9,11 @@
 
 use anyhow::{Context, Result};
 use igait_lib::microservice::{
-    check_env, EmailClient, EmailTemplates, FinalizeQueueItem, JobResult, ProcessingResult,
-    StageId, StorageClient, JobStatus, StageStatus, QueueOps, FirebaseRtdb, job_result_path,
-    FINALIZE_REQUIRED_ENV, STAGE_REQUIRED_ENV,
+    check_env, ClaimResult, EmailClient, EmailTemplates, FinalizeQueueItem, JobResult,
+    ProcessingResult, StageId, StorageClient, JobStatus, StageStatus, QueueOps, FirebaseRtdb,
+    job_result_path, FINALIZE_REQUIRED_ENV, STAGE_REQUIRED_ENV,
 };
+use std::time::Duration;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::{Instant, SystemTime};
@@ -325,7 +326,55 @@ async fn main() -> Result<()> {
         .copied()
         .collect();
     check_env(&required)?;
-    run_finalize_job_mode().await
+
+    // Dual-mode dispatch mirroring the 4 processing stages: the presence
+    // of IGAIT_FINALIZE_PAYLOAD selects K8s single-job mode, and its
+    // absence falls through to a long-running worker that polls the
+    // finalize queue (used by the hermetic local compose stack).
+    if std::env::var("IGAIT_FINALIZE_PAYLOAD").is_ok() {
+        run_finalize_job_mode().await
+    } else {
+        run_finalize_worker_mode().await
+    }
+}
+
+/// Polls the finalize queue indefinitely, processing one job at a time.
+///
+/// Used when no K8s orchestrator is spawning per-job pods — e.g. the
+/// docker-compose stack. Claim is handled by `QueueOps::claim_finalize_job`
+/// (which already does CAS-based lease acquisition); completion removes the
+/// item from the queue rather than writing a JobResult, since no
+/// orchestrator is listening for one.
+async fn run_finalize_worker_mode() -> Result<()> {
+    println!("[worker-mode] Starting finalize worker (polling queue)");
+
+    let worker = FinalizeStageWorker::new()
+        .await
+        .context("Failed to create finalize worker")?;
+
+    let poll_interval = Duration::from_secs(5);
+
+    loop {
+        match worker.queue_ops.claim_finalize_job().await {
+            ClaimResult::Claimed(job) => {
+                println!("[worker-mode] Claimed finalize job {}", job.job_id);
+                let _ = worker.process(&job).await;
+                if let Err(e) = worker.queue_ops.complete_finalize(&job.job_id).await {
+                    eprintln!(
+                        "[worker-mode] Failed to remove {} from finalize queue: {:?}",
+                        job.job_id, e
+                    );
+                }
+            }
+            ClaimResult::QueueEmpty | ClaimResult::AllClaimed => {
+                tokio::time::sleep(poll_interval).await;
+            }
+            ClaimResult::Error(e) => {
+                eprintln!("[worker-mode] Claim error: {} — backing off", e);
+                tokio::time::sleep(poll_interval).await;
+            }
+        }
+    }
 }
 
 /// Runs the finalize worker in single-job mode for K8s Job execution.

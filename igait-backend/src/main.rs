@@ -8,9 +8,11 @@ mod routes;
 use anyhow::{Context, Result};
 use axum::{
     extract::DefaultBodyLimit,
+    http::{header, HeaderValue, Method},
     routing::{any, get, post},
     Router,
 };
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use dotenv::dotenv;
 use helper::lib::{AppState, AppStatePtr};
 use helper::orchestrator::{self, Orchestrator};
@@ -118,11 +120,30 @@ async fn main() -> Result<()> {
         )
         .with_state(app_state_ptr);
 
+    // CORS — no-op in prod (no env var set), permissive for the given
+    // origin when `CORS_ALLOW_ORIGIN` is provided. The hermetic compose
+    // stack sets this to `http://localhost:4173` so the browser preview
+    // build can hit the backend; without it, preflight OPTIONS surfaces
+    // as a generic "Network error" in the frontend.
+    let cors_layer = std::env::var("CORS_ALLOW_ORIGIN").ok().map(|raw| {
+        let origins: Vec<HeaderValue> = raw
+            .split(',')
+            .filter_map(|s| HeaderValue::from_str(s.trim()).ok())
+            .collect();
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::list(origins))
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
+    });
+
     // Nest the API into the general app router
-    let app = Router::new()
+    let mut app = Router::new()
         .nest("/api/v1", api_v1)
         .nest("/api/internal", api_internal)
         .layer(DefaultBodyLimit::max(500000000));
+    if let Some(cors) = cors_layer {
+        app = app.layer(cors);
+    }
 
     // Start the K8s Job orchestrator if enabled
     if std::env::var("ENABLE_ORCHESTRATOR").unwrap_or_default() == "true" {

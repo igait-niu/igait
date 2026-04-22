@@ -64,10 +64,22 @@ impl StorageClient {
     }
 
     /// Creates a new StorageClient with a specific configuration.
+    ///
+    /// When `AWS_S3_FORCE_PATH_STYLE=true` is set in the environment, the
+    /// S3 client uses path-style addressing (`host/bucket/key`) instead of
+    /// virtual-host (`bucket.host/key`). This is required for MinIO in a
+    /// Docker network, where `<bucket>.<service-name>` has no DNS record.
     pub async fn with_config(config: StorageConfig) -> Result<Self> {
         let aws_config = aws_config::load_from_env().await;
-        let client = Client::new(&aws_config);
-        
+        let force_path_style = std::env::var("AWS_S3_FORCE_PATH_STYLE")
+            .map(|v| v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
+        let s3_config = aws_sdk_s3::config::Builder::from(&aws_config)
+            .force_path_style(force_path_style)
+            .build();
+        let client = Client::from_conf(s3_config);
+
         Ok(Self {
             client,
             bucket: config.bucket,

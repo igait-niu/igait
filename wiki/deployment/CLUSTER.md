@@ -8,6 +8,10 @@ The iGait prod cluster is a k3s instance on the `ai-leads` DGX Spark box.
 ssh root@ai-leads
 ```
 
+In order for this to work, you may need to ask the user to run that command interactively in a *separate* shell. `! ssh root@ai-leads` won't work, since auth via Tailscale in the browser is required.
+
+If users don't have access to Tailscale, then they need to prioritize that first. Feel free to refer to the `/onboard` command for more information on how the user should set this up!
+
 `kubectl` is pre-configured on the host — no kubeconfig juggling needed. From
 there, every namespace is directly reachable.
 

@@ -34,7 +34,8 @@ Please use Linux or [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install
 You'll want to have the following installed on your machine:
 - [Docker](https://www.docker.com/)
 - [Nix](https://nixos.org/download/). Enable [Nix Flakes](https://nixos.wiki/wiki/flakes)
-- [`direnv`](https://direnv.net/), for fast dev environment loading. Be sure to hook your shell!
+- [`direnv`](https://direnv.net/) — auto-enters the Nix dev shell and sources `.env` on `cd` into the repo. Hook your shell per the direnv docs.
+- [Claude Code](https://claude.com/claude-code) — the `/igait-environment` slash command materialises `.env` and `credentials/gcp-key.json` from Vaultwarden
 
 First, download this repository (note the submodules!):
 ```bash
@@ -45,23 +46,20 @@ cd igait
 Then, set up access to secrets. We use [Vaultwarden](https://vault.igaitapp.com) — no more shared dotfiles on OneDrive. Ask @hiibolt for an invite to the `igait-niu` organization if you don't already have one.
 
 ```bash
-# One-time setup on this machine:
+# One-time per machine:
 bw config server https://vault.igaitapp.com
-bw login                           # interactive: Vaultwarden email + master password + 2FA
+bw login                           # interactive: email + master password + 2FA
 
-# Every shell (or add to your shell rc for persistence):
+# One-time per shell (or put in your rc — the session token lives here):
 export BW_SESSION=$(bw unlock --raw)
 ```
 
-You also need the GCP service-account key. Until that's migrated to Vaultwarden in a later phase, grab `gcp-key.json` from "iGait Credentials/Monorepo" in OneDrive and drop it at `credentials/gcp-key.json`.
+Then, inside this repo, run the Claude Code slash command **`/igait-environment`**. It reads the `igait/dev-env` item and writes two files at repo root:
 
-If `direnv` is hooked into your shell, entering the repo prints:
-```bash
-direnv: error /home/you/igait/.envrc is blocked. Run `direnv allow` to approve its content
-```
-...if not, go back and ensure you installed/hooked correctly.
+- `.env` — every custom field except `GCP_KEY_JSON`, auto-loaded by `docker compose`.
+- `credentials/gcp-key.json` (mode 600) — the GCP service-account JSON the Firebase SDK insists must exist on disk.
 
-Run `direnv allow`. The tracked `.envrc` calls `bw get item igait/dev-env` and exports every custom field on that item as an env var in your shell. When another engineer rotates a secret in Vaultwarden, you pick it up on the next shell reload (or explicitly with `bw sync && direnv reload`).
+Re-run `/igait-environment` whenever a secret is rotated in Vaultwarden, then `direnv reload` in any open shell. The tracked `.envrc` only does two things: `use flake` (Nix dev shell) and `dotenv_if_exists .env` (source the file the slash command wrote). It does **not** touch Vaultwarden — auth is a conscious action, not per-`cd` churn. See `wiki/environment/VAULTWARDEN.md` for the field-editing workflow.
 
 **Optional**:
 I strongly recommend using [Visual Studio Code](https://code.visualstudio.com/) with the Svelte and `rust-analyzer` extensions! 
@@ -70,9 +68,46 @@ Additionally, if you choose to use GitHub Copilot, repository context and MCPs a
 
 ### Starting iGait
 
-> The top-level Docker Compose setup has been removed pending a rewrite —
-> bring up services individually during development using the commands
-> below.
+The fastest path to a working stack is the **hermetic local stack** — a single
+`docker compose up` brings the backend, frontend, all 5 pipeline stages, and
+three local cloud-service surrogates online. No AWS, no Firebase project, no
+SES identity required; you can develop on airplane wifi.
+
+```bash
+# (first time, or after a Vaultwarden rotation)
+/igait-environment  # Claude Code slash command — writes .env + credentials/gcp-key.json
+
+docker compose up   # first boot: ~5-10min for Rust/Python image builds
+```
+
+When it's up, open:
+
+| Endpoint | URL | Notes |
+|----------|-----|-------|
+| Frontend | http://localhost:4173 | SvelteKit preview build |
+| Backend | http://localhost:3000 | API, direct uploads |
+| Firebase emulator UI | http://localhost:4000 | RTDB tree, queues, job state |
+| MinIO console | http://localhost:9001 | login: `minioadmin` / `minioadmin` |
+| SES mock UI | http://localhost:8005 | captured result emails |
+
+**What's tested end-to-end:** upload → S3 → 5 stage pipeline → result email.
+**What's not tested:** the K8s Jobs orchestrator code path (stages run in
+worker mode here; see `wiki/architecture/stage-execution-modes.md`).
+
+**Low-RAM machines (<16GB):** BuildKit parallelises stage image builds by
+default, which can be rough. Serialise with:
+
+```bash
+COMPOSE_BAKE=true docker compose build --parallel 1
+docker compose up -d
+```
+
+**Cold-start note:** the Firebase emulator's first boot installs
+`firebase-tools` via npm and can take 30-60s — its healthcheck has 24
+retries to accommodate. Subsequent boots are instant.
+
+Troubleshooting and deeper design notes live in
+`wiki/local-dev/hermetic-stack.md`.
 
 ### Working on iGait
 **Backend/Pipeline**:

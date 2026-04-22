@@ -1,5 +1,5 @@
 ---
-name: igait-github
+name: github
 description: >
   Use this skill for ANY interaction with the igait-niu/igait GitHub project — issues,
   PRs, branches, the project board, or any reference to a GitHub issue number (#N).

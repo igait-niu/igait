@@ -4,8 +4,8 @@
  */
 
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getDatabase, type Database } from 'firebase/database';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getDatabase, connectDatabaseEmulator, type Database } from 'firebase/database';
 import { type Option, Some, None } from '$lib/result';
 
 /**
@@ -23,6 +23,19 @@ const firebaseConfig = {
 };
 
 let firebaseApp: Option<FirebaseApp> = None();
+
+/**
+ * Wire SDK instances to the local Firebase emulator suite immediately
+ * after the app is initialised. This runs before any callsite can obtain
+ * an auth/db handle, so direct `getAuth()` / `getDatabase()` imports from
+ * firebase/* (e.g. in auth.svelte.ts) still hit the emulator.
+ * Gated by VITE_FIREBASE_USE_EMULATOR so prod builds stay untouched.
+ */
+function connectEmulators() {
+	if (import.meta.env.VITE_FIREBASE_USE_EMULATOR !== 'true') return;
+	connectAuthEmulator(getAuth(), 'http://localhost:9099', { disableWarnings: true });
+	connectDatabaseEmulator(getDatabase(), 'localhost', 9000);
+}
 
 /**
  * Initialize Firebase - safe to call multiple times
@@ -43,6 +56,7 @@ export function initializeFirebase(): FirebaseApp {
 	// Initialize new app
 	const app = initializeApp(firebaseConfig);
 	firebaseApp = Some(app);
+	connectEmulators();
 	return app;
 }
 
