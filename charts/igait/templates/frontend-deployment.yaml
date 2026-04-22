@@ -1,0 +1,41 @@
+{{- $frontendRepo := default "igait-frontend" .Values.frontend.image.repository -}}
+{{- $tag := default .Values.image.tag .Values.frontend.image.tag -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "igait.fullname" . }}-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "igait.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  revisionHistoryLimit: 1
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      {{- include "igait.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "igait.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: frontend
+    spec:
+      containers:
+        - name: igait-frontend
+          image: {{ include "igait.image" (dict "repo" $frontendRepo "tag" $tag "ctx" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.frontend.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.frontend.probes.readiness | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.frontend.probes.liveness | nindent 12 }}

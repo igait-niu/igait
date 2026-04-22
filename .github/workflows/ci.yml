@@ -127,3 +127,38 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  helm-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+      - name: helm lint (defaults)
+        run: helm lint charts/igait --set image.tag=sha-ci
+      - name: helm lint (prod values)
+        run: helm lint charts/igait -f charts/igait/values-prod.yaml
+
+  kubeconform:
+    runs-on: ubuntu-latest
+    needs: helm-lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            | sudo tar xz -C /usr/local/bin kubeconform
+      - name: Render + validate (prod)
+        run: |
+          helm template charts/igait -f charts/igait/values-prod.yaml \
+            | kubeconform -strict -summary -schema-location default \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+      - name: Render + validate (defaults / preview-shaped)
+        run: |
+          helm template charts/igait --set image.tag=sha-ci \
+            | kubeconform -strict -summary -schema-location default \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'

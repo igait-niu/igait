@@ -1,0 +1,144 @@
+# Default values for the igait chart.
+# Shape: preview-oriented defaults. values-prod.yaml overrides for production.
+# Per-PR ApplicationSets (phase 6) layer values-preview.yaml + parameters on top.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: ghcr.io/igait-niu/igait
+  pullPolicy: IfNotPresent
+  # tag is required at render time. Prod sets it in values-prod.yaml; PR
+  # previews set it via ApplicationSet parameter to sha-<head_sha>.
+  tag: ""
+
+# Name of the cluster Secret that holds application credentials
+# (FIREBASE_*, AWS_*, OPENAI_*, SES_*). In prod this is materialised by
+# ExternalSecret (phase 5). In preview envs it is a scoped subset.
+secretName: igait-secrets
+
+# Name of the cluster Secret holding the GCP service-account JSON mounted
+# at /credentials. Prod only; preview emulators don't need it.
+gcpKeySecretName: gcp-key
+
+backend:
+  replicas: 2
+  port: 3000
+  serviceAccountName: igait-backend
+  rbac:
+    # Grants the backend SA permissions to create/observe K8s Jobs. Required
+    # for the per-stage Jobs orchestrator (batch Jobs, pods, pods/log).
+    enabled: true
+  image:
+    # Defaults to <registry>/igait-backend:<image.tag>. Override the whole
+    # repository path here if you need to pin something different.
+    repository: ""
+    tag: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+      ephemeral-storage: 64Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+      ephemeral-storage: 256Mi
+  # Stage images the orchestrator spawns Jobs from. Keys map 1:1 to
+  # STAGE_<UPPER_SNAKE>_IMAGE env vars the backend reads.
+  stageImages:
+    mediaConversion: ""   # defaults to <registry>/media-conversion:<image.tag>
+    poseEstimation: ""
+    cycleDetection: ""
+    prediction: ""
+    finalize: ""
+  # Extra environment variables merged into the backend container. Use for
+  # preview-only plumbing (CORS_ALLOW_ORIGIN, FIREBASE_AUTH_EMULATOR_HOST,
+  # AWS_S3_FORCE_PATH_STYLE, AWS_ENDPOINT_URL_*). Each entry is a full
+  # EnvVar object; raw values or valueFrom are both fine.
+  extraEnv: []
+  # Mount the gcp-key Secret as a file at /credentials. Disable in previews.
+  mountGcpKey: true
+
+frontend:
+  replicas: 2
+  port: 4173
+  servicePort: 80
+  image:
+    repository: ""   # defaults to <registry>/igait-frontend
+    tag: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+      ephemeral-storage: 32Mi
+    limits:
+      cpu: 750m
+      memory: 2Gi
+      ephemeral-storage: 128Mi
+  probes:
+    readiness:
+      httpGet:
+        path: /
+        port: 4173
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    liveness:
+      httpGet:
+        path: /
+        port: 4173
+      initialDelaySeconds: 10
+      periodSeconds: 30
+
+# Preview-only ephemeral services. Prod overrides them all to false.
+emulators:
+  firebase:
+    enabled: true
+    image: ghcr.io/igait-niu/igait/firebase-emulator:latest
+    rtdbPort: 9000
+    authPort: 9099
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits:   { cpu: 500m, memory: 1Gi }
+  minio:
+    enabled: true
+    image: minio/minio:latest
+    port: 9000
+    consolePort: 9001
+    rootUser: minioadmin
+    rootPassword: minioadmin
+    resources:
+      requests: { cpu: 50m, memory: 256Mi }
+      limits:   { cpu: 300m, memory: 512Mi }
+  ses:
+    enabled: true
+    image: aws/ses-local:latest
+    port: 8005
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits:   { cpu: 200m, memory: 256Mi }
+
+# Prod-only ingress. Disabled by default (previews use Tailscale, phase 6).
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tls: false
+  tlsSecretName: ""
+
+# Phase 5 flips this on. Stub today.
+externalSecret:
+  enabled: false
+
+# Phase 6 flips this on for previews. Stub today.
+tailscale:
+  enabled: false
+  hostname: ""
+
+# Phase 9 fills this in. Stub today.
+probes:
+  enabled: false
+
+# Populated by ApplicationSet when rendering per-PR previews.
+prNumber: ""
+prBranch: ""

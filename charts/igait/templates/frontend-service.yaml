@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "igait.fullname" . }}-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "igait.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+  {{- if .Values.tailscale.enabled }}
+  annotations:
+    tailscale.com/hostname: {{ .Values.tailscale.hostname | quote }}
+    tailscale.com/tags: "tag:k8s-igait"
+  {{- end }}
+spec:
+  {{- if .Values.tailscale.enabled }}
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  {{- else }}
+  type: ClusterIP
+  {{- end }}
+  selector:
+    {{- include "igait.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+  ports:
+    - name: http
+      port: {{ .Values.frontend.servicePort }}
+      targetPort: {{ .Values.frontend.port }}
+      protocol: TCP
