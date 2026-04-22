@@ -58,6 +58,7 @@
                     ''
                     git submodule init
                     git submodule update
+                    lefthook install
                     export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath (buildInputs ++ [ pkgs.stdenv.cc.cc ])}
                     '';
 
