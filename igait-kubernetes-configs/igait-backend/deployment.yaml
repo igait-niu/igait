@@ -115,7 +115,7 @@ spec:
         - name: STAGE_PREDICTION_IMAGE
           value: ghcr.io/igait-niu/igait/prediction:sha-8838e56
         - name: STAGE_FINALIZE_IMAGE
-          value: ghcr.io/igait-niu/igait/finalize:sha-c0e9a0a
+          value: ghcr.io/igait-niu/igait/finalize:sha-8838e56
         resources:
           limits:
             cpu: "1"
