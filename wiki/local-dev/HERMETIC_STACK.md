@@ -67,13 +67,29 @@ The emulator requires a `?ns=<project>` query param on every request. `FirebaseR
 
 The backend adds `tower-http::CorsLayer` only if this env var is set. Without it, browser preflight for cross-origin `Authorization`-bearing requests fails silently as a generic "Network error" in the frontend. Prod doesn't set it (same-origin deploy), which is why the backend's default is no CORS layer.
 
-### Firebase emulator needs JRE 21+
+### Firebase emulator is a prebuilt image
 
-The RTDB emulator is a JVM process. `firebase-tools` dropped support for Java <21, so the compose image installs `openjdk21-jre-headless`, not 17 or earlier. First cold boot is 60–90s (JDK install + `npm i -g firebase-tools`); the `start_period: 120s` on the healthcheck covers it.
+The RTDB emulator is a JVM process, and `firebase-tools` dropped support for Java <21. Rather than installing openjdk + firebase-tools on every boot (which historically took several minutes and periodically blew past the healthcheck window, cascading failures through every `service_healthy` dependent), the emulator is now built from `dev/firebase/Dockerfile` — it bakes in JRE 21, `firebase-tools`, the pre-downloaded emulator jars (`firebase setup:emulators:{auth,database}`), and `.firebaserc`. First `docker compose build` takes ~3–5 min once; every boot after that is JVM startup (~5–10s), so `start_period: 30s` is plenty.
+
+If you bump the `firebase-tools` version or swap JREs, rebuild with `docker compose build firebase-emulator`.
 
 ### `ses-mock` has no healthcheck
 
 `aws-ses-v2-local` has no `/health` route and ships without `curl`/`wget`. There is nothing to probe. Its dependents use `condition: service_started` rather than `service_healthy`. It boots in seconds and the backend only touches it at the end of a pipeline run, so the weaker gate is fine.
+
+## Seeded admin account
+
+The `firebase-bootstrap` service runs on every `docker compose up` and seeds a deterministic admin into both emulators so the admin panel is reachable without manual setup.
+
+| Field | Value |
+|---|---|
+| Email | `admin@igait.local` |
+| Password | `admin123` |
+| RTDB record | `users/<uid>/administrator = true` |
+
+Sign in via the **email/password** form on the login page — not Google OAuth. Rationale: the Google popup against the emulator opens a fake provider-picker page that's awkward for iterative dev, while `signInWithEmailAndPassword` (in `auth.svelte.ts`) talks directly to `:9099` and returns a usable emulator ID token the backend accepts (because `FIREBASE_AUTH_EMULATOR_HOST` is set — see above).
+
+Emulator state is ephemeral (no volume mount on `firebase-emulator`), so this seed has to run every boot. The bootstrap is idempotent: on restart `accounts:signUp` returns `EMAIL_EXISTS`, and the script falls back to `accounts:lookup` to recover the uid before the RTDB PUT. Want another admin or a non-admin account? Register normally through the frontend — the second account won't have `administrator: true` unless you flip the flag in the emulator UI at `:4000`.
 
 ## Browser vs container URLs
 

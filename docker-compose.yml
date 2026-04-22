@@ -57,20 +57,13 @@ services:
   # ── Cloud-service surrogates ──────────────────────────────────────────────
 
   firebase-emulator:
-    image: node:20-alpine
-    working_dir: /app
-    # The RTDB emulator is a JVM process — apk-install openjdk alongside
-    # firebase-tools. Cold-start is ~60-90s; healthcheck retries cover it.
-    # Future optimisation: bake both into a custom image.
-    command: >
-      sh -c "
-        apk add --no-cache openjdk21-jre-headless &&
-        npm install -g firebase-tools &&
-        firebase emulators:start --only auth,database --project igait-local
-      "
+    # Custom image bakes in JRE 21 + firebase-tools + pre-downloaded emulator
+    # jars, so boot = JVM startup (~5-10s) instead of apk + npm install
+    # (several minutes, which previously blew past healthcheck windows and
+    # cascaded failures through every `service_healthy` dependent).
+    build: ./dev/firebase
     volumes:
       - ./dev/firebase/firebase.json:/app/firebase.json:ro
-      - ./dev/firebase/.firebaserc:/app/.firebaserc:ro
       - ./database.rules.json:/app/database.rules.json:ro
     ports:
       - "9000:9000"  # RTDB
@@ -81,7 +74,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
-      start_period: 120s  # JRE + firebase-tools install on first cold boot
+      start_period: 30s  # JVM startup only — everything else is baked in
 
   minio:
     image: minio/minio:latest
@@ -111,6 +104,44 @@ services:
         mc mb --ignore-existing local/igait-storage &&
         echo 'MinIO bucket ready'
       "
+
+  # Seeds a deterministic admin account into the auth + RTDB emulators so
+  # the admin panel is reachable on a fresh `docker compose up`. Emulator
+  # state is ephemeral (no volume mount on firebase-emulator), so this runs
+  # every boot. Idempotent: on restart, accounts:signUp returns EMAIL_EXISTS,
+  # we fall back to accounts:lookup to recover the uid, then PUT the RTDB
+  # record (which is a no-op if administrator:true is already set).
+  firebase-bootstrap:
+    image: alpine:3.20
+    depends_on:
+      firebase-emulator:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache curl jq >/dev/null
+        AUTH=http://firebase-emulator:9099/identitytoolkit.googleapis.com/v1
+        RTDB=http://firebase-emulator:9000
+        # NOTE: kept in sync with the dev banner on the login page
+        # (igait-frontend/src/routes/(public)/login/+page.svelte). If you
+        # rotate these, update that file too.
+        EMAIL=admin@igait.local
+        PASS=admin123
+        RESP=$$(curl -s -X POST "$$AUTH/accounts:signUp?key=fake" \
+          -H 'Content-Type: application/json' \
+          -d "{\"email\":\"$$EMAIL\",\"password\":\"$$PASS\",\"returnSecureToken\":true}")
+        UID=$$(echo "$$RESP" | jq -r '.localId // empty')
+        if [ -z "$$UID" ]; then
+          # Account already exists — look it up by email.
+          UID=$$(curl -s -X POST "$$AUTH/accounts:lookup?key=fake" \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":[\"$$EMAIL\"]}" | jq -r '.users[0].localId')
+        fi
+        curl -sf -X PUT "$$RTDB/users/$$UID.json?ns=igait-local" \
+          -d '{"administrator": true, "jobs": {}}' >/dev/null
+        echo "Seeded admin: $$EMAIL / $$PASS  (uid=$$UID)"
 
   ses-mock:
     image: ghcr.io/domdomegg/aws-ses-v2-local:latest
@@ -182,6 +213,8 @@ services:
     depends_on:
       backend:
         condition: service_started
+      firebase-bootstrap:
+        condition: service_completed_successfully
 
   # ── Pipeline stages (worker mode — long-running, poll RTDB) ───────────────
   # Each stage is a daemon that polls its queue in Firebase RTDB and processes
