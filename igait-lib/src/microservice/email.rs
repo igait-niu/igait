@@ -166,6 +166,7 @@ impl EmailTemplates {
     /// Builds a "submission received" welcome email.
     ///
     /// Sent when a user uploads a new job for processing.
+    #[allow(clippy::too_many_arguments)] // Each arg is a distinct submission field rendered into the template; bundling would just shift the same list one layer down.
     pub fn submission_received(
         datetime: &str,
         age: i16,
@@ -203,6 +204,7 @@ impl EmailTemplates {
     /// Builds a success email with the binary ASD/no-ASD result.
     ///
     /// Sent when the pipeline completes successfully with a prediction.
+    #[allow(clippy::too_many_arguments)] // Each arg is a distinct submission field rendered into the template; bundling would just shift the same list one layer down.
     pub fn prediction_success(
         datetime: &str,
         is_asd: bool,

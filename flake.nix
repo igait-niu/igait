@@ -47,6 +47,9 @@
                     bitwarden-cli
                     jq
 
+                    # Pre-commit hooks — mirrors CI gates locally
+                    lefthook
+
                     # Useful for microservices development
                     ffmpeg  # media-conversion, pose-estimation
                     python  # pose-estimation, cycle-detection, prediction
