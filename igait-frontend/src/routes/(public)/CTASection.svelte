@@ -36,7 +36,7 @@
 	<div class="page-container">
 		<h2 class="section-title">Meet the Team</h2>
 		<div class="team-grid">
-			{#each teamMembers as member}
+			{#each teamMembers as member, i (i)}
 				<Card.Root class="team-card">
 					<Card.Header>
 						<div class="member-photo-wrapper">
@@ -52,9 +52,9 @@
 			{/each}
 		</div>
 		<p class="team-acknowledgment">
-			This research would be impossible without the talent and endeavors of the{' '}
-			<a href="/about#student-team" class="link-accent">student team</a>.{' '}
-			We thank their contributions and hard work!
+			This research would be impossible without the talent and endeavors of the
+			<a href="/about#student-team" class="link-accent">student team</a>. We thank their
+			contributions and hard work!
 		</p>
 	</div>
 </section>

@@ -22,7 +22,16 @@
 		jobId?: string;
 	}
 
-	let { files, loading, error, label, stageNumber, allFiles, isAdmin, jobId }: Props = $props();
+	let {
+		files,
+		loading,
+		error,
+		label,
+		stageNumber: _stageNumber,
+		allFiles: _allFiles,
+		isAdmin: _isAdmin,
+		jobId: _jobId
+	}: Props = $props();
 
 	/** Currently selected file for the modal viewer */
 	let selectedFile: FileEntry | null = $state(null);

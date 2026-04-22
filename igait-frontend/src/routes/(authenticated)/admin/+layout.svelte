@@ -41,7 +41,7 @@
 		<!-- Tab Navigation -->
 		<div class="admin-nav-container">
 			<nav class="admin-nav">
-				{#each adminNavItems as item}
+				{#each adminNavItems as item (item.href)}
 					<a href={item.href} class="admin-nav-tab" class:active={currentPath === item.href}>
 						<item.icon class="admin-nav-icon" />
 						<span class="admin-nav-label">{item.label}</span>

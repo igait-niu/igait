@@ -2,8 +2,6 @@
 	import { getUser } from '$lib/hooks';
 	import * as Card from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
-	import { Construction, Settings } from '@lucide/svelte';
-
 	const user = getUser();
 </script>
 

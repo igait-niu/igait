@@ -1,9 +1,6 @@
 <script lang="ts">
 	import * as Card from '$lib/components/ui/card';
 	import {
-		Activity,
-		Shield,
-		Zap,
 		Clock,
 		Target,
 		Home,
@@ -108,7 +105,7 @@
 	<div class="page-container">
 		<h2 class="section-title">Understanding the Challenge</h2>
 		<div class="stats-grid">
-			{#each statistics as stat}
+			{#each statistics as stat, i (i)}
 				<Card.Root>
 					<Card.Header>
 						<div class="stat-number">{stat.number}</div>
@@ -164,7 +161,7 @@
 	<div class="page-container">
 		<h2 class="section-title">The iGAIT Solution</h2>
 		<div class="features-grid">
-			{#each features as feature}
+			{#each features as feature, i (i)}
 				<Card.Root>
 					<Card.Header>
 						<div class="feature-icon">
@@ -186,7 +183,7 @@
 	<div class="page-container">
 		<h2 class="section-title">How It Works</h2>
 		<div class="steps-grid">
-			{#each steps as step, index}
+			{#each steps as step, index (index)}
 				<div class="step-card">
 					<div class="step-number">{index + 1}</div>
 					<div class="step-icon">

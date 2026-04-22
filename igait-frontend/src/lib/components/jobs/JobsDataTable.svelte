@@ -70,6 +70,7 @@
 	let sortColumn: 'date' | 'status' | null = $state(null);
 	let sortDirection: 'asc' | 'desc' = $state('desc');
 	let searchQuery = $state('');
+	// eslint-disable-next-line svelte/prefer-writable-derived -- statusFilter is user-editable via UI; the effect only syncs the initial/prop-change value.
 	let statusFilter = $state('all');
 
 	// Update status filter when prop changes

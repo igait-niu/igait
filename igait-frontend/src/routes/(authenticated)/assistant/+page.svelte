@@ -14,7 +14,7 @@
 	import { SendHorizontal, RefreshCw, TriangleAlert, Bot, Loader2, WifiOff } from '@lucide/svelte';
 	import ChatMessage from './ChatMessage.svelte';
 
-	const user = getUser();
+	const _user = getUser();
 
 	// ----- State -----
 	let messages: AssistantMessage[] = $state([
