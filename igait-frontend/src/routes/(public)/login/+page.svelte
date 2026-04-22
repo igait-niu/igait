@@ -16,6 +16,20 @@
 	let isLoading = $state(false);
 	let error: Option<AppError> = $state(None());
 
+	// Emulator-only credential hint. `VITE_FIREBASE_USE_EMULATOR` is inlined
+	// at build time, so this whole branch (including the literal creds) is
+	// treeshaken out of the prod bundle. Values must stay in sync with the
+	// `firebase-bootstrap` service in docker-compose.yml — if you rotate one,
+	// rotate the other.
+	const IS_EMULATOR = import.meta.env.VITE_FIREBASE_USE_EMULATOR === 'true';
+	const DEV_ADMIN_EMAIL = 'admin@igait.local';
+	const DEV_ADMIN_PASSWORD = 'admin123';
+
+	function fillDevAdmin() {
+		email = DEV_ADMIN_EMAIL;
+		password = DEV_ADMIN_PASSWORD;
+	}
+
 	async function handleEmailLogin(e: Event) {
 		e.preventDefault();
 		error = None();
@@ -72,6 +86,22 @@
 			<Card.Description>Sign in to your account to continue</Card.Description>
 		</Card.Header>
 		<Card.Content>
+			{#if IS_EMULATOR}
+				<div class="dev-banner" role="note" aria-label="Development mode credentials">
+					<div class="dev-banner-title">
+						<span class="dev-banner-badge">DEV</span>
+						<span>Seeded admin account</span>
+					</div>
+					<dl class="dev-banner-creds">
+						<dt>Email</dt>
+						<dd><code>{DEV_ADMIN_EMAIL}</code></dd>
+						<dt>Password</dt>
+						<dd><code>{DEV_ADMIN_PASSWORD}</code></dd>
+					</dl>
+					<button type="button" class="dev-banner-fill" onclick={fillDevAdmin}> Fill in </button>
+				</div>
+			{/if}
+
 			<!-- Error Alert -->
 			{#if error.isSome()}
 				<Alert variant="destructive" class="error-alert">
@@ -259,5 +289,81 @@
 
 	.footer-link:hover {
 		text-decoration: underline;
+	}
+
+	/* Loud dev-only banner. Treeshaken out of prod via VITE_FIREBASE_USE_EMULATOR. */
+	.dev-banner {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		align-items: center;
+		gap: 0.75rem 1rem;
+		margin-bottom: 1.5rem;
+		padding: 0.875rem 1rem;
+		border: 2px dashed #f59e0b;
+		background: repeating-linear-gradient(45deg, #fef3c7, #fef3c7 10px, #fde68a 10px, #fde68a 20px);
+		color: #78350f;
+		border-radius: 0.5rem;
+		font-size: 0.875rem;
+	}
+
+	.dev-banner-title {
+		grid-column: 1 / -1;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-weight: 600;
+	}
+
+	.dev-banner-badge {
+		background: #f59e0b;
+		color: #fff;
+		padding: 0.125rem 0.5rem;
+		border-radius: 0.25rem;
+		font-size: 0.7rem;
+		letter-spacing: 0.05em;
+	}
+
+	.dev-banner-creds {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		column-gap: 0.5rem;
+		row-gap: 0.125rem;
+		margin: 0;
+	}
+
+	.dev-banner-creds dt {
+		font-weight: 500;
+		opacity: 0.85;
+	}
+
+	.dev-banner-creds dd {
+		margin: 0;
+	}
+
+	.dev-banner-creds code {
+		background: rgba(255, 255, 255, 0.6);
+		padding: 0.0625rem 0.375rem;
+		border-radius: 0.25rem;
+		font-size: 0.8125rem;
+	}
+
+	.dev-banner-fill {
+		background: #f59e0b;
+		color: #fff;
+		border: none;
+		padding: 0.5rem 0.875rem;
+		border-radius: 0.375rem;
+		font-weight: 600;
+		cursor: pointer;
+		font-size: 0.8125rem;
+	}
+
+	.dev-banner-fill:hover {
+		background: #d97706;
+	}
+
+	.dev-banner-fill:focus-visible {
+		outline: 2px solid #78350f;
+		outline-offset: 2px;
 	}
 </style>
