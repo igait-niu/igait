@@ -59,13 +59,13 @@ async fn unpack_contribute_arguments(
 
         match field.name() {
             Some("fileuploadfront") => {
-                front_file_name_option = field.file_name().map(|x| String::from(x));
+                front_file_name_option = field.file_name().map(String::from);
                 front_file_bytes_option = Some(field.bytes()
                     .await
                     .context("Could not unpack bytes from field 'fileuploadfront'! Was there no file attached?")?);
             }
             Some("fileuploadside") => {
-                side_file_name_option = field.file_name().map(|x| String::from(x));
+                side_file_name_option = field.file_name().map(String::from);
                 side_file_bytes_option = Some(field.bytes()
                     .await
                     .context("Could not unpack bytes from field 'fileuploadside'! Was there no file attached?")?);
@@ -139,7 +139,6 @@ async fn unpack_contribute_arguments(
 /// # Arguments
 /// * `app` - The application state.
 /// * `multipart` - The `Multipart` object to unpack.
-
 pub async fn contribute_entrypoint(
     current_user: FirebaseUser,
     State(app): State<AppStatePtr>,
@@ -191,7 +190,7 @@ pub async fn contribute_entrypoint(
 /// * `user_id` - The user ID to save the files under
 /// * `email` - The email to save the files under
 /// * `_name` - The name of the contributor (unused but kept for API compatibility)
-async fn save_upload_files<'a>(
+async fn save_upload_files(
     app: Arc<AppState>,
     front_file: ContributeRequestFile,
     side_file: ContributeRequestFile,
@@ -203,12 +202,12 @@ async fn save_upload_files<'a>(
     let front_extension = front_file
         .name
         .split('.')
-        .last()
+        .next_back()
         .context("Must have a file extension!")?;
     let side_extension = side_file
         .name
         .split('.')
-        .last()
+        .next_back()
         .context("Must have a file extension!")?;
 
     // Ensure a directory exists for this file ID

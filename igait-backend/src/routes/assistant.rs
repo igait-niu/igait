@@ -80,7 +80,6 @@ struct SearchJobArguments {
 ///
 /// # Returns
 /// * Nothing
-
 async fn send_response(
     app: &Arc<AppState>,
     client: &Client<OpenAIConfig>,
@@ -145,7 +144,7 @@ async fn send_response(
                                 }
                             }
                             body.push(body_to_push);
-                            if annotations.len() > 0 {
+                            if !annotations.is_empty() {
                                 body.push(
                                     "\n".to_string()
                                         + "[ From "
@@ -158,7 +157,7 @@ async fn send_response(
                             body.push("[Image]".to_string());
                         }
                         MessageContent::Refusal(refusal) => {
-                            body.push(format!("{}", refusal.refusal));
+                            body.push(refusal.refusal.to_string());
                         }
                     }
                 }
@@ -339,10 +338,7 @@ async fn send_response(
                                     .collect();
                             }
                             if let Some(result_type) = search_args.result_type {
-                                jobs = jobs
-                                    .into_iter()
-                                    .filter(|job| job.status.description() == result_type)
-                                    .collect();
+                                jobs.retain(|job| job.status.description() == result_type);
                             }
 
                             // Serialized the now-filtered jobs
@@ -400,7 +396,6 @@ async fn send_response(
 ///
 /// # Returns
 /// * A response that upgrades the connection to a WebSocket and handles the socket connection.
-
 pub async fn assistant_proxied_entrypoint(
     State(app): State<AppStatePtr>,
     ws: WebSocketUpgrade,
@@ -414,7 +409,6 @@ pub async fn assistant_proxied_entrypoint(
 /// # Arguments
 /// * `app` - The application state containing the OpenAI client and assistant.
 /// * `socket` - The WebSocket connection to handle.
-
 async fn handle_proxied_socket_helper(app: Arc<AppState>, socket: WebSocket) -> () {
     if let Err(e) = handle_proxied_socket(app, socket).await {
         eprintln!("Failed to handle socket! Error: {e:?}");
@@ -437,7 +431,6 @@ async fn handle_proxied_socket_helper(app: Arc<AppState>, socket: WebSocket) -> 
 ///
 /// # Returns
 /// * Nothing
-
 async fn handle_proxied_socket(_app: Arc<AppState>, mut socket: WebSocket) -> Result<()> {
     // Get the token from the client
     let token = match socket
@@ -496,7 +489,7 @@ async fn handle_proxied_socket(_app: Arc<AppState>, mut socket: WebSocket) -> Re
                 if text == "ping" {
                     println!("Received ping, sending pong...");
                     socket
-                        .send(axum::extract::ws::Message::Text("pong".to_string().into()))
+                        .send(axum::extract::ws::Message::Text("pong".to_string()))
                         .await
                         .context("Couldn't send message!")?;
                     continue 'primary_loop;
@@ -512,7 +505,7 @@ async fn handle_proxied_socket(_app: Arc<AppState>, mut socket: WebSocket) -> Re
         println!("Got message on proxied connection, forwarding: {msg}");
 
         local_socket
-            .send(tokio_tungstenite::tungstenite::Message::Text(msg.into()))
+            .send(tokio_tungstenite::tungstenite::Message::Text(msg))
             .await
             .context("Couldn't send message!")?;
 
@@ -558,7 +551,6 @@ async fn handle_proxied_socket(_app: Arc<AppState>, mut socket: WebSocket) -> Re
 ///
 /// # Returns
 /// * A response that upgrades the connection to a WebSocket and handles the socket connection.
-
 pub async fn assistant_entrypoint(
     current_user: FirebaseUser,
     State(app): State<AppStatePtr>,
@@ -573,7 +565,6 @@ pub async fn assistant_entrypoint(
 /// * `app` - The application state containing the OpenAI client and assistant.
 /// * `socket` - The WebSocket connection to handle.
 /// * `current_user` - The authenticated Firebase user.
-
 async fn handle_socket_helper(
     app: Arc<AppState>,
     socket: WebSocket,
@@ -602,7 +593,6 @@ async fn handle_socket_helper(
 ///
 /// # Returns
 /// * Nothing
-
 async fn handle_socket(
     app: Arc<AppState>,
     mut socket: WebSocket,
@@ -670,7 +660,7 @@ async fn handle_socket(
             assistant,
             &msg,
             &mut socket,
-            &id,
+            id,
         )
         .await
         {

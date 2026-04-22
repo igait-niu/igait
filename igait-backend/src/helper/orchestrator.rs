@@ -279,6 +279,7 @@ impl Orchestrator {
     }
 
     /// Builds a K8s Job spec.
+    #[allow(clippy::too_many_arguments)] // Each arg maps to a distinct field in the K8s pod spec; bundling into a struct would just shift the same parameters one level deeper.
     fn build_job_spec(
         &self,
         job_name: &str,
