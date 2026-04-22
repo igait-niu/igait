@@ -60,7 +60,7 @@ services:
       sh -c "
         apk add --no-cache openjdk21-jre-headless &&
         npm install -g firebase-tools &&
-        firebase emulators:start --only database --project igait-local
+        firebase emulators:start --only auth,database --project igait-local
       "
     volumes:
       - ./dev/firebase/firebase.json:/app/firebase.json:ro
@@ -68,6 +68,7 @@ services:
       - ./database.rules.json:/app/database.rules.json:ro
     ports:
       - "9000:9000"  # RTDB
+      - "9099:9099"  # Auth
       - "4000:4000"  # Emulator UI
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O- 'http://localhost:9000/.json?ns=igait-local' || exit 1"]
@@ -159,6 +160,10 @@ services:
         VITE_FIREBASE_STORAGE_BUCKET: igait-local.appspot.com
         VITE_FIREBASE_MESSAGING_SENDER_ID: "0"
         VITE_FIREBASE_APP_ID: "1:0:web:local"
+        # Flips firebase.ts into emulator mode — connectAuthEmulator +
+        # connectDatabaseEmulator fire at first SDK use. Prod builds
+        # leave this unset, and prod SDK init behaves exactly as before.
+        VITE_FIREBASE_USE_EMULATOR: "true"
     # vite.config.ts is re-evaluated on `bun run preview` and asserts
     # VITE_API_BASE_URL is present in process.env. Build ARGs don't survive
     # into the runtime env, so we mirror the one it checks as a service env.

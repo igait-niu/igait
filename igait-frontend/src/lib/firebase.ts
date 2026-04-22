@@ -4,8 +4,8 @@
  */
 
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getDatabase, type Database } from 'firebase/database';
+import { getAuth, connectAuthEmulator, type Auth } from 'firebase/auth';
+import { getDatabase, connectDatabaseEmulator, type Database } from 'firebase/database';
 import { type Option, Some, None } from '$lib/result';
 
 /**
@@ -23,6 +23,21 @@ const firebaseConfig = {
 };
 
 let firebaseApp: Option<FirebaseApp> = None();
+let emulatorsConnected = false;
+
+/**
+ * Wire SDK instances to the local Firebase emulator suite. Idempotent —
+ * connect* calls no-op once done, but we still guard so subsequent
+ * getAuth/getDatabase callers don't try to re-connect (which warns).
+ * Gated by VITE_FIREBASE_USE_EMULATOR so prod builds stay untouched.
+ */
+function connectEmulatorsOnce(auth: Auth, db: Database) {
+	if (emulatorsConnected) return;
+	if (import.meta.env.VITE_FIREBASE_USE_EMULATOR !== 'true') return;
+	connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
+	connectDatabaseEmulator(db, 'localhost', 9000);
+	emulatorsConnected = true;
+}
 
 /**
  * Initialize Firebase - safe to call multiple times
@@ -51,7 +66,9 @@ export function initializeFirebase(): FirebaseApp {
  */
 export function getFirebaseAuth() {
 	initializeFirebase();
-	return getAuth();
+	const auth = getAuth();
+	connectEmulatorsOnce(auth, getDatabase());
+	return auth;
 }
 
 /**
@@ -59,5 +76,7 @@ export function getFirebaseAuth() {
  */
 export function getFirebaseDatabase(): Database {
 	initializeFirebase();
-	return getDatabase();
+	const db = getDatabase();
+	connectEmulatorsOnce(getAuth(), db);
+	return db;
 }
