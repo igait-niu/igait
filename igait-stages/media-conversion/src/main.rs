@@ -1,5 +1,5 @@
 //! Media Conversion Microservice
-//! 
+//!
 //! Converts uploaded videos to a standardized format:
 //! - Resolution: 1920x1080 (padded if needed)
 //! - Frame rate: 60fps
@@ -36,13 +36,16 @@ impl StageWorker for MediaConversionWorker {
         let mut logs = String::new();
 
         println!("Processing job {}: Media Conversion", job.job_id);
-        logs.push_str(&format!("Starting media conversion for job {}\n", job.job_id));
+        logs.push_str(&format!(
+            "Starting media conversion for job {}\n",
+            job.job_id
+        ));
 
         match self.do_conversion(job, &mut logs).await {
             Ok(output_keys) => {
                 let duration = start_time.elapsed();
                 logs.push_str(&format!("Conversion completed in {:?}\n", duration));
-                
+
                 ProcessingResult::Success {
                     output_keys,
                     logs,
@@ -53,7 +56,7 @@ impl StageWorker for MediaConversionWorker {
                 let duration = start_time.elapsed();
                 eprintln!("Conversion failed for job {}: {}", job.job_id, e);
                 logs.push_str(&format!("ERROR: {}\n", e));
-                
+
                 ProcessingResult::Failure {
                     error: e.to_string(),
                     logs,
@@ -92,31 +95,45 @@ impl MediaConversionWorker {
 
         // Initialize storage client
         logs.push_str("Initializing storage client...\n");
-        let storage = StorageClient::new().await
+        let storage = StorageClient::new()
+            .await
             .context("Failed to initialize storage client")?;
 
         // Create temporary directory for processing
         let temp_dir = PathBuf::from("/tmp").join(&job.job_id);
-        fs::create_dir_all(&temp_dir).await
+        fs::create_dir_all(&temp_dir)
+            .await
             .context("Failed to create temp directory")?;
         logs.push_str(&format!("Created temp directory: {:?}\n", temp_dir));
 
         // Download input files
         logs.push_str("Downloading front video from storage...\n");
-        let front_data = storage.download(&front_input).await
+        let front_data = storage
+            .download(&front_input)
+            .await
             .context("Failed to download front video")?;
         let front_input_path = temp_dir.join("front_input.mp4");
-        fs::write(&front_input_path, front_data).await
+        fs::write(&front_input_path, front_data)
+            .await
             .context("Failed to write front input file")?;
-        logs.push_str(&format!("Downloaded front video ({} bytes)\n", fs::metadata(&front_input_path).await?.len()));
+        logs.push_str(&format!(
+            "Downloaded front video ({} bytes)\n",
+            fs::metadata(&front_input_path).await?.len()
+        ));
 
         logs.push_str("Downloading side video from storage...\n");
-        let side_data = storage.download(&side_input).await
+        let side_data = storage
+            .download(&side_input)
+            .await
             .context("Failed to download side video")?;
         let side_input_path = temp_dir.join("side_input.mp4");
-        fs::write(&side_input_path, side_data).await
+        fs::write(&side_input_path, side_data)
+            .await
             .context("Failed to write side input file")?;
-        logs.push_str(&format!("Downloaded side video ({} bytes)\n", fs::metadata(&side_input_path).await?.len()));
+        logs.push_str(&format!(
+            "Downloaded side video ({} bytes)\n",
+            fs::metadata(&side_input_path).await?.len()
+        ));
 
         // Process videos
         let front_output_path = temp_dir.join("front.mp4");
@@ -126,36 +143,55 @@ impl MediaConversionWorker {
         let side_transform = video_edit.as_ref().and_then(|ve| ve.side.clone());
 
         logs.push_str("Converting front video...\n");
-        standardize_video(&front_input_path, &front_output_path, front_transform.as_ref(), logs).await
-            .context("Failed to convert front video")?;
+        standardize_video(
+            &front_input_path,
+            &front_output_path,
+            front_transform.as_ref(),
+            logs,
+        )
+        .await
+        .context("Failed to convert front video")?;
         logs.push_str("Front video conversion done.\n");
 
         logs.push_str("Converting side video...\n");
-        standardize_video(&side_input_path, &side_output_path, side_transform.as_ref(), logs).await
-            .context("Failed to convert side video")?;
+        standardize_video(
+            &side_input_path,
+            &side_output_path,
+            side_transform.as_ref(),
+            logs,
+        )
+        .await
+        .context("Failed to convert side video")?;
         logs.push_str("Side video conversion done.\n");
 
         // Construct output paths using helper methods
         let front_output_key = job.output_front_video(stage);
         let side_output_key = job.output_side_video(stage);
-        
+
         logs.push_str("Uploading converted front video...\n");
-        let front_output_data = fs::read(&front_output_path).await
+        let front_output_data = fs::read(&front_output_path)
+            .await
             .context("Failed to read converted front video")?;
-        storage.upload(&front_output_key, front_output_data, Some("video/mp4")).await
+        storage
+            .upload(&front_output_key, front_output_data, Some("video/mp4"))
+            .await
             .context("Failed to upload front video")?;
         logs.push_str(&format!("Uploaded front video to: {}\n", front_output_key));
 
         logs.push_str("Uploading converted side video...\n");
-        let side_output_data = fs::read(&side_output_path).await
+        let side_output_data = fs::read(&side_output_path)
+            .await
             .context("Failed to read converted side video")?;
-        storage.upload(&side_output_key, side_output_data, Some("video/mp4")).await
+        storage
+            .upload(&side_output_key, side_output_data, Some("video/mp4"))
+            .await
             .context("Failed to upload side video")?;
         logs.push_str(&format!("Uploaded side video to: {}\n", side_output_key));
 
         // Clean up temporary files
         logs.push_str("Cleaning up temporary files...\n");
-        fs::remove_dir_all(&temp_dir).await
+        fs::remove_dir_all(&temp_dir)
+            .await
             .context("Failed to clean up temp directory")?;
 
         // Return output keys for next stage
@@ -164,7 +200,7 @@ impl MediaConversionWorker {
         output_keys.insert("side_video".to_string(), side_output_key);
 
         logs.push_str("Conversion complete!\n");
-        
+
         Ok(output_keys)
     }
 }
@@ -271,7 +307,7 @@ async fn standardize_video(
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    
+
     // FFmpeg outputs to stderr by default, so we log it
     if !stderr.is_empty() {
         logs.push_str(&format!("ffmpeg output: {}\n", stderr));
@@ -281,7 +317,10 @@ async fn standardize_video(
     }
 
     if !output.status.success() {
-        return Err(anyhow::anyhow!("ffmpeg failed with status: {}", output.status));
+        return Err(anyhow::anyhow!(
+            "ffmpeg failed with status: {}",
+            output.status
+        ));
     }
 
     Ok(())

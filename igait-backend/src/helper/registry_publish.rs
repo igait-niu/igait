@@ -28,20 +28,25 @@ pub async fn publish(db: &FirebaseRtdb) -> Result<()> {
     let published: BTreeMap<&'static str, PublishedStage> = STAGES
         .iter()
         .enumerate()
-        .map(|(i, s)| (
-            s.key,
-            PublishedStage {
-                key: s.key,
-                display_name: s.display_name,
-                description: s.description,
-                terminal: s.terminal,
-                panel: s.panel,
-                order: i,
-            },
-        ))
+        .map(|(i, s)| {
+            (
+                s.key,
+                PublishedStage {
+                    key: s.key,
+                    display_name: s.display_name,
+                    description: s.description,
+                    terminal: s.terminal,
+                    panel: s.panel,
+                    order: i,
+                },
+            )
+        })
         .collect();
 
     db.set("registry/stages", &published).await?;
-    info!("Published stage registry ({} entries) to /registry/stages", STAGES.len());
+    info!(
+        "Published stage registry ({} entries) to /registry/stages",
+        STAGES.len()
+    );
     Ok(())
 }

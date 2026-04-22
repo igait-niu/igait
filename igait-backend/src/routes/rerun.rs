@@ -8,14 +8,14 @@
 
 use std::collections::HashMap;
 
+use anyhow::{anyhow, Context};
 use axum::{extract::State, Json};
-use anyhow::{Context, anyhow};
 use firebase_auth::FirebaseUser;
 use serde::{Deserialize, Serialize};
 
 use igait_lib::microservice::{
-    JobMetadata, QueueItem, QueueOps, StageId, StageStatus, StoragePaths,
-    FirebaseRtdb, queue_item_path, stage_logs_path, stage_status_path, stages_from,
+    queue_item_path, stage_logs_path, stage_status_path, stages_from, FirebaseRtdb, JobMetadata,
+    QueueItem, QueueOps, StageId, StageStatus, StoragePaths,
 };
 use tracing::{info, instrument, warn};
 
@@ -124,8 +124,7 @@ pub async fn rerun_entrypoint(
     let job_id = format!("{}_{}", target_uid, job_key);
     info!(%job_id, "rerun requested by admin");
 
-    let rtdb = FirebaseRtdb::from_env()
-        .context("Failed to initialise Firebase RTDB client")?;
+    let rtdb = FirebaseRtdb::from_env().context("Failed to initialise Firebase RTDB client")?;
     let queue_ops = QueueOps::new(rtdb.clone(), format!("rerun_{}", caller_uid));
 
     // ── 2a. Acquire job lease ───────────────────────────────────────
@@ -133,10 +132,13 @@ pub async fn rerun_entrypoint(
         .try_acquire_job_lease(target_uid, job_key, RERUN_LEASE_TTL_MS)
         .await
         .context("Failed to probe for job lease")?
-        .ok_or_else(|| anyhow!(
-            "Another rerun is in progress for {}_{} — try again shortly",
-            target_uid, job_key
-        ))?;
+        .ok_or_else(|| {
+            anyhow!(
+                "Another rerun is in progress for {}_{} — try again shortly",
+                target_uid,
+                job_key
+            )
+        })?;
 
     let result = run_rerun_under_lease(
         app.clone(),
@@ -151,7 +153,10 @@ pub async fn rerun_entrypoint(
     )
     .await;
 
-    if let Err(e) = queue_ops.release_job_lease(target_uid, job_key, &lease_id).await {
+    if let Err(e) = queue_ops
+        .release_job_lease(target_uid, job_key, &lease_id)
+        .await
+    {
         warn!(
             lease_id = %lease_id,
             ttl_ms = RERUN_LEASE_TTL_MS,
@@ -293,4 +298,3 @@ async fn run_rerun_under_lease(
 
     Ok(total_deleted)
 }
-

@@ -92,10 +92,7 @@ impl PredictionWorker {
             "Input front gait analysis: {}\n",
             front_gait_input
         ));
-        logs.push_str(&format!(
-            "Input side gait analysis: {}\n",
-            side_gait_input
-        ));
+        logs.push_str(&format!("Input side gait analysis: {}\n", side_gait_input));
 
         // Initialize storage client
         logs.push_str("Initializing storage client...\n");

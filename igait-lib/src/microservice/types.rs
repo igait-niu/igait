@@ -1,8 +1,8 @@
 //! Core types for microservice communication.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
 
 // StageNumber was an enum with one variant per pipeline stage. It has
 // been replaced by [`StageId`](super::registry::StageId) — a validated
@@ -55,7 +55,7 @@ pub struct VideoEditFlags {
 // ============================================================================
 
 /// Metadata passed through the pipeline with each job.
-/// 
+///
 /// This contains patient information and contact details needed for
 /// email notifications and result tracking.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -63,27 +63,27 @@ pub struct JobMetadata {
     /// Email address for sending notifications
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
-    
+
     /// Patient age
     #[serde(skip_serializing_if = "Option::is_none")]
     pub age: Option<i16>,
-    
+
     /// Patient sex ('M', 'F', etc.)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sex: Option<char>,
-    
+
     /// Patient ethnicity
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ethnicity: Option<String>,
-    
+
     /// Patient height (as string, e.g., "5'10\"")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height: Option<String>,
-    
+
     /// Patient weight in pounds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weight: Option<i16>,
-    
+
     /// Any additional key-value pairs
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -99,34 +99,34 @@ pub struct JobMetadata {
 pub struct FirestoreJob {
     /// Unique job identifier
     pub job_id: String,
-    
+
     /// User ID who owns this job
     pub user_id: String,
-    
+
     /// When the job was created
     pub created_at: DateTime<Utc>,
-    
+
     /// When the job was last updated
     pub updated_at: DateTime<Utc>,
-    
+
     /// Patient information
     pub patient: PatientInfo,
-    
+
     /// Overall job status
     pub status: FirestoreJobStatus,
-    
+
     /// Current stage id (None = still in upload / not yet claimed by a stage).
     pub current_stage: Option<super::registry::StageId>,
-    
+
     /// Per-stage results
     pub stages: HashMap<String, FirestoreStageResult>,
-    
+
     /// Final result (populated after stage 7)
     pub result: Option<FinalResult>,
-    
+
     /// Email for notifications
     pub email: String,
-    
+
     /// Whether completion email has been sent
     pub email_sent: bool,
 }
@@ -178,10 +178,10 @@ pub enum FirestoreStageStatus {
 pub struct FinalResult {
     /// ASD probability score (0.0 - 1.0)
     pub score: f64,
-    
+
     /// Classification result
     pub classification: String,
-    
+
     /// Storage key for the results archive
     pub archive_key: String,
 }

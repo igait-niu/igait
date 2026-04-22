@@ -124,7 +124,6 @@ pub struct Job {
     pub video_edit: Option<VideoEditFlags>,
 }
 
-
 /// Simplified job status that gets stored in Firebase RTDB.
 ///
 /// This is a tagged union (discriminated by `code`) with variant-specific fields.
@@ -484,8 +483,8 @@ impl AppState {
     ///   - AWS credentials for SES
     pub async fn new() -> Result<Self> {
         let client = Client::new();
-        let firebase_project_id = std::env::var("FIREBASE_PROJECT_ID")
-            .context("FIREBASE_PROJECT_ID must be set")?;
+        let firebase_project_id =
+            std::env::var("FIREBASE_PROJECT_ID").context("FIREBASE_PROJECT_ID must be set")?;
         let firebase_auth = FirebaseAuth::new(&firebase_project_id).await;
 
         // Try to initialize the assistant (optional for upload route)

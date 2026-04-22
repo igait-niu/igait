@@ -11,4 +11,10 @@
  * * `Caucasian` - Caucasian/White
  * * `PacificIslander` - Pacific Islander
  */
-export type Ethnicity = "africanAmerican" | "nativeAmerican" | "asian" | "hispanic" | "caucasian" | "pacificIslander";
+export type Ethnicity =
+	| 'africanAmerican'
+	| 'nativeAmerican'
+	| 'asian'
+	| 'hispanic'
+	| 'caucasian'
+	| 'pacificIslander';

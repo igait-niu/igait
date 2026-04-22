@@ -8,16 +8,16 @@
 //! This is the terminal stage that receives jobs from the finalize queue.
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use igait_lib::microservice::{
-    check_env, ClaimResult, EmailClient, EmailTemplates, FinalizeQueueItem, JobResult,
-    ProcessingResult, StageId, StorageClient, JobStatus, StageStatus, QueueOps, FirebaseRtdb,
-    job_result_path, FINALIZE_REQUIRED_ENV, STAGE_REQUIRED_ENV,
+    check_env, job_result_path, ClaimResult, EmailClient, EmailTemplates, FinalizeQueueItem,
+    FirebaseRtdb, JobResult, JobStatus, ProcessingResult, QueueOps, StageId, StageStatus,
+    StorageClient, FINALIZE_REQUIRED_ENV, STAGE_REQUIRED_ENV,
 };
-use std::time::Duration;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::time::Duration;
 use std::time::{Instant, SystemTime};
-use chrono::{DateTime, Utc};
 
 /// The expected format of prediction.json from Stage 6.
 ///
@@ -33,7 +33,6 @@ struct PredictionResult {
     error_type: Option<String>,
     error_message: Option<String>,
 }
-
 
 /// The finalize worker handles the final stage of the pipeline.
 pub struct FinalizeStageWorker {
@@ -51,8 +50,7 @@ impl FinalizeStageWorker {
         let storage = StorageClient::new()
             .await
             .context("Failed to create storage client")?;
-        let db = FirebaseRtdb::from_env()
-            .context("Failed to create Firebase RTDB client")?;
+        let db = FirebaseRtdb::from_env().context("Failed to create Firebase RTDB client")?;
         let queue_ops = QueueOps::new(db, "finalize".to_string());
 
         Ok(Self {
@@ -123,13 +121,24 @@ impl FinalizeStageWorker {
         is_asd: bool,
         logs: &mut String,
     ) -> Result<()> {
-        let email = job.metadata.email.as_deref()
+        let email = job
+            .metadata
+            .email
+            .as_deref()
             .ok_or_else(|| anyhow::anyhow!("No email address in job metadata"))?;
 
         let (user_id, job_key) = QueueOps::parse_job_id(&job.job_id)
             .context("Failed to parse job_id for email dedup marker")?;
-        let outcome = if is_asd { "success_asd" } else { "success_no_asd" };
-        let Some(dedup_id) = self.queue_ops.try_claim_email_send(&user_id, &job_key, outcome).await? else {
+        let outcome = if is_asd {
+            "success_asd"
+        } else {
+            "success_no_asd"
+        };
+        let Some(dedup_id) = self
+            .queue_ops
+            .try_claim_email_send(&user_id, &job_key, outcome)
+            .await?
+        else {
             logs.push_str("Result email already sent by another worker; skipping\n");
             return Ok(());
         };
@@ -152,7 +161,9 @@ impl FinalizeStageWorker {
         logs.push_str(&format!("Sending success email to {}\n", email));
         logs.push_str(&format!("ASD indicator: {}\n", is_asd));
 
-        self.email_client.send_with_dedup(email, &subject, &body, Some(&dedup_id)).await?;
+        self.email_client
+            .send_with_dedup(email, &subject, &body, Some(&dedup_id))
+            .await?;
         logs.push_str("Success email sent\n");
 
         Ok(())
@@ -165,12 +176,19 @@ impl FinalizeStageWorker {
         error: &str,
         logs: &mut String,
     ) -> Result<()> {
-        let email = job.metadata.email.as_deref()
+        let email = job
+            .metadata
+            .email
+            .as_deref()
             .ok_or_else(|| anyhow::anyhow!("No email address in job metadata"))?;
 
         let (user_id, job_key) = QueueOps::parse_job_id(&job.job_id)
             .context("Failed to parse job_id for email dedup marker")?;
-        let Some(dedup_id) = self.queue_ops.try_claim_email_send(&user_id, &job_key, "failure").await? else {
+        let Some(dedup_id) = self
+            .queue_ops
+            .try_claim_email_send(&user_id, &job_key, "failure")
+            .await?
+        else {
             logs.push_str("Result email already sent by another worker; skipping\n");
             return Ok(());
         };
@@ -187,9 +205,14 @@ impl FinalizeStageWorker {
         );
 
         logs.push_str(&format!("Sending failure email to {}\n", email));
-        logs.push_str(&format!("Failed at stage: {:?}, Error: {}\n", job.failed_at_stage, error));
+        logs.push_str(&format!(
+            "Failed at stage: {:?}, Error: {}\n",
+            job.failed_at_stage, error
+        ));
 
-        self.email_client.send_with_dedup(email, &subject, &body, Some(&dedup_id)).await?;
+        self.email_client
+            .send_with_dedup(email, &subject, &body, Some(&dedup_id))
+            .await?;
         logs.push_str("Failure email sent\n");
 
         Ok(())
@@ -199,7 +222,11 @@ impl FinalizeStageWorker {
     async fn update_job_status(&self, job_id: &str, status: JobStatus) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_job_status(&user_id, &job_index, &status).await {
+                if let Err(e) = self
+                    .queue_ops
+                    .update_job_status(&user_id, &job_index, &status)
+                    .await
+                {
                     eprintln!("Failed to update job status in RTDB: {:?}", e);
                 }
             }
@@ -214,7 +241,11 @@ impl FinalizeStageWorker {
         let finalize_id = StageId::new("finalize");
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_stage_logs(&user_id, &job_index, finalize_id, logs).await {
+                if let Err(e) = self
+                    .queue_ops
+                    .update_stage_logs(&user_id, &job_index, finalize_id, logs)
+                    .await
+                {
                     eprintln!("Failed to upload finalize logs to RTDB: {:?}", e);
                 }
             }
@@ -228,7 +259,11 @@ impl FinalizeStageWorker {
     async fn update_stage_status(&self, job_id: &str, stage: StageId, status: StageStatus) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_stage_status(&user_id, &job_index, stage, &status).await {
+                if let Err(e) = self
+                    .queue_ops
+                    .update_stage_status(&user_id, &job_index, stage, &status)
+                    .await
+                {
                     eprintln!("Failed to update {} status in RTDB: {:?}", stage, e);
                 }
             }
@@ -250,8 +285,10 @@ impl FinalizeStageWorker {
 
         // Mark the finalize stage as running on entry.
         let finalize_id = StageId::new("finalize");
-        self.update_job_status(&job.job_id, JobStatus::processing(finalize_id)).await;
-        self.update_stage_status(&job.job_id, finalize_id, StageStatus::Running).await;
+        self.update_job_status(&job.job_id, JobStatus::processing(finalize_id))
+            .await;
+        self.update_stage_status(&job.job_id, finalize_id, StageStatus::Running)
+            .await;
 
         // Check for prediction.json in S3 - this is the source of truth
         let prediction_class = self.get_prediction_class(&job.job_id).await;
@@ -270,30 +307,35 @@ impl FinalizeStageWorker {
                     logs.push_str(&format!("WARNING: Failed to send email: {}\n", e));
                 }
             }
-            
+
             self.upload_stage_logs(&job.job_id, &logs).await;
 
             ProcessingResult::Success {
                 output_keys: HashMap::from([
                     ("is_asd".to_string(), is_asd.to_string()),
-                    ("prediction".to_string(), if is_asd { "1.0" } else { "0.0" }.to_string()),
+                    (
+                        "prediction".to_string(),
+                        if is_asd { "1.0" } else { "0.0" }.to_string(),
+                    ),
                 ]),
                 logs,
                 duration_ms: start_time.elapsed().as_millis() as u64,
             }
         } else {
             // No prediction file - pipeline failed somewhere
-            let error_msg = job.error.clone()
+            let error_msg = job
+                .error
+                .clone()
                 .or_else(|| job.error_logs.clone())
                 .unwrap_or_else(|| "Unknown error - no prediction.json found".to_string());
-            
+
             logs.push_str(&format!("No prediction found, treating as failure\n"));
             logs.push_str(&format!("Error info: {}\n", error_msg));
-            
+
             if let Some(stage) = job.failed_at_stage {
                 logs.push_str(&format!("Failed at stage: {}\n", stage));
             }
-            
+
             match self.send_failure_email(job, &error_msg, &mut logs).await {
                 Ok(_) => {
                     logs.push_str("Failure notification sent\n");
@@ -303,7 +345,7 @@ impl FinalizeStageWorker {
                     logs.push_str(&format!("WARNING: Failed to send email: {}\n", e));
                 }
             }
-            
+
             self.upload_stage_logs(&job.job_id, &logs).await;
 
             // Return success because finalization completed (even though the job itself failed)
@@ -394,8 +436,7 @@ async fn run_finalize_job_mode() -> Result<()> {
 
     let process_result = worker.process(&job).await;
 
-    let db = FirebaseRtdb::from_env()
-        .context("Failed to create Firebase RTDB client")?;
+    let db = FirebaseRtdb::from_env().context("Failed to create Firebase RTDB client")?;
 
     let job_epoch: u64 = std::env::var("IGAIT_JOB_EPOCH")
         .ok()
@@ -403,8 +444,15 @@ async fn run_finalize_job_mode() -> Result<()> {
         .unwrap_or(0);
 
     let job_result = match &process_result {
-        ProcessingResult::Success { output_keys, logs, duration_ms } => {
-            println!("[job-mode] Finalize job {} completed in {}ms", job.job_id, duration_ms);
+        ProcessingResult::Success {
+            output_keys,
+            logs,
+            duration_ms,
+        } => {
+            println!(
+                "[job-mode] Finalize job {} completed in {}ms",
+                job.job_id, duration_ms
+            );
             JobResult {
                 stage: StageId::new("finalize"),
                 success: true,
@@ -424,8 +472,15 @@ async fn run_finalize_job_mode() -> Result<()> {
                 taken_at: None,
             }
         }
-        ProcessingResult::Failure { error, logs, duration_ms } => {
-            eprintln!("[job-mode] Finalize job {} failed after {}ms: {}", job.job_id, duration_ms, error);
+        ProcessingResult::Failure {
+            error,
+            logs,
+            duration_ms,
+        } => {
+            eprintln!(
+                "[job-mode] Finalize job {} failed after {}ms: {}",
+                job.job_id, duration_ms, error
+            );
             JobResult {
                 stage: StageId::new("finalize"),
                 success: false,
@@ -448,9 +503,13 @@ async fn run_finalize_job_mode() -> Result<()> {
     };
 
     let result_path = job_result_path(&job.job_id);
-    db.set(&result_path, &job_result).await
+    db.set(&result_path, &job_result)
+        .await
         .context("Failed to write finalize JobResult to Firebase RTDB")?;
 
-    println!("[job-mode] Finalize result written to RTDB at {}", result_path);
+    println!(
+        "[job-mode] Finalize result written to RTDB at {}",
+        result_path
+    );
     Ok(())
 }

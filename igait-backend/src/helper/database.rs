@@ -1,6 +1,6 @@
 use crate::helper::lib::User;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use igait_lib::microservice::FirebaseRtdb;
 use uuid::Uuid;
 
@@ -44,8 +44,7 @@ impl Database {
     /// environment. Unlike the old `firebase_rs`-based init, this accepts
     /// both `http://` (emulator) and `https://` (prod) schemes.
     pub async fn init() -> Result<Self> {
-        let rtdb = FirebaseRtdb::from_env()
-            .context("Failed to initialize FirebaseRtdb client")?;
+        let rtdb = FirebaseRtdb::from_env().context("Failed to initialize FirebaseRtdb client")?;
         Ok(Self { rtdb })
     }
 
@@ -78,9 +77,7 @@ impl Database {
             match serde_json::from_value::<Job>(v.clone()) {
                 Ok(job) => jobs.push(job),
                 Err(e) => {
-                    eprintln!(
-                        "WARNING: failed to deserialize job '{key}' for user {uid}: {e}"
-                    );
+                    eprintln!("WARNING: failed to deserialize job '{key}' for user {uid}: {e}");
                 }
             }
         }
@@ -96,7 +93,9 @@ impl Database {
             .await
             .context(format!("Failed to fetch jobs for user {uid}"))?;
 
-        Ok(raw.and_then(|v| v.as_object().map(|o| o.len())).unwrap_or(0))
+        Ok(raw
+            .and_then(|v| v.as_object().map(|o| o.len()))
+            .unwrap_or(0))
     }
 
     /// Checks whether a specific job key exists in Firebase RTDB.
@@ -105,7 +104,9 @@ impl Database {
             .rtdb
             .get(&Self::job_path(uid, job_id))
             .await
-            .context(format!("Failed to check existence of job {job_id} for user {uid}"))?;
+            .context(format!(
+                "Failed to check existence of job {job_id} for user {uid}"
+            ))?;
         Ok(v.is_some())
     }
 
@@ -131,10 +132,13 @@ impl Database {
 
         println!("User doesn't exist, creating new user with UID '{uid}'...");
         self.rtdb
-            .update(&path, &serde_json::json!({
-                "uid": uid,
-                "jobs": {}
-            }))
+            .update(
+                &path,
+                &serde_json::json!({
+                    "uid": uid,
+                    "jobs": {}
+                }),
+            )
             .await
             .context("Failed to create a new user while ensuring they existed!")?;
         println!("Successfully created new user!");
@@ -157,7 +161,9 @@ impl Database {
 
     /// Fetches a user record from the database.
     pub async fn get_user(&self, uid: &str) -> Result<User> {
-        self.ensure_user(uid).await.context("Failed to ensure user!")?;
+        self.ensure_user(uid)
+            .await
+            .context("Failed to ensure user!")?;
 
         self.rtdb
             .get::<User>(&Self::user_path(uid))
@@ -169,13 +175,17 @@ impl Database {
     /// Counts the number of jobs a user has.
     pub async fn count_jobs(&self, uid: &str) -> Result<usize> {
         println!("Counting jobs...");
-        self.ensure_user(uid).await.context("Failed to ensure user!")?;
+        self.ensure_user(uid)
+            .await
+            .context("Failed to ensure user!")?;
         self.job_count(uid).await.context("Failed to count jobs!")
     }
 
     /// Adds a new job to the user's job list.
     pub async fn new_job(&self, uid: &str, job: Job) -> Result<String> {
-        self.ensure_user(uid).await.context("Failed to ensure user!")?;
+        self.ensure_user(uid)
+            .await
+            .context("Failed to ensure user!")?;
 
         let job_key = Uuid::new_v4().to_string();
 
@@ -191,15 +201,12 @@ impl Database {
     }
 
     /// Updates the status of a job.
-    pub async fn update_status(
-        &self,
-        uid: &str,
-        job_key: &str,
-        status: JobStatus,
-    ) -> Result<()> {
+    pub async fn update_status(&self, uid: &str, job_key: &str, status: JobStatus) -> Result<()> {
         println!("Updating status...");
 
-        self.ensure_user(uid).await.context("Failed to ensure user!")?;
+        self.ensure_user(uid)
+            .await
+            .context("Failed to ensure user!")?;
 
         if !self.job_exists(uid, job_key).await? {
             return Err(anyhow!("Job key '{}' does not exist!", job_key));
@@ -222,7 +229,9 @@ impl Database {
     pub async fn _get_status(&self, uid: &str, job_key: &str) -> Result<JobStatus> {
         println!("Getting status...");
 
-        self.ensure_user(uid).await.context("Failed to ensure user!")?;
+        self.ensure_user(uid)
+            .await
+            .context("Failed to ensure user!")?;
 
         let path = format!("{}/status", Self::job_path(uid, job_key));
         self.rtdb
@@ -236,7 +245,9 @@ impl Database {
     pub async fn get_job(&self, uid: &str, job_key: &str) -> Result<Job> {
         println!("Getting job...");
 
-        self.ensure_user(uid).await.context("Failed to ensure user!")?;
+        self.ensure_user(uid)
+            .await
+            .context("Failed to ensure user!")?;
 
         self.rtdb
             .get::<Job>(&Self::job_path(uid, job_key))
@@ -249,7 +260,9 @@ impl Database {
     pub async fn get_all_jobs(&self, uid: &str) -> Result<Vec<Job>> {
         println!("Getting all jobs...");
 
-        self.ensure_user(uid).await.context("Failed to ensure user!")?;
+        self.ensure_user(uid)
+            .await
+            .context("Failed to ensure user!")?;
 
         self.get_jobs(uid).await.context("Failed to get jobs!")
     }

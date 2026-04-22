@@ -8,4 +8,4 @@
  * * `F` - Female
  * * `O` - Other
  */
-export type Sex = "M" | "F" | "O";
+export type Sex = 'M' | 'F' | 'O';

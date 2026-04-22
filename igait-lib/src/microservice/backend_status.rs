@@ -1,5 +1,5 @@
 //! Backend status update functionality for microservices.
-//! 
+//!
 //! This module provides utilities for microservices to update job status
 //! directly in Firebase RTDB.
 
@@ -23,7 +23,7 @@ pub enum StageStatus {
 }
 
 /// Simplified job status that gets stored in Firebase RTDB.
-/// 
+///
 /// This is written directly to `users/{uid}/jobs/{index}/status`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "code", rename_all = "PascalCase")]
@@ -34,10 +34,7 @@ pub enum JobStatus {
         value: String,
     },
     /// Job is currently being processed by a stage
-    Processing {
-        stage: StageId,
-        value: String,
-    },
+    Processing { stage: StageId, value: String },
     /// Job completed successfully with prediction results
     Complete {
         /// The prediction value (0.0 - 1.0 probability)

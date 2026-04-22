@@ -16,12 +16,7 @@
 		type QueueItem,
 		type FinalizeQueueItem
 	} from '$lib/hooks';
-	import {
-		registryStore,
-		queuePathSegment,
-		isRegistryLoaded,
-		isRegistryError
-	} from '$lib/stores';
+	import { registryStore, queuePathSegment, isRegistryLoaded, isRegistryError } from '$lib/stores';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Switch } from '$lib/components/ui/switch';
 	import { JobsDataTable } from '$lib/components/jobs';
@@ -68,9 +63,7 @@
 	});
 
 	const activeStage = $derived(stages.find((s) => s.key === activeStageKey));
-	const activeQueueSegment = $derived(
-		activeStage ? queuePathSegment(activeStage) : ''
-	);
+	const activeQueueSegment = $derived(activeStage ? queuePathSegment(activeStage) : '');
 
 	// ── Derived data ───────────────────────────────────────
 
@@ -93,9 +86,7 @@
 	});
 
 	/** Queue items converted to Job format for the data table. */
-	const jobsForTable = $derived(
-		activeQueueEntries.map(({ item }) => queueItemToJob(item))
-	);
+	const jobsForTable = $derived(activeQueueEntries.map(({ item }) => queueItemToJob(item)));
 
 	/** Total jobs across all queues. */
 	const totalJobs = $derived.by(() =>
@@ -108,9 +99,7 @@
 		return configState.configs[activeQueueSegment]?.requires_approval ?? false;
 	});
 
-	const activeStageCount = $derived(
-		activeQueueSegment ? getQueueItemCount(activeQueueSegment) : 0
-	);
+	const activeStageCount = $derived(activeQueueSegment ? getQueueItemCount(activeQueueSegment) : 0);
 
 	// ── Handlers ───────────────────────────────────────────
 
@@ -144,9 +133,7 @@
 			targets.map(({ key, item }) => approveQueueItem(activeQueueSegment, key, item))
 		);
 
-		const failures = results.filter(
-			(r): r is PromiseRejectedResult => r.status === 'rejected'
-		);
+		const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
 		const succeeded = results.length - failures.length;
 
 		if (failures.length === 0) {
@@ -155,9 +142,7 @@
 		}
 
 		const firstReason =
-			failures[0].reason instanceof Error
-				? failures[0].reason.message
-				: String(failures[0].reason);
+			failures[0].reason instanceof Error ? failures[0].reason.message : String(failures[0].reason);
 		approveError =
 			succeeded > 0
 				? `Approved ${succeeded} of ${results.length}; ${failures.length} failed: ${firstReason}`

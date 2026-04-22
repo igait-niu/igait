@@ -12,10 +12,10 @@
 
 use anyhow::{Context, Result};
 use igait_lib::microservice::{
-    CasResult, ClaimResult, FinalizeQueueItem, FirebaseRtdb, JobMetadata, JobResult, JobStatus,
-    QueueItem, QueueOps, RetryPolicy, StageId, StageStatus, generate_worker_id,
-    job_result_path, job_status_path, now_ms, queue_item_path, retry_transient,
-    stage_logs_path, stage_status_path, JOB_RESULT_TAKE_TIMEOUT_MS,
+    generate_worker_id, job_result_path, job_status_path, now_ms, queue_item_path, retry_transient,
+    stage_logs_path, stage_status_path, CasResult, ClaimResult, FinalizeQueueItem, FirebaseRtdb,
+    JobMetadata, JobResult, JobStatus, QueueItem, QueueOps, RetryPolicy, StageId, StageStatus,
+    JOB_RESULT_TAKE_TIMEOUT_MS,
 };
 use k8s_openapi::api::batch::v1::{Job, JobSpec};
 use k8s_openapi::api::core::v1::{
@@ -151,8 +151,7 @@ impl Orchestrator {
             .await
             .context("Failed to create K8s client (are we running in-cluster?)")?;
 
-        let rtdb = FirebaseRtdb::from_env()
-            .context("Failed to create Firebase RTDB client")?;
+        let rtdb = FirebaseRtdb::from_env().context("Failed to create Firebase RTDB client")?;
 
         // Load stage images from environment — every stage in the registry
         // expects a matching STAGE_<KEY>_IMAGE env var.
@@ -166,7 +165,10 @@ impl Orchestrator {
                     stage_images.insert(stage, image);
                 }
                 Err(_) => {
-                    warn!("Missing {} env var — {} Jobs cannot be created", env_var, stage);
+                    warn!(
+                        "Missing {} env var — {} Jobs cannot be created",
+                        env_var, stage
+                    );
                 }
             }
         }
@@ -190,17 +192,21 @@ impl Orchestrator {
             return 0;
         };
         let queue_ops = QueueOps::new(self.rtdb.clone(), self.orchestrator_id.clone());
-        queue_ops.read_job_epoch(&user_id, &job_key).await.unwrap_or(0)
+        queue_ops
+            .read_job_epoch(&user_id, &job_key)
+            .await
+            .unwrap_or(0)
     }
 
     /// Creates a K8s Job for a standard processing stage (1-6).
     #[instrument(skip_all, fields(stage = %stage, job_id = %job.job_id, epoch = job.epoch))]
     async fn create_stage_job(&self, stage: StageId, job: &QueueItem) -> Result<String> {
-        let image = self.stage_images.get(&stage)
+        let image = self
+            .stage_images
+            .get(&stage)
             .ok_or_else(|| anyhow::anyhow!("No image configured for {}", stage))?;
 
-        let payload = serde_json::to_string(job)
-            .context("Failed to serialize QueueItem")?;
+        let payload = serde_json::to_string(job).context("Failed to serialize QueueItem")?;
 
         let job_name = self.make_job_name(stage, &job.job_id);
         let resources = stage_resources(stage);
@@ -219,11 +225,15 @@ impl Orchestrator {
         );
 
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
-        jobs_api.create(&PostParams::default(), &k8s_job).await
+        jobs_api
+            .create(&PostParams::default(), &k8s_job)
+            .await
             .context(format!("Failed to create K8s Job {}", job_name))?;
 
-        info!("Created K8s Job {} for {} job {} (job_epoch={})",
-            job_name, stage, job.job_id, job_epoch);
+        info!(
+            "Created K8s Job {} for {} job {} (job_epoch={})",
+            job_name, stage, job.job_id, job_epoch
+        );
         Ok(job_name)
     }
 
@@ -231,11 +241,13 @@ impl Orchestrator {
     #[instrument(skip_all, fields(stage = "finalize", job_id = %job.job_id))]
     async fn create_finalize_job(&self, job: &FinalizeQueueItem) -> Result<String> {
         let stage = StageId::new("finalize");
-        let image = self.stage_images.get(&stage)
+        let image = self
+            .stage_images
+            .get(&stage)
             .ok_or_else(|| anyhow::anyhow!("No image configured for stage 7 (finalize)"))?;
 
-        let payload = serde_json::to_string(job)
-            .context("Failed to serialize FinalizeQueueItem")?;
+        let payload =
+            serde_json::to_string(job).context("Failed to serialize FinalizeQueueItem")?;
 
         let job_name = self.make_job_name(stage, &job.job_id);
         let resources = stage_resources(stage);
@@ -254,11 +266,15 @@ impl Orchestrator {
         );
 
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
-        jobs_api.create(&PostParams::default(), &k8s_job).await
+        jobs_api
+            .create(&PostParams::default(), &k8s_job)
+            .await
             .context(format!("Failed to create K8s Job {}", job_name))?;
 
-        info!("Created K8s Job {} for finalize job {} (job_epoch={})",
-            job_name, job.job_id, job_epoch);
+        info!(
+            "Created K8s Job {} for finalize job {} (job_epoch={})",
+            job_name, job.job_id, job_epoch
+        );
         Ok(job_name)
     }
 
@@ -276,15 +292,24 @@ impl Orchestrator {
         job_epoch: u64,
     ) -> Job {
         let mut resource_requests = std::collections::BTreeMap::new();
-        resource_requests.insert("cpu".to_string(), Quantity(resources.cpu_request.to_string()));
-        resource_requests.insert("memory".to_string(), Quantity(resources.memory_request.to_string()));
+        resource_requests.insert(
+            "cpu".to_string(),
+            Quantity(resources.cpu_request.to_string()),
+        );
+        resource_requests.insert(
+            "memory".to_string(),
+            Quantity(resources.memory_request.to_string()),
+        );
         if let Some(eph) = resources.ephemeral_request {
             resource_requests.insert("ephemeral-storage".to_string(), Quantity(eph.to_string()));
         }
 
         let mut resource_limits = std::collections::BTreeMap::new();
         resource_limits.insert("cpu".to_string(), Quantity(resources.cpu_limit.to_string()));
-        resource_limits.insert("memory".to_string(), Quantity(resources.memory_limit.to_string()));
+        resource_limits.insert(
+            "memory".to_string(),
+            Quantity(resources.memory_limit.to_string()),
+        );
         if let Some(eph) = resources.ephemeral_limit {
             resource_limits.insert("ephemeral-storage".to_string(), Quantity(eph.to_string()));
         }
@@ -311,9 +336,10 @@ impl Orchestrator {
                 ttl_seconds_after_finished: Some(300),
                 template: PodTemplateSpec {
                     metadata: Some(ObjectMeta {
-                        labels: Some(std::collections::BTreeMap::from([
-                            ("app".to_string(), "igait-pipeline".to_string()),
-                        ])),
+                        labels: Some(std::collections::BTreeMap::from([(
+                            "app".to_string(),
+                            "igait-pipeline".to_string(),
+                        )])),
                         ..Default::default()
                     }),
                     spec: Some(PodSpec {
@@ -393,7 +419,10 @@ impl Orchestrator {
         info!("Claimed job {} for {}", job.job_id, stage);
 
         // Track as in-flight
-        self.in_flight.write().await.insert(job.job_id.clone(), stage);
+        self.in_flight
+            .write()
+            .await
+            .insert(job.job_id.clone(), stage);
 
         // Create K8s Job
         match self.create_stage_job(stage, &job).await {
@@ -403,9 +432,7 @@ impl Orchestrator {
             }
             Err(e) => {
                 error!("Failed to create K8s Job for job {}: {}", job.job_id, e);
-                if let Err(release_err) = queue_ops
-                    .release_job(stage, &job.job_id, job.epoch)
-                    .await
+                if let Err(release_err) = queue_ops.release_job(stage, &job.job_id, job.epoch).await
                 {
                     warn!(
                         "Failed to release claim on job {} after K8s Job creation failure: {:?} — will be reclaimed after claim TTL",
@@ -434,15 +461,24 @@ impl Orchestrator {
 
         info!("Claimed finalize job {}", job.job_id);
 
-        self.in_flight.write().await.insert(job.job_id.clone(), StageId::new("finalize"));
+        self.in_flight
+            .write()
+            .await
+            .insert(job.job_id.clone(), StageId::new("finalize"));
 
         match self.create_finalize_job(&job).await {
             Ok(job_name) => {
-                info!("Dispatched K8s finalize Job {} for job {}", job_name, job.job_id);
+                info!(
+                    "Dispatched K8s finalize Job {} for job {}",
+                    job_name, job.job_id
+                );
                 Ok(true)
             }
             Err(e) => {
-                error!("Failed to create K8s finalize Job for job {}: {}", job.job_id, e);
+                error!(
+                    "Failed to create K8s finalize Job for job {}: {}",
+                    job.job_id, e
+                );
                 self.in_flight.write().await.remove(&job.job_id);
                 Err(e)
             }
@@ -479,7 +515,10 @@ impl Orchestrator {
     /// Checks `job_results/` in Firebase RTDB for completed results and handles transitions.
     #[instrument(skip(self))]
     async fn check_completions(&self) -> Result<()> {
-        let results: Option<HashMap<String, JobResult>> = self.rtdb.get("job_results").await
+        let results: Option<HashMap<String, JobResult>> = self
+            .rtdb
+            .get("job_results")
+            .await
             .context("Failed to read job_results from RTDB")?;
 
         let Some(results) = results else {
@@ -503,8 +542,15 @@ impl Orchestrator {
                 Ok(parsed) => parsed,
                 Err(e) => {
                     error!("Failed to parse job_id {}: {}", job_id, e);
-                    if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
-                        warn!("Failed to delete unparseable job_result {}: {}", safe_job_id, e);
+                    if let Err(e) = self
+                        .rtdb
+                        .delete(&format!("job_results/{}", safe_job_id))
+                        .await
+                    {
+                        warn!(
+                            "Failed to delete unparseable job_result {}: {}",
+                            safe_job_id, e
+                        );
                     }
                     continue;
                 }
@@ -516,7 +562,11 @@ impl Orchestrator {
                     "Discarding stale JobResult for {} {} (result_epoch={} live_epoch={})",
                     job_id, stage, result.job_epoch, live_epoch
                 );
-                if let Err(e) = self.rtdb.delete(&format!("job_results/{}", safe_job_id)).await {
+                if let Err(e) = self
+                    .rtdb
+                    .delete(&format!("job_results/{}", safe_job_id))
+                    .await
+                {
                     warn!("Failed to delete stale job_result {}: {}", safe_job_id, e);
                 }
                 self.in_flight.write().await.remove(job_id);
@@ -527,7 +577,10 @@ impl Orchestrator {
                 .apply_completion_transition(&result, stage, &user_id, &job_key)
                 .await
             {
-                error!("Failed to apply completion transition for {}: {:?}", job_id, e);
+                error!(
+                    "Failed to apply completion transition for {}: {:?}",
+                    job_id, e
+                );
                 continue;
             }
 
@@ -536,7 +589,10 @@ impl Orchestrator {
                 // Not fatal: the take-once CAS on job_results prevents a
                 // double-apply on retry, so the worst case is a spammy warn
                 // until the next scan wins the delete.
-                warn!("Failed to delete processed job_result {}: {}", safe_job_id, e);
+                warn!(
+                    "Failed to delete processed job_result {}: {}",
+                    safe_job_id, e
+                );
             }
 
             self.in_flight.write().await.remove(job_id);
@@ -582,10 +638,7 @@ impl Orchestrator {
             if stage.terminal() {
                 // Terminal stage completing: clear the finalize queue item
                 // and stamp the final job status.
-                updates.insert(
-                    queue_item_path(stage, job_id),
-                    serde_json::Value::Null,
-                );
+                updates.insert(queue_item_path(stage, job_id), serde_json::Value::Null);
                 if let Some(is_asd_raw) = result.output_keys.get("is_asd") {
                     let is_asd = is_asd_raw == "true";
                     let prediction = result
@@ -652,11 +705,13 @@ impl Orchestrator {
             );
 
             if stage.terminal() {
-                error!("Terminal stage {:?} failed for job {}: {}", stage.key(), job_id, error_msg);
-                updates.insert(
-                    queue_item_path(stage, job_id),
-                    serde_json::Value::Null,
+                error!(
+                    "Terminal stage {:?} failed for job {}: {}",
+                    stage.key(),
+                    job_id,
+                    error_msg
                 );
+                updates.insert(queue_item_path(stage, job_id), serde_json::Value::Null);
             } else {
                 let finalize_item = FinalizeQueueItem::failure(
                     result.job_id.clone(),
@@ -675,10 +730,14 @@ impl Orchestrator {
         }
 
         let rtdb = &self.rtdb;
-        retry_transient(&RetryPolicy::default(), "apply_completion_transition", || {
-            let updates = updates.clone();
-            async move { rtdb.multi_update(updates).await }
-        })
+        retry_transient(
+            &RetryPolicy::default(),
+            "apply_completion_transition",
+            || {
+                let updates = updates.clone();
+                async move { rtdb.multi_update(updates).await }
+            },
+        )
         .await
         .context("Failed to apply completion transition")?;
         Ok(())
@@ -694,10 +753,11 @@ impl Orchestrator {
     #[instrument(skip(self), fields(job_id = %job_id))]
     pub async fn cancel_in_flight_jobs(&self, job_id: &str) -> Result<usize> {
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
-        let lp = ListParams::default()
-            .labels("app=igait-pipeline,managed-by=igait-backend");
+        let lp = ListParams::default().labels("app=igait-pipeline,managed-by=igait-backend");
 
-        let job_list = jobs_api.list(&lp).await
+        let job_list = jobs_api
+            .list(&lp)
+            .await
             .context("Failed to list K8s Jobs for cancellation")?;
 
         let dp = DeleteParams {
@@ -744,10 +804,11 @@ impl Orchestrator {
     #[instrument(skip(self))]
     async fn check_stale_jobs(&self) -> Result<()> {
         let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
-        let lp = ListParams::default()
-            .labels("app=igait-pipeline,managed-by=igait-backend");
+        let lp = ListParams::default().labels("app=igait-pipeline,managed-by=igait-backend");
 
-        let job_list = jobs_api.list(&lp).await
+        let job_list = jobs_api
+            .list(&lp)
+            .await
             .context("Failed to list K8s Jobs")?;
 
         for k8s_job in job_list.items {
@@ -759,11 +820,12 @@ impl Orchestrator {
                 .map(|f| f > 0)
                 .unwrap_or(false);
 
-            let conditions = status
-                .and_then(|s| s.conditions.as_ref());
+            let conditions = status.and_then(|s| s.conditions.as_ref());
             let is_deadline_exceeded = conditions
                 .map(|conds| {
-                    conds.iter().any(|c| c.type_ == "Failed" && c.reason.as_deref() == Some("DeadlineExceeded"))
+                    conds.iter().any(|c| {
+                        c.type_ == "Failed" && c.reason.as_deref() == Some("DeadlineExceeded")
+                    })
                 })
                 .unwrap_or(false);
 
@@ -780,17 +842,28 @@ impl Orchestrator {
 
                 if let (Some(job_id), Some(stage_str)) = (job_id, stage_str) {
                     let Some(stage) = StageId::try_new(stage_str) else {
-                        warn!("K8s Job {} has unknown stage label {:?}, skipping cleanup", job_name, stage_str);
+                        warn!(
+                            "K8s Job {} has unknown stage label {:?}, skipping cleanup",
+                            job_name, stage_str
+                        );
                         continue;
                     };
 
                     // Only write a failure result if one doesn't already exist
                     let result_path = job_result_path(job_id);
-                    let existing: Option<serde_json::Value> = self.rtdb.get(&result_path).await.unwrap_or(None);
+                    let existing: Option<serde_json::Value> =
+                        self.rtdb.get(&result_path).await.unwrap_or(None);
 
                     if existing.is_none() {
-                        let reason = if is_deadline_exceeded { "timed out" } else { "crashed" };
-                        warn!("Writing synthetic failure result for job {} {} ({})", job_id, stage, reason);
+                        let reason = if is_deadline_exceeded {
+                            "timed out"
+                        } else {
+                            "crashed"
+                        };
+                        warn!(
+                            "Writing synthetic failure result for job {} {} ({})",
+                            job_id, stage, reason
+                        );
 
                         let user_id_annotation = annotations
                             .and_then(|a| a.get("igait.niu.edu/user-id"))
@@ -803,7 +876,8 @@ impl Orchestrator {
                             .unwrap_or(0);
 
                         let error_text = format!("K8s Job {}: pod {}", reason, job_name);
-                        let logs_text = format!("{} pod {} without writing a result", stage, reason);
+                        let logs_text =
+                            format!("{} pod {} without writing a result", stage, reason);
 
                         let failure_result = JobResult {
                             stage,
@@ -854,7 +928,10 @@ impl Orchestrator {
                         )
                         .await;
                         if let Err(e) = write_result {
-                            error!("Failed to write synthetic failure result for {}: {}", job_id, e);
+                            error!(
+                                "Failed to write synthetic failure result for {}: {}",
+                                job_id, e
+                            );
                         }
                     }
                 } else {

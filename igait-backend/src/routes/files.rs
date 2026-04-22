@@ -6,8 +6,11 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use axum::{extract::{Path, State}, Json};
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 use firebase_auth::FirebaseUser;
 use serde::Serialize;
 
@@ -67,9 +70,7 @@ pub async fn files_entrypoint(
             .context("Failed to check admin status")?;
 
         if !is_admin {
-            return Err(AppError(anyhow!(
-                "Forbidden: you do not own this job."
-            )));
+            return Err(AppError(anyhow!("Forbidden: you do not own this job.")));
         }
     }
 
@@ -87,9 +88,7 @@ pub async fn files_entrypoint(
     for (key, url) in files {
         // key looks like "jobs/{job_id}/stage_N/filename.ext"
         // Strip the "jobs/{job_id}/" prefix to get "stage_N/filename.ext"
-        let relative = key
-            .strip_prefix(&prefix)
-            .unwrap_or(&key);
+        let relative = key.strip_prefix(&prefix).unwrap_or(&key);
 
         // Split into ("stage_N", "filename.ext")
         let (stage_dir, filename) = match relative.split_once('/') {
@@ -97,10 +96,10 @@ pub async fn files_entrypoint(
             None => continue, // skip if structure doesn't match
         };
 
-        stages
-            .entry(stage_dir)
-            .or_default()
-            .push(FileEntry { name: filename, url });
+        stages.entry(stage_dir).or_default().push(FileEntry {
+            name: filename,
+            url,
+        });
     }
 
     Ok(Json(JobFilesResponse { stages }))

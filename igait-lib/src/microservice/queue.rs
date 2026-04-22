@@ -400,7 +400,7 @@ pub fn queue_config_path(stage: StageId) -> String {
 /// Returns the Firebase RTDB path for a specific job in a queue.
 pub fn queue_item_path(stage: StageId, job_id: &str) -> String {
     // Replace characters that Firebase doesn't allow in keys
-    let safe_job_id = job_id.replace('.', "_").replace('/', "_");
+    let safe_job_id = job_id.replace(['.', '/'], "_");
     format!("{}/{}", queue_path(stage), safe_job_id)
 }
 
@@ -408,7 +408,7 @@ pub fn queue_item_path(stage: StageId, job_id: &str) -> String {
 ///
 /// Result paths are: `job_results/{safe_job_id}`
 pub fn job_result_path(job_id: &str) -> String {
-    let safe_job_id = job_id.replace('.', "_").replace('/', "_");
+    let safe_job_id = job_id.replace(['.', '/'], "_");
     format!("job_results/{}", safe_job_id)
 }
 
@@ -420,14 +420,18 @@ pub fn result_notification_path(user_id: &str, job_key: &str) -> String {
 pub fn stage_status_path(user_id: &str, job_key: &str, stage: StageId) -> String {
     format!(
         "users/{}/jobs/{}/stage_statuses/{}",
-        user_id, job_key, stage.key()
+        user_id,
+        job_key,
+        stage.key()
     )
 }
 
 pub fn stage_logs_path(user_id: &str, job_key: &str, stage: StageId) -> String {
     format!(
         "users/{}/jobs/{}/stage_logs/{}",
-        user_id, job_key, stage.key()
+        user_id,
+        job_key,
+        stage.key()
     )
 }
 

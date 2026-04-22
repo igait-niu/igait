@@ -7,8 +7,11 @@
 //!
 //! **Admin-only** — the caller must have `administrator: true`.
 
-use axum::{extract::{Path, State}, Json};
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 use firebase_auth::FirebaseUser;
 use serde::{Deserialize, Serialize};
 
@@ -92,13 +95,16 @@ pub async fn cycles_entrypoint(
         if cycle.start >= cycle.end {
             return Err(AppError(anyhow!(
                 "Invalid cycle at index {}: start ({}) must be less than end ({})",
-                i, cycle.start, cycle.end
+                i,
+                cycle.start,
+                cycle.end
             )));
         }
         if cycle.side != "L" && cycle.side != "R" {
             return Err(AppError(anyhow!(
                 "Invalid cycle at index {}: side must be 'L' or 'R', got '{}'",
-                i, cycle.side
+                i,
+                cycle.side
             )));
         }
     }
@@ -121,8 +127,8 @@ pub async fn cycles_entrypoint(
         .await
         .context(format!("Failed to download {} from S3", s3_key))?;
 
-    let mut json_value: serde_json::Value = serde_json::from_slice(&existing_bytes)
-        .context("Failed to parse existing JSON file")?;
+    let mut json_value: serde_json::Value =
+        serde_json::from_slice(&existing_bytes).context("Failed to parse existing JSON file")?;
 
     // ── 4. Replace gait_cycles ──────────────────────────────────────
     let new_cycles = serde_json::to_value(&request.gait_cycles)
@@ -131,8 +137,8 @@ pub async fn cycles_entrypoint(
     json_value["gait_cycles"] = new_cycles;
 
     // ── 5. Re-upload to S3 ──────────────────────────────────────────
-    let updated_bytes = serde_json::to_vec(&json_value)
-        .context("Failed to serialize updated JSON")?;
+    let updated_bytes =
+        serde_json::to_vec(&json_value).context("Failed to serialize updated JSON")?;
 
     app.storage
         .upload(&s3_key, updated_bytes, Some("application/json"))

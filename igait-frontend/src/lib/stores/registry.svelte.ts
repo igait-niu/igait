@@ -112,15 +112,11 @@ export function stageNumber(stage: StageSpec): number {
 
 // ── Type guards ────────────────────────────────────────────────────
 
-export function isRegistryLoading(
-	state: RegistryState
-): state is { status: 'loading' } {
+export function isRegistryLoading(state: RegistryState): state is { status: 'loading' } {
 	return state.status === 'loading';
 }
 
-export function isRegistryError(
-	state: RegistryState
-): state is { status: 'error'; error: string } {
+export function isRegistryError(state: RegistryState): state is { status: 'error'; error: string } {
 	return state.status === 'error';
 }
 

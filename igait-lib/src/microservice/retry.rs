@@ -57,11 +57,7 @@ impl RetryPolicy {
 /// `op_name` is used only in the attempt-log line so operators can grep for
 /// which write is flapping. Pass something descriptive like
 /// `"apply_completion_transition"`, not `"write"`.
-pub async fn retry_transient<F, Fut, T>(
-    policy: &RetryPolicy,
-    op_name: &str,
-    mut op: F,
-) -> Result<T>
+pub async fn retry_transient<F, Fut, T>(policy: &RetryPolicy, op_name: &str, mut op: F) -> Result<T>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
