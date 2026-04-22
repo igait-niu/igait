@@ -431,6 +431,7 @@ async fn handle_proxied_socket_helper(app: Arc<AppState>, socket: WebSocket) -> 
 ///
 /// # Returns
 /// * Nothing
+#[allow(clippy::result_large_err)] // tungstenite::Error is an external type we don't control.
 async fn handle_proxied_socket(_app: Arc<AppState>, mut socket: WebSocket) -> Result<()> {
     // Get the token from the client
     let token = match socket
