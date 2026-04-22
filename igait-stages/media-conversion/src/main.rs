@@ -13,7 +13,7 @@ use igait_lib::microservice::{
     StorageClient, VideoEditFlags, VideoTransform, STAGE_REQUIRED_ENV,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::fs;
 use tokio::process::Command;
@@ -242,8 +242,8 @@ fn build_video_filter(transform: Option<&VideoTransform>) -> String {
 /// Converts a video to the standardized format using FFmpeg,
 /// optionally applying spatial/temporal transforms.
 async fn standardize_video(
-    input_file_path: &PathBuf,
-    output_file_path: &PathBuf,
+    input_file_path: &Path,
+    output_file_path: &Path,
     transform: Option<&VideoTransform>,
     logs: &mut String,
 ) -> Result<()> {

@@ -12,7 +12,7 @@ use igait_lib::microservice::{
     StorageClient, STAGE_REQUIRED_ENV,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::fs;
 use tokio::process::Command;
@@ -270,8 +270,8 @@ impl PoseEstimationWorker {
 
 /// Runs the Python pose estimation script on a video file.
 async fn run_pose_estimation(
-    input_path: &PathBuf,
-    output_dir: &PathBuf,
+    input_path: &Path,
+    output_dir: &Path,
     logs: &mut String,
 ) -> Result<()> {
     let output = Command::new("python3")

@@ -12,7 +12,7 @@ use igait_lib::microservice::{
     StorageClient, STAGE_REQUIRED_ENV,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::fs;
 use tokio::process::Command;
@@ -249,8 +249,8 @@ impl CycleDetectionWorker {
 
 /// Runs the Python gait cycle detection script on a landmarks JSON file.
 async fn run_gait_cycle_detection(
-    landmarks_path: &PathBuf,
-    output_dir: &PathBuf,
+    landmarks_path: &Path,
+    output_dir: &Path,
     subject_id: &str,
     logs: &mut String,
 ) -> Result<()> {

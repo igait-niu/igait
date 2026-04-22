@@ -329,7 +329,7 @@ impl FinalizeStageWorker {
                 .or_else(|| job.error_logs.clone())
                 .unwrap_or_else(|| "Unknown error - no prediction.json found".to_string());
 
-            logs.push_str(&format!("No prediction found, treating as failure\n"));
+            logs.push_str("No prediction found, treating as failure\n");
             logs.push_str(&format!("Error info: {}\n", error_msg));
 
             if let Some(stage) = job.failed_at_stage {
