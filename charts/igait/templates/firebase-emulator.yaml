@@ -1,0 +1,54 @@
+{{- if .Values.emulators.firebase.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "igait.fullname" . }}-firebase-emulator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "igait.labels" . | nindent 4 }}
+    app.kubernetes.io/component: firebase-emulator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "igait.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: firebase-emulator
+  template:
+    metadata:
+      labels:
+        {{- include "igait.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: firebase-emulator
+    spec:
+      containers:
+        - name: firebase-emulator
+          image: {{ .Values.emulators.firebase.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.emulators.firebase.rtdbPort }}
+              name: rtdb
+            - containerPort: {{ .Values.emulators.firebase.authPort }}
+              name: auth
+          resources:
+            {{- toYaml .Values.emulators.firebase.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "igait.fullname" . }}-firebase-emulator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "igait.labels" . | nindent 4 }}
+    app.kubernetes.io/component: firebase-emulator
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "igait.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: firebase-emulator
+  ports:
+    - name: rtdb
+      port: {{ .Values.emulators.firebase.rtdbPort }}
+      targetPort: {{ .Values.emulators.firebase.rtdbPort }}
+    - name: auth
+      port: {{ .Values.emulators.firebase.authPort }}
+      targetPort: {{ .Values.emulators.firebase.authPort }}
+{{- end }}
