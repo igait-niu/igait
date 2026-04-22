@@ -1,5 +1,5 @@
 //! This module contains all the helper functions used in the project.
-//! 
+//!
 //! To learn more about the helper functions, check out the individual modules.
 
 /// Contains the database helper functions.

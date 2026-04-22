@@ -8,7 +8,6 @@
 		Clock,
 		XCircle,
 		Activity,
-		AlertCircle,
 		User as UserIcon,
 		Calendar
 	} from '@lucide/svelte';

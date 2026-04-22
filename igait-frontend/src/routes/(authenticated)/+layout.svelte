@@ -113,7 +113,7 @@
 
 				<!-- Desktop Navigation -->
 				<nav class="hidden items-center gap-6 md:flex">
-					{#each navItems.filter((item) => !item.adminOnly || user.administrator) as item}
+					{#each navItems.filter((item) => !item.adminOnly || user.administrator) as item (item.href)}
 						<a
 							href={item.href}
 							class="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -182,7 +182,7 @@
 			{#if mobileMenuOpen}
 				<nav class="border-t bg-background px-4 py-4 md:hidden">
 					<div class="flex flex-col gap-2">
-						{#each navItems.filter((item) => !item.adminOnly || user.administrator) as item}
+						{#each navItems.filter((item) => !item.adminOnly || user.administrator) as item (item.href)}
 							<a
 								href={item.href}
 								class="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

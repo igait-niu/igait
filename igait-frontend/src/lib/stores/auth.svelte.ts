@@ -16,7 +16,7 @@ import {
 import { ref, get } from 'firebase/database';
 import { getFirebaseDatabase } from '$lib/firebase';
 import type { AuthState, User } from '$lib/types';
-import { type Result, Ok, Err, AppError, tryAsync } from '$lib/result';
+import { type Result, Err, AppError, tryAsync } from '$lib/result';
 
 /**
  * Fetch administrator status from RTDB

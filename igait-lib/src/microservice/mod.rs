@@ -1,13 +1,13 @@
 //! Microservice types and utilities for the iGait pipeline.
-//! 
+//!
 //! This module provides shared types, traits, and utilities used by all
 //! stage microservices in the iGait pipeline.
 
-mod types;
-mod storage;
-mod queue;
 mod backend_status;
+mod queue;
 mod registry;
+mod storage;
+mod types;
 
 #[cfg(feature = "microservice")]
 mod worker;
@@ -18,11 +18,11 @@ mod retry;
 #[cfg(feature = "email")]
 mod email;
 
-pub use types::*;
-pub use storage::*;
-pub use queue::*;
 pub use backend_status::*;
+pub use queue::*;
 pub use registry::*;
+pub use storage::*;
+pub use types::*;
 
 #[cfg(feature = "microservice")]
 pub use worker::*;
@@ -44,10 +44,7 @@ pub const STAGE_REQUIRED_ENV: &[&str] = &[
 ];
 
 /// Env vars the finalize stage needs on top of STAGE_REQUIRED_ENV.
-pub const FINALIZE_REQUIRED_ENV: &[&str] = &[
-    "SES_FROM_ADDRESS",
-    "SES_FROM_IDENTITY_ARN",
-];
+pub const FINALIZE_REQUIRED_ENV: &[&str] = &["SES_FROM_ADDRESS", "SES_FROM_IDENTITY_ARN"];
 
 /// Env vars the backend needs to start.
 pub const BACKEND_REQUIRED_ENV: &[&str] = &[

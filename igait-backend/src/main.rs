@@ -12,12 +12,12 @@ use axum::{
     routing::{any, get, post},
     Router,
 };
-use tower_http::cors::{AllowOrigin, CorsLayer};
 use dotenv::dotenv;
 use helper::lib::{AppState, AppStatePtr};
 use helper::orchestrator::{self, Orchestrator};
 use igait_lib::microservice::{check_env, BACKEND_REQUIRED_ENV};
 use std::sync::Arc;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -132,7 +132,13 @@ async fn main() -> Result<()> {
             .collect();
         CorsLayer::new()
             .allow_origin(AllowOrigin::list(origins))
-            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
             .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
     });
 

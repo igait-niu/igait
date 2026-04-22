@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { getUser } from '$lib/hooks';
-	import { errorStore } from '$lib/stores';
 	import { submitContribution, type ContributionRequest, type ProgressCallback } from '$lib/api';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';

@@ -12,7 +12,7 @@ use igait_lib::microservice::{
     StorageClient, STAGE_REQUIRED_ENV,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::fs;
 use tokio::process::Command;
@@ -184,7 +184,10 @@ impl PoseEstimationWorker {
             .upload(&front_pose_key, front_pose_data, Some("video/mp4"))
             .await
             .context("Failed to upload front pose video")?;
-        logs.push_str(&format!("Uploaded front pose video to: {}\n", front_pose_key));
+        logs.push_str(&format!(
+            "Uploaded front pose video to: {}\n",
+            front_pose_key
+        ));
 
         // Upload side pose video
         logs.push_str(&format!(
@@ -201,7 +204,9 @@ impl PoseEstimationWorker {
         logs.push_str(&format!("Uploaded side pose video to: {}\n", side_pose_key));
 
         // Upload front landmarks JSON
-        let front_landmarks_path = output_dir.join("training_data").join("front_landmarks.json");
+        let front_landmarks_path = output_dir
+            .join("training_data")
+            .join("front_landmarks.json");
         logs.push_str(&format!(
             "Uploading front landmarks from {:?}...\n",
             front_landmarks_path
@@ -265,8 +270,8 @@ impl PoseEstimationWorker {
 
 /// Runs the Python pose estimation script on a video file.
 async fn run_pose_estimation(
-    input_path: &PathBuf,
-    output_dir: &PathBuf,
+    input_path: &Path,
+    output_dir: &Path,
     logs: &mut String,
 ) -> Result<()> {
     let output = Command::new("python3")

@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-	import { MoreHorizontal, Eye, Trash2 } from '@lucide/svelte';
+	import { MoreHorizontal, Eye } from '@lucide/svelte';
 	import type { Job } from '../../../types/Job';
 
 	type Props = {
 		job: Job;
 	};
 
-	let { job }: Props = $props();
+	let { job: _job }: Props = $props();
 </script>
 
 <DropdownMenu.Root>

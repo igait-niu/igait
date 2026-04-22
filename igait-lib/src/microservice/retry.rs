@@ -57,11 +57,7 @@ impl RetryPolicy {
 /// `op_name` is used only in the attempt-log line so operators can grep for
 /// which write is flapping. Pass something descriptive like
 /// `"apply_completion_transition"`, not `"write"`.
-pub async fn retry_transient<F, Fut, T>(
-    policy: &RetryPolicy,
-    op_name: &str,
-    mut op: F,
-) -> Result<T>
+pub async fn retry_transient<F, Fut, T>(policy: &RetryPolicy, op_name: &str, mut op: F) -> Result<T>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
@@ -114,10 +110,11 @@ fn is_transient_error(err: &anyhow::Error) -> bool {
     // status failures as `anyhow::bail!("Firebase X failed ({}): {}", status, body)`.
     // Parse the formatted string to recover the status class.
     let msg = format!("{:#}", err);
-    if msg.contains("Firebase") && msg.contains("failed (") {
-        if msg.contains("failed (5") || msg.contains("failed (429)") {
-            return true;
-        }
+    if msg.contains("Firebase")
+        && msg.contains("failed (")
+        && (msg.contains("failed (5") || msg.contains("failed (429)"))
+    {
+        return true;
     }
 
     false

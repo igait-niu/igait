@@ -128,7 +128,8 @@ services:
   backend:
     build:
       context: .
-      dockerfile: igait-backend/Dockerfile
+      dockerfile: Dockerfile
+      target: backend
     ports:
       - "3000:3000"
     environment:
@@ -192,32 +193,37 @@ services:
     <<: *stage-service
     build:
       context: .
-      dockerfile: igait-stages/media-conversion/Dockerfile
+      dockerfile: Dockerfile
+      target: media-conversion
 
   pose-estimation:
     <<: *stage-service
     build:
       context: .
-      dockerfile: igait-stages/pose-estimation/Dockerfile
+      dockerfile: Dockerfile
+      target: pose-estimation
 
   cycle-detection:
     <<: *stage-service
     build:
       context: .
-      dockerfile: igait-stages/cycle-detection/Dockerfile
+      dockerfile: Dockerfile
+      target: cycle-detection
 
   prediction:
     <<: *stage-service
     build:
       context: .
-      dockerfile: igait-stages/prediction/Dockerfile
+      dockerfile: Dockerfile
+      target: prediction
 
   finalize:
     # finalize also needs SES to deliver the result email — override
     # depends_on to add ses-mock as a health-gated dependency.
     build:
       context: .
-      dockerfile: igait-stages/finalize/Dockerfile
+      dockerfile: Dockerfile
+      target: finalize
     environment: *pipeline-env
     volumes:
       - ./credentials/gcp-key.json:/credentials/gcp-key.json:ro

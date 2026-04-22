@@ -6,10 +6,10 @@ use std::path::Path;
 
 #[cfg(feature = "microservice")]
 use aws_sdk_s3::{
-    Client,
     presigning::PresigningConfig,
     primitives::ByteStream,
     types::{Delete, ObjectIdentifier},
+    Client,
 };
 
 /// Configuration for storage access.
@@ -17,7 +17,7 @@ use aws_sdk_s3::{
 pub struct StorageConfig {
     /// AWS S3 bucket name
     pub bucket: String,
-    
+
     /// AWS region
     pub region: String,
 }
@@ -29,11 +29,9 @@ impl StorageConfig {
     /// - `IGAIT_S3_BUCKET` — S3 bucket name (required)
     /// - `AWS_REGION` — AWS region (required; also read by the AWS SDK)
     pub fn from_env() -> Result<Self> {
-        let bucket = std::env::var("IGAIT_S3_BUCKET")
-            .context("IGAIT_S3_BUCKET must be set")?;
+        let bucket = std::env::var("IGAIT_S3_BUCKET").context("IGAIT_S3_BUCKET must be set")?;
 
-        let region = std::env::var("AWS_REGION")
-            .context("AWS_REGION must be set")?;
+        let region = std::env::var("AWS_REGION").context("AWS_REGION must be set")?;
 
         Ok(Self { bucket, region })
     }
@@ -55,7 +53,7 @@ pub struct StorageClient {
 #[cfg(feature = "microservice")]
 impl StorageClient {
     /// Creates a new StorageClient from environment configuration.
-    /// 
+    ///
     /// Uses AWS credentials from environment variables or IAM roles.
     /// Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` for authentication.
     pub async fn new() -> Result<Self> {
@@ -89,39 +87,43 @@ impl StorageClient {
     /// Uploads bytes to a storage key.
     pub async fn upload(&self, key: &str, data: Vec<u8>, content_type: Option<&str>) -> Result<()> {
         let body = ByteStream::from(data);
-        
-        let mut request = self.client
+
+        let mut request = self
+            .client
             .put_object()
             .bucket(&self.bucket)
             .key(key)
             .body(body);
-        
+
         if let Some(ct) = content_type {
             request = request.content_type(ct);
         }
-        
+
         request
             .send()
             .await
             .context(format!("Failed to upload object: {}", key))?;
-        
+
         Ok(())
     }
 
     /// Downloads bytes from a storage key.
     pub async fn download(&self, key: &str) -> Result<Vec<u8>> {
-        let response = self.client
+        let response = self
+            .client
             .get_object()
             .bucket(&self.bucket)
             .key(key)
             .send()
             .await
             .context(format!("Failed to download object: {}", key))?;
-        
-        let data = response.body.collect()
+
+        let data = response
+            .body
+            .collect()
             .await
             .context("Failed to read object body")?;
-        
+
         Ok(data.into_bytes().to_vec())
     }
 
@@ -134,7 +136,7 @@ impl StorageClient {
             .send()
             .await
             .context(format!("Failed to delete object: {}", key))?;
-        
+
         Ok(())
     }
 
@@ -144,7 +146,8 @@ impl StorageClient {
         let mut continuation_token: Option<String> = None;
 
         loop {
-            let mut request = self.client
+            let mut request = self
+                .client
                 .list_objects_v2()
                 .bucket(&self.bucket)
                 .prefix(prefix);
@@ -204,13 +207,17 @@ impl StorageClient {
                 .context("Failed to build Delete request")?;
 
             // Execute batch delete
-            let response = self.client
+            let response = self
+                .client
                 .delete_objects()
                 .bucket(&self.bucket)
                 .delete(delete)
                 .send()
                 .await
-                .context(format!("Failed to delete batch of objects with prefix: {}", prefix))?;
+                .context(format!(
+                    "Failed to delete batch of objects with prefix: {}",
+                    prefix
+                ))?;
 
             // Count successful deletions
             deleted_count += response.deleted().len();
@@ -251,10 +258,11 @@ impl StorageClient {
         key: &str,
         expires_in: std::time::Duration,
     ) -> Result<String> {
-        let presigning_config = PresigningConfig::expires_in(expires_in)
-            .context("Invalid presigning duration")?;
+        let presigning_config =
+            PresigningConfig::expires_in(expires_in).context("Invalid presigning duration")?;
 
-        let presigned = self.client
+        let presigned = self
+            .client
             .get_object()
             .bucket(&self.bucket)
             .key(key)
@@ -359,7 +367,7 @@ impl StoragePaths {
 pub trait StorageKeyExt {
     /// Returns the filename portion of the storage key.
     fn filename(&self) -> Option<&str>;
-    
+
     /// Returns the extension of the storage key.
     fn extension(&self) -> Option<&str>;
 }
@@ -380,13 +388,13 @@ mod tests {
 
     #[test]
     fn test_storage_paths() {
+        assert_eq!(StoragePaths::job_base("user123_5"), "jobs/user123_5/");
+
         assert_eq!(
-            StoragePaths::job_base("user123_5"),
-            "jobs/user123_5/"
-        );
-        
-        assert_eq!(
-            StoragePaths::stage_dir("user123_5", crate::microservice::StageId::new("media-conversion")),
+            StoragePaths::stage_dir(
+                "user123_5",
+                crate::microservice::StageId::new("media-conversion")
+            ),
             "jobs/user123_5/media-conversion/"
         );
 

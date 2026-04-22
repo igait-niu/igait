@@ -11,15 +11,17 @@
 
 use std::collections::HashMap;
 
-use axum::{extract::{Path, State}, Json};
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 use firebase_auth::FirebaseUser;
 use serde::{Deserialize, Serialize};
 
 use igait_lib::microservice::{
-    FirebaseRtdb, JobMetadata, QueueItem, StageId, StoragePaths, VideoEditFlags,
-    stage_logs_path, stages_from,
-    queue_item_path,
+    queue_item_path, stage_logs_path, stages_from, FirebaseRtdb, JobMetadata, QueueItem, StageId,
+    StoragePaths, VideoEditFlags,
 };
 
 use crate::helper::lib::{AppError, AppStatePtr, JobStatus};
@@ -162,7 +164,10 @@ pub async fn video_edit_entrypoint(
         .await
         .context("Failed to upload side video to upload folder")?;
 
-    println!("Copied media-conversion outputs → upload folder for job {}", job_id);
+    println!(
+        "Copied media-conversion outputs → upload folder for job {}",
+        job_id
+    );
 
     // ── 6. Delete S3 outputs for every stage ──────────────────────
     let mut total_deleted: usize = 0;
@@ -189,8 +194,7 @@ pub async fn video_edit_entrypoint(
     let mut extra = HashMap::new();
     extra.insert(
         "video_edit".to_string(),
-        serde_json::to_value(&video_edit)
-            .context("Failed to serialise video_edit for metadata")?,
+        serde_json::to_value(&video_edit).context("Failed to serialise video_edit for metadata")?,
     );
 
     let metadata = JobMetadata {

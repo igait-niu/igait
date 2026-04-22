@@ -12,7 +12,7 @@ use igait_lib::microservice::{
     StorageClient, STAGE_REQUIRED_ENV,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::fs;
 use tokio::process::Command;
@@ -101,7 +101,10 @@ impl CycleDetectionWorker {
             .context("Missing side_video in input_keys")?
             .clone();
 
-        logs.push_str(&format!("Input front landmarks: {}\n", front_landmarks_input));
+        logs.push_str(&format!(
+            "Input front landmarks: {}\n",
+            front_landmarks_input
+        ));
         logs.push_str(&format!("Input side landmarks: {}\n", side_landmarks_input));
         logs.push_str(&format!("Input front video: {}\n", front_video_input));
         logs.push_str(&format!("Input side video: {}\n", side_video_input));
@@ -185,10 +188,8 @@ impl CycleDetectionWorker {
         let side_gait_key = format!("jobs/{}/{}/side_gait_analysis.json", job.job_id, key);
 
         // Upload front gait analysis JSON
-        let front_gait_path = front_output_dir.join(format!(
-            "{}_front_gait_analysis.json",
-            job.job_id
-        ));
+        let front_gait_path =
+            front_output_dir.join(format!("{}_front_gait_analysis.json", job.job_id));
         logs.push_str(&format!(
             "Uploading front gait analysis from {:?}...\n",
             front_gait_path
@@ -206,10 +207,8 @@ impl CycleDetectionWorker {
         ));
 
         // Upload side gait analysis JSON
-        let side_gait_path = side_output_dir.join(format!(
-            "{}_side_gait_analysis.json",
-            job.job_id
-        ));
+        let side_gait_path =
+            side_output_dir.join(format!("{}_side_gait_analysis.json", job.job_id));
         logs.push_str(&format!(
             "Uploading side gait analysis from {:?}...\n",
             side_gait_path
@@ -250,8 +249,8 @@ impl CycleDetectionWorker {
 
 /// Runs the Python gait cycle detection script on a landmarks JSON file.
 async fn run_gait_cycle_detection(
-    landmarks_path: &PathBuf,
-    output_dir: &PathBuf,
+    landmarks_path: &Path,
+    output_dir: &Path,
     subject_id: &str,
     logs: &mut String,
 ) -> Result<()> {

@@ -1,15 +1,5 @@
 <script lang="ts">
-	import {
-		Loader2,
-		Plus,
-		Trash2,
-		Save,
-		X,
-		Play,
-		Pause,
-		SkipBack,
-		SkipForward
-	} from '@lucide/svelte';
+	import { Loader2, Plus, Trash2, Save, Play, Pause, SkipBack, SkipForward } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Badge } from '$lib/components/ui/badge';
@@ -59,7 +49,7 @@
 	// ── Derived ───────────────────────────────────────────
 	const activeCycles = $derived(activeTab === 'front' ? frontCycles : sideCycles);
 	const activeVideo = $derived(activeTab === 'front' ? frontVideo : sideVideo);
-	const activeJsonFile = $derived(activeTab === 'front' ? frontJsonFile : sideJsonFile);
+	const _activeJsonFile = $derived(activeTab === 'front' ? frontJsonFile : sideJsonFile);
 	const totalFrames = $derived(activeTab === 'front' ? frontTotalFrames : sideTotalFrames);
 	const duration = $derived(activeTab === 'front' ? frontDuration : sideDuration);
 	const currentFrame = $derived(Math.round(currentTime * fps));
@@ -447,7 +437,7 @@
 					<div class="timeline" onclick={handleTimelineClick}>
 						<div class="timeline-track">
 							<!-- Cycle overlays -->
-							{#each activeCycles as cycle, i}
+							{#each activeCycles as cycle, i (i)}
 								{@const pos = getCyclePosition(cycle)}
 								<div
 									class="cycle-block"

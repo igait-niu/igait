@@ -8,6 +8,7 @@ on:
       - 'igait-lib/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'Dockerfile'
       - '.github/workflows/build-finalize.yml'
   workflow_dispatch:
 
@@ -49,7 +50,8 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./igait-stages/finalize/Dockerfile
+          file: ./Dockerfile
+          target: finalize
           platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

@@ -4,14 +4,14 @@
 //! queues, claims jobs using transactions, and processes them independently.
 
 use crate::microservice::{
-    queue::{
-        ClaimResult, EmailNotificationMarker, FinalizeQueueItem, JobCoordination, JobResult,
-        ProcessingResult, QueueConfig, QueueItem, CLAIM_TIMEOUT_MS, HEARTBEAT_INTERVAL_SECS,
-        generate_worker_id, job_coordination_path, job_result_path, next_stage, now_ms,
-        queue_config_path, queue_item_path, queue_path, result_notification_path,
-        stage_logs_path, stage_status_path,
-    },
     backend_status::{JobStatus, StageStatus},
+    queue::{
+        generate_worker_id, job_coordination_path, job_result_path, next_stage, now_ms,
+        queue_config_path, queue_item_path, queue_path, result_notification_path, stage_logs_path,
+        stage_status_path, ClaimResult, EmailNotificationMarker, FinalizeQueueItem,
+        JobCoordination, JobResult, ProcessingResult, QueueConfig, QueueItem, CLAIM_TIMEOUT_MS,
+        HEARTBEAT_INTERVAL_SECS,
+    },
     StageId,
 };
 use anyhow::{Context, Result};
@@ -27,16 +27,16 @@ use tokio_util::sync::CancellationToken;
 // ============================================================================
 
 /// A simple Firebase Realtime Database client for queue operations.
-/// 
+///
 /// This client supports the transaction-like pattern needed for safe job claiming.
 #[derive(Clone)]
 pub struct FirebaseRtdb {
     /// Base URL of the Firebase RTDB (e.g., "https://project-id.firebaseio.com")
     base_url: String,
-    
+
     /// Auth token for database access
     auth_token: String,
-    
+
     /// HTTP client
     client: Client,
 }
@@ -46,7 +46,7 @@ impl FirebaseRtdb {
     pub fn new(base_url: &str, auth_token: &str) -> Self {
         // Remove trailing slash if present
         let base_url = base_url.trim_end_matches('/').to_string();
-        
+
         Self {
             base_url,
             auth_token: auth_token.to_string(),
@@ -55,16 +55,16 @@ impl FirebaseRtdb {
     }
 
     /// Creates a client from environment variables.
-    /// 
+    ///
     /// Expects:
     /// - `FIREBASE_RTDB_URL`: The database URL
     /// - `FIREBASE_ACCESS_KEY`: The auth token
     pub fn from_env() -> Result<Self> {
-        let base_url = std::env::var("FIREBASE_RTDB_URL")
-            .context("FIREBASE_RTDB_URL must be set")?;
+        let base_url =
+            std::env::var("FIREBASE_RTDB_URL").context("FIREBASE_RTDB_URL must be set")?;
         let auth_token = std::env::var("FIREBASE_ACCESS_KEY")
             .context("Missing FIREBASE_ACCESS_KEY environment variable")?;
-        
+
         Ok(Self::new(&base_url, &auth_token))
     }
 
@@ -90,18 +90,18 @@ impl FirebaseRtdb {
     pub async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<Option<T>> {
         let url = self.url(path);
         let response = self.client.get(&url).send().await?;
-        
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             anyhow::bail!("Firebase GET failed ({}): {}", status, body);
         }
-        
+
         let value: Value = response.json().await?;
         if value.is_null() {
             return Ok(None);
         }
-        
+
         let data: T = serde_json::from_value(value)?;
         Ok(Some(data))
     }
@@ -110,13 +110,13 @@ impl FirebaseRtdb {
     pub async fn set<T: Serialize>(&self, path: &str, data: &T) -> Result<()> {
         let url = self.url(path);
         let response = self.client.put(&url).json(data).send().await?;
-        
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             anyhow::bail!("Firebase SET failed ({}): {}", status, body);
         }
-        
+
         Ok(())
     }
 
@@ -124,13 +124,13 @@ impl FirebaseRtdb {
     pub async fn update<T: Serialize>(&self, path: &str, data: &T) -> Result<()> {
         let url = self.url(path);
         let response = self.client.patch(&url).json(data).send().await?;
-        
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             anyhow::bail!("Firebase UPDATE failed ({}): {}", status, body);
         }
-        
+
         Ok(())
     }
 
@@ -138,13 +138,13 @@ impl FirebaseRtdb {
     pub async fn delete(&self, path: &str) -> Result<()> {
         let url = self.url(path);
         let response = self.client.delete(&url).send().await?;
-        
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             anyhow::bail!("Firebase DELETE failed ({}): {}", status, body);
         }
-        
+
         Ok(())
     }
 
@@ -166,9 +166,13 @@ impl FirebaseRtdb {
     }
 
     /// Reads data at `path` alongside its current ETag.
-    pub async fn get_with_etag<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<(Option<T>, String)> {
+    pub async fn get_with_etag<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+    ) -> Result<(Option<T>, String)> {
         let url = self.url(path);
-        let response = self.client
+        let response = self
+            .client
             .get(&url)
             .header("X-Firebase-ETag", "true")
             .send()
@@ -180,7 +184,8 @@ impl FirebaseRtdb {
             anyhow::bail!("Firebase GET (with ETag) failed ({}): {}", status, body);
         }
 
-        let etag = response.headers()
+        let etag = response
+            .headers()
             .get(reqwest::header::ETAG)
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
@@ -196,9 +201,15 @@ impl FirebaseRtdb {
     }
 
     /// Conditional PUT — writes iff the current ETag matches.
-    pub async fn put_if_match<T: Serialize>(&self, path: &str, data: &T, etag: &str) -> Result<CasResult> {
+    pub async fn put_if_match<T: Serialize>(
+        &self,
+        path: &str,
+        data: &T,
+        etag: &str,
+    ) -> Result<CasResult> {
         let url = self.url(path);
-        let response = self.client
+        let response = self
+            .client
             .put(&url)
             .header("if-match", etag)
             .json(data)
@@ -219,9 +230,15 @@ impl FirebaseRtdb {
     }
 
     /// Conditional PATCH — merges iff the current ETag matches.
-    pub async fn patch_if_match<T: Serialize>(&self, path: &str, data: &T, etag: &str) -> Result<CasResult> {
+    pub async fn patch_if_match<T: Serialize>(
+        &self,
+        path: &str,
+        data: &T,
+        etag: &str,
+    ) -> Result<CasResult> {
         let url = self.url(path);
-        let response = self.client
+        let response = self
+            .client
             .patch(&url)
             .header("if-match", etag)
             .json(data)
@@ -244,7 +261,8 @@ impl FirebaseRtdb {
     /// Conditional DELETE — removes iff the current ETag matches.
     pub async fn delete_if_match(&self, path: &str, etag: &str) -> Result<CasResult> {
         let url = self.url(path);
-        let response = self.client
+        let response = self
+            .client
             .delete(&url)
             .header("if-match", etag)
             .send()
@@ -364,7 +382,10 @@ impl QueueOps {
             Ok(Some(cfg)) => cfg,
             Ok(None) => QueueConfig::default(),
             Err(e) => {
-                eprintln!("Warning: failed to read queue config at {}: {}", config_path, e);
+                eprintln!(
+                    "Warning: failed to read queue config at {}: {}",
+                    config_path, e
+                );
                 QueueConfig::default()
             }
         };
@@ -392,8 +413,7 @@ impl QueueOps {
                     .claimed_at
                     .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
                     .unwrap_or(false);
-                (is_unclaimed || is_stale)
-                    && item.is_approved_for_processing(requires_approval)
+                (is_unclaimed || is_stale) && item.is_approved_for_processing(requires_approval)
             })
             .map(|(k, _)| k.clone())
             .collect();
@@ -410,7 +430,8 @@ impl QueueOps {
             let item_path = format!("{}/{}", path, key);
             let worker_id = self.worker_id.clone();
 
-            let outcome = self.db
+            let outcome = self
+                .db
                 .transaction::<QueueItem, _>(&item_path, move |current| {
                     let current = current?;
                     let now = now_ms();
@@ -454,7 +475,8 @@ impl QueueOps {
     /// to another worker). Callers should stop processing and exit cleanly.
     pub async fn heartbeat(&self, stage: StageId, job_id: &str, epoch: u64) -> Result<bool> {
         let path = queue_item_path(stage, job_id);
-        let outcome = self.db
+        let outcome = self
+            .db
             .transaction::<QueueItem, _>(&path, move |current| {
                 let current = current?;
                 if current.epoch != epoch {
@@ -473,7 +495,8 @@ impl QueueOps {
     /// Releases a claim back to the queue, iff the caller's epoch still matches.
     pub async fn release_job(&self, stage: StageId, job_id: &str, epoch: u64) -> Result<bool> {
         let path = queue_item_path(stage, job_id);
-        let outcome = self.db
+        let outcome = self
+            .db
             .transaction::<QueueItem, _>(&path, move |current| {
                 let current = current?;
                 if current.epoch != epoch {
@@ -609,7 +632,10 @@ impl QueueOps {
             Ok(Some(cfg)) => cfg,
             Ok(None) => QueueConfig::default(),
             Err(e) => {
-                eprintln!("Warning: failed to read queue config at {}: {}", config_path, e);
+                eprintln!(
+                    "Warning: failed to read queue config at {}: {}",
+                    config_path, e
+                );
                 QueueConfig::default()
             }
         };
@@ -637,8 +663,7 @@ impl QueueOps {
                     .claimed_at
                     .map(|t| now.saturating_sub(t) > CLAIM_TIMEOUT_MS)
                     .unwrap_or(false);
-                (is_unclaimed || is_stale)
-                    && item.is_approved_for_processing(requires_approval)
+                (is_unclaimed || is_stale) && item.is_approved_for_processing(requires_approval)
             })
             .map(|(k, _)| k.clone())
             .collect();
@@ -653,7 +678,8 @@ impl QueueOps {
             let item_path = format!("{}/{}", path, key);
             let worker_id = self.worker_id.clone();
 
-            let outcome = self.db
+            let outcome = self
+                .db
                 .transaction::<FinalizeQueueItem, _>(&item_path, move |current| {
                     let current = current?;
                     let now = now_ms();
@@ -813,7 +839,11 @@ impl QueueOps {
                 anyhow::bail!("bump_job_epoch refused: lease {} no longer held", owned)
             }
             TxOutcome::ExhaustedRetries => {
-                anyhow::bail!("bump_job_epoch: CAS retries exhausted for {}/{}", user_id, job_key)
+                anyhow::bail!(
+                    "bump_job_epoch: CAS retries exhausted for {}/{}",
+                    user_id,
+                    job_key
+                )
             }
         }
     }
@@ -844,22 +874,39 @@ impl QueueOps {
     }
 
     /// Updates the job status directly in Firebase RTDB.
-    /// 
+    ///
     /// This writes to `users/{user_id}/jobs/{job_index}/status`
-    pub async fn update_job_status(&self, user_id: &str, job_key: &str, status: &JobStatus) -> Result<()> {
+    pub async fn update_job_status(
+        &self,
+        user_id: &str,
+        job_key: &str,
+        status: &JobStatus,
+    ) -> Result<()> {
         let path = format!("users/{}/jobs/{}/status", user_id, job_key);
         self.db.set(&path, status).await
     }
 
     /// Updates the per-stage status in Firebase RTDB, keyed by
     /// `stage_statuses/{stage.key}`.
-    pub async fn update_stage_status(&self, user_id: &str, job_key: &str, stage: StageId, status: &StageStatus) -> Result<()> {
+    pub async fn update_stage_status(
+        &self,
+        user_id: &str,
+        job_key: &str,
+        stage: StageId,
+        status: &StageStatus,
+    ) -> Result<()> {
         let path = stage_status_path(user_id, job_key, stage);
         self.db.set(&path, status).await
     }
 
     /// Uploads stage logs to Firebase RTDB, keyed by `stage_logs/{stage.key}`.
-    pub async fn update_stage_logs(&self, user_id: &str, job_key: &str, stage: StageId, logs: &str) -> Result<()> {
+    pub async fn update_stage_logs(
+        &self,
+        user_id: &str,
+        job_key: &str,
+        stage: StageId,
+        logs: &str,
+    ) -> Result<()> {
         let path = stage_logs_path(user_id, job_key, stage);
         self.db.set(&path, &logs).await
     }
@@ -868,7 +915,8 @@ impl QueueOps {
     ///
     /// Job IDs are formatted as "{user_id}_{job_key}"
     pub fn parse_job_id(job_id: &str) -> Result<(String, String)> {
-        let last_underscore = job_id.rfind('_')
+        let last_underscore = job_id
+            .rfind('_')
             .ok_or_else(|| anyhow::anyhow!("Invalid job_id format: {}", job_id))?;
 
         let user_id = job_id[..last_underscore].to_string();
@@ -883,18 +931,18 @@ impl QueueOps {
 // ============================================================================
 
 /// Trait that stage workers must implement.
-/// 
+///
 /// This is similar to the old `StageProcessor` but designed for queue-based operation.
 #[async_trait]
 pub trait StageWorker: Send + Sync + 'static {
     /// Which stage this worker handles.
     fn stage(&self) -> StageId;
-    
+
     /// Human-readable service name.
     fn service_name(&self) -> &'static str;
-    
+
     /// Process a job from the queue.
-    /// 
+    ///
     /// Returns `ProcessingResult::Success` with output keys on success,
     /// or `ProcessingResult::Failure` with error info on failure.
     async fn process(&self, job: &QueueItem) -> ProcessingResult;
@@ -909,10 +957,10 @@ pub trait StageWorker: Send + Sync + 'static {
 pub struct WorkerConfig {
     /// How long to wait between queue polls when no jobs are available
     pub poll_interval: Duration,
-    
+
     /// How long to wait after an error before retrying
     pub error_backoff: Duration,
-    
+
     /// Whether to keep running after a fatal error (vs. crashing)
     pub resilient: bool,
 }
@@ -941,7 +989,7 @@ impl<W: StageWorker> WorkerRunner<W> {
     pub fn new(worker: W, db: FirebaseRtdb) -> Self {
         let worker_id = generate_worker_id(worker.service_name());
         let queue_ops = QueueOps::new(db, worker_id.clone());
-        
+
         Self {
             worker: Arc::new(worker),
             queue_ops,
@@ -963,13 +1011,13 @@ impl<W: StageWorker> WorkerRunner<W> {
     }
 
     /// Runs the worker loop.
-    /// 
+    ///
     /// This will continuously:
     /// 1. Poll the queue for available jobs
     /// 2. Claim and process any available job
     /// 3. Move the job to the next queue (or finalize queue on failure)
     /// 4. Sleep if no jobs are available
-    /// 
+    ///
     /// The loop will gracefully stop when shutdown is signaled.
     pub async fn run(&self) -> Result<()> {
         let stage = self.worker.stage();
@@ -983,7 +1031,10 @@ impl<W: StageWorker> WorkerRunner<W> {
         loop {
             // Check for shutdown signal
             if self.shutdown_token.is_cancelled() {
-                println!("[{}] Shutdown signal received, stopping worker loop", self.worker_id);
+                println!(
+                    "[{}] Shutdown signal received, stopping worker loop",
+                    self.worker_id
+                );
                 break;
             }
 
@@ -1004,7 +1055,7 @@ impl<W: StageWorker> WorkerRunner<W> {
                 }
                 Err(e) => {
                     eprintln!("[{}] Error in worker loop: {:?}", self.worker_id, e);
-                    
+
                     if self.config.resilient {
                         tokio::select! {
                             _ = tokio::time::sleep(self.config.error_backoff) => {},
@@ -1025,7 +1076,7 @@ impl<W: StageWorker> WorkerRunner<W> {
     }
 
     /// Attempts to process one job from the queue.
-    /// 
+    ///
     /// Returns `Ok(true)` if a job was processed, `Ok(false)` if no jobs were available.
     async fn process_one_job(&self) -> Result<bool> {
         let stage = self.worker.stage();
@@ -1050,10 +1101,12 @@ impl<W: StageWorker> WorkerRunner<W> {
             "[{}] Claimed job {} for processing",
             self.worker_id, job.job_id
         );
-        
+
         // Update job status to "Processing" and stage status to "Running" in RTDB
-        self.update_job_status(&job.job_id, JobStatus::processing(stage)).await;
-        self.update_stage_status(&job.job_id, stage, StageStatus::Running).await;
+        self.update_job_status(&job.job_id, JobStatus::processing(stage))
+            .await;
+        self.update_stage_status(&job.job_id, stage, StageStatus::Running)
+            .await;
 
         let heartbeat_db = self.queue_ops.db.clone();
         let heartbeat_worker_id = self.worker_id.clone();
@@ -1112,7 +1165,11 @@ impl<W: StageWorker> WorkerRunner<W> {
 
         // Handle result
         match process_result {
-            ProcessingResult::Success { output_keys, logs, duration_ms } => {
+            ProcessingResult::Success {
+                output_keys,
+                logs,
+                duration_ms,
+            } => {
                 println!(
                     "[{}] Job {} completed successfully in {}ms",
                     self.worker_id, job.job_id, duration_ms
@@ -1122,7 +1179,8 @@ impl<W: StageWorker> WorkerRunner<W> {
                 self.upload_stage_logs(&job.job_id, stage, &logs).await;
 
                 // Mark this stage as complete
-                self.update_stage_status(&job.job_id, stage, StageStatus::Complete).await;
+                self.update_stage_status(&job.job_id, stage, StageStatus::Complete)
+                    .await;
 
                 // If our successor is terminal, route directly to its
                 // (finalize-style) queue instead of a standard inter-stage one.
@@ -1144,17 +1202,24 @@ impl<W: StageWorker> WorkerRunner<W> {
                     );
                 }
             }
-            ProcessingResult::Failure { error, logs, duration_ms } => {
+            ProcessingResult::Failure {
+                error,
+                logs,
+                duration_ms,
+            } => {
                 eprintln!(
                     "[{}] Job {} failed after {}ms: {}",
                     self.worker_id, job.job_id, duration_ms, error
                 );
 
                 self.upload_stage_logs(&job.job_id, stage, &logs).await;
-                self.update_stage_status(&job.job_id, stage, StageStatus::Error).await;
-                self.update_job_status(&job.job_id, JobStatus::error(logs.clone())).await;
+                self.update_stage_status(&job.job_id, stage, StageStatus::Error)
+                    .await;
+                self.update_job_status(&job.job_id, JobStatus::error(logs.clone()))
+                    .await;
 
-                let moved = self.queue_ops
+                let moved = self
+                    .queue_ops
                     .move_to_finalize_failure(stage, &job, error, Some(logs))
                     .await
                     .context("Failed to move job to finalize queue")?;
@@ -1169,12 +1234,16 @@ impl<W: StageWorker> WorkerRunner<W> {
 
         Ok(true)
     }
-    
+
     /// Upload stage logs to Firebase RTDB
     async fn upload_stage_logs(&self, job_id: &str, stage: StageId, logs: &str) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_stage_logs(&user_id, &job_index, stage, logs).await {
+                if let Err(e) = self
+                    .queue_ops
+                    .update_stage_logs(&user_id, &job_index, stage, logs)
+                    .await
+                {
                     eprintln!("Failed to upload {} logs to RTDB: {:?}", stage, e);
                 }
             }
@@ -1188,7 +1257,11 @@ impl<W: StageWorker> WorkerRunner<W> {
     async fn update_job_status(&self, job_id: &str, status: JobStatus) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_job_status(&user_id, &job_index, &status).await {
+                if let Err(e) = self
+                    .queue_ops
+                    .update_job_status(&user_id, &job_index, &status)
+                    .await
+                {
                     eprintln!("Failed to update job status in RTDB: {:?}", e);
                 }
             }
@@ -1202,7 +1275,11 @@ impl<W: StageWorker> WorkerRunner<W> {
     async fn update_stage_status(&self, job_id: &str, stage: StageId, status: StageStatus) {
         match QueueOps::parse_job_id(job_id) {
             Ok((user_id, job_index)) => {
-                if let Err(e) = self.queue_ops.update_stage_status(&user_id, &job_index, stage, &status).await {
+                if let Err(e) = self
+                    .queue_ops
+                    .update_stage_status(&user_id, &job_index, stage, &status)
+                    .await
+                {
                     eprintln!("Failed to update {} status in RTDB: {:?}", stage, e);
                 }
             }
@@ -1218,17 +1295,17 @@ impl<W: StageWorker> WorkerRunner<W> {
 // ============================================================================
 
 /// Runs a stage worker with default configuration.
-/// 
+///
 /// This is the main entry point for stage microservices.
 /// Sets up signal handlers for graceful shutdown.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```ignore
 /// use igait_lib::microservice::{run_stage_worker, StageWorker, StageId, QueueItem, ProcessingResult};
-/// 
+///
 /// struct MyStageWorker;
-/// 
+///
 /// #[async_trait::async_trait]
 /// impl StageWorker for MyStageWorker {
 ///     fn stage(&self) -> StageId { StageId::new("pose-estimation") }
@@ -1243,7 +1320,7 @@ impl<W: StageWorker> WorkerRunner<W> {
 ///         }
 ///     }
 /// }
-/// 
+///
 /// #[tokio::main]
 /// async fn main() -> anyhow::Result<()> {
 ///     run_stage_worker(MyStageWorker).await
@@ -1253,7 +1330,7 @@ pub async fn run_stage_worker<W: StageWorker>(worker: W) -> Result<()> {
     let db = FirebaseRtdb::from_env()?;
     let runner = WorkerRunner::new(worker, db);
     let shutdown_token = runner.shutdown_token();
-    
+
     // Spawn signal handler
     tokio::spawn(async move {
         let ctrl_c = async {
@@ -1281,10 +1358,10 @@ pub async fn run_stage_worker<W: StageWorker>(worker: W) -> Result<()> {
                 println!("\nReceived SIGTERM, shutting down gracefully...");
             },
         }
-        
+
         shutdown_token.cancel();
     });
-    
+
     runner.run().await
 }
 
@@ -1320,11 +1397,7 @@ macro_rules! stage_worker_main {
 pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
     let stage = worker.stage();
 
-    println!(
-        "[job-mode] Starting {} ({})",
-        stage,
-        stage.name()
-    );
+    println!("[job-mode] Starting {} ({})", stage, stage.name());
 
     // Read the job payload from environment
     let payload = std::env::var("IGAIT_JOB_PAYLOAD")
@@ -1370,8 +1443,15 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
     let process_result = worker.process(&job).await;
 
     let job_result = match &process_result {
-        ProcessingResult::Success { output_keys, logs, duration_ms } => {
-            println!("[job-mode] Job {} completed successfully in {}ms", job.job_id, duration_ms);
+        ProcessingResult::Success {
+            output_keys,
+            logs,
+            duration_ms,
+        } => {
+            println!(
+                "[job-mode] Job {} completed successfully in {}ms",
+                job.job_id, duration_ms
+            );
 
             JobResult {
                 stage,
@@ -1392,8 +1472,15 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
                 taken_at: None,
             }
         }
-        ProcessingResult::Failure { error, logs, duration_ms } => {
-            eprintln!("[job-mode] Job {} failed after {}ms: {}", job.job_id, duration_ms, error);
+        ProcessingResult::Failure {
+            error,
+            logs,
+            duration_ms,
+        } => {
+            eprintln!(
+                "[job-mode] Job {} failed after {}ms: {}",
+                job.job_id, duration_ms, error
+            );
 
             JobResult {
                 stage,
@@ -1418,7 +1505,8 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
 
     // Write result to Firebase RTDB for the orchestrator to read
     let result_path = job_result_path(&job.job_id);
-    db.set(&result_path, &job_result).await
+    db.set(&result_path, &job_result)
+        .await
         .context("Failed to write JobResult to Firebase RTDB")?;
 
     println!("[job-mode] Result written to RTDB at {}", result_path);
@@ -1428,7 +1516,10 @@ pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
         Ok(())
     } else {
         // Return error so the process exits with code 1
-        anyhow::bail!("Job {} failed: {}", job.job_id, job_result.error.unwrap_or_default());
+        anyhow::bail!(
+            "Job {} failed: {}",
+            job.job_id,
+            job_result.error.unwrap_or_default()
+        );
     }
 }
-

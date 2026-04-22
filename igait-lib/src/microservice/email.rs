@@ -31,10 +31,10 @@ impl EmailClient {
         let config = aws_config::load_from_env().await;
         let ses_client = SesClient::new(&config);
 
-        let from_address = std::env::var("SES_FROM_ADDRESS")
-            .context("SES_FROM_ADDRESS must be set")?;
-        let from_identity_arn = std::env::var("SES_FROM_IDENTITY_ARN")
-            .context("SES_FROM_IDENTITY_ARN must be set")?;
+        let from_address =
+            std::env::var("SES_FROM_ADDRESS").context("SES_FROM_ADDRESS must be set")?;
+        let from_identity_arn =
+            std::env::var("SES_FROM_IDENTITY_ARN").context("SES_FROM_IDENTITY_ARN must be set")?;
 
         Ok(Self {
             ses_client: Arc::new(Mutex::new(ses_client)),
@@ -141,7 +141,13 @@ impl EmailClient {
 fn sanitize_ses_tag_value(value: &str) -> String {
     let mut out: String = value
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     if out.len() > 256 {
         out.truncate(256);
@@ -160,6 +166,7 @@ impl EmailTemplates {
     /// Builds a "submission received" welcome email.
     ///
     /// Sent when a user uploads a new job for processing.
+    #[allow(clippy::too_many_arguments)] // Each arg is a distinct submission field rendered into the template; bundling would just shift the same list one layer down.
     pub fn submission_received(
         datetime: &str,
         age: i16,
@@ -197,6 +204,7 @@ impl EmailTemplates {
     /// Builds a success email with the binary ASD/no-ASD result.
     ///
     /// Sent when the pipeline completes successfully with a prediction.
+    #[allow(clippy::too_many_arguments)] // Each arg is a distinct submission field rendered into the template; bundling would just shift the same list one layer down.
     pub fn prediction_success(
         datetime: &str,
         is_asd: bool,
@@ -233,11 +241,15 @@ impl EmailTemplates {
              If you have questions about your results, please contact GaitStudy@niu.edu.",
             datetime,
             result_text,
-            age.map(|a| a.to_string()).unwrap_or_else(|| "N/A".to_string()),
+            age.map(|a| a.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
             ethnicity.unwrap_or("N/A"),
-            sex.map(|s| s.to_string()).unwrap_or_else(|| "N/A".to_string()),
+            sex.map(|s| s.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
             height.unwrap_or("N/A"),
-            weight.map(|w| w.to_string()).unwrap_or_else(|| "N/A".to_string()),
+            weight
+                .map(|w| w.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
             uid,
             job_id
         );
@@ -255,11 +267,11 @@ impl EmailTemplates {
         job_id: &str,
     ) -> (String, String) {
         let subject = "Your recent submission to iGait App failed!".to_string();
-        
+
         let stage_info = failed_stage
             .map(|s| format!("Stage {}", s))
             .unwrap_or_else(|| "Unknown stage".to_string());
-        
+
         let body = format!(
             "Something went wrong with your submission on {}!<br><br>\
              Failed at: {}<br>\

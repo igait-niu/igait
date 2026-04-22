@@ -310,19 +310,28 @@ mod tests {
         for s in STAGES {
             assert!(!s.key.is_empty(), "stage key is empty");
             assert!(
-                s.key.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
+                s.key
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
                 "stage key {:?} must be kebab-case (a-z, 0-9, -)",
                 s.key
             );
-            assert!(!s.key.starts_with('-') && !s.key.ends_with('-'),
-                "stage key {:?} must not start or end with -", s.key);
+            assert!(
+                !s.key.starts_with('-') && !s.key.ends_with('-'),
+                "stage key {:?} must not start or end with -",
+                s.key
+            );
         }
     }
 
     #[test]
     fn descriptions_non_empty() {
         for s in STAGES {
-            assert!(!s.description.is_empty(), "stage {:?} has empty description", s.key);
+            assert!(
+                !s.description.is_empty(),
+                "stage {:?} has empty description",
+                s.key
+            );
         }
     }
 
@@ -333,8 +342,16 @@ mod tests {
             .enumerate()
             .filter_map(|(i, s)| s.terminal.then_some(i))
             .collect();
-        assert_eq!(terminal_indices.len(), 1, "exactly one terminal stage expected");
-        assert_eq!(terminal_indices[0], STAGES.len() - 1, "terminal stage must be last");
+        assert_eq!(
+            terminal_indices.len(),
+            1,
+            "exactly one terminal stage expected"
+        );
+        assert_eq!(
+            terminal_indices[0],
+            STAGES.len() - 1,
+            "terminal stage must be last"
+        );
     }
 
     #[test]
@@ -366,9 +383,18 @@ mod tests {
 
     #[test]
     fn panel_serializes_as_kebab_case() {
-        assert_eq!(serde_json::to_string(&StagePanel::Default).unwrap(), "\"default\"");
-        assert_eq!(serde_json::to_string(&StagePanel::VideoEdit).unwrap(), "\"video-edit\"");
-        assert_eq!(serde_json::to_string(&StagePanel::GaitCycles).unwrap(), "\"gait-cycles\"");
+        assert_eq!(
+            serde_json::to_string(&StagePanel::Default).unwrap(),
+            "\"default\""
+        );
+        assert_eq!(
+            serde_json::to_string(&StagePanel::VideoEdit).unwrap(),
+            "\"video-edit\""
+        );
+        assert_eq!(
+            serde_json::to_string(&StagePanel::GaitCycles).unwrap(),
+            "\"gait-cycles\""
+        );
     }
 
     #[test]
@@ -377,7 +403,7 @@ mod tests {
         let json = serde_json::to_value(spec).unwrap();
         assert_eq!(json["key"], "media-conversion");
         assert_eq!(json["display_name"], "Media Conversion");
-        assert!(json["description"].as_str().unwrap().len() > 0);
+        assert!(!json["description"].as_str().unwrap().is_empty());
         assert_eq!(json["terminal"], false);
         assert_eq!(json["panel"], "video-edit");
         assert!(json["inputs"].is_array());
@@ -409,8 +435,8 @@ mod tests {
                 if input.from == UPLOAD_SOURCE {
                     continue;
                 }
-                let src_idx = stage_index_of(input.from)
-                    .expect("earlier assertion covers unknown sources");
+                let src_idx =
+                    stage_index_of(input.from).expect("earlier assertion covers unknown sources");
                 assert!(
                     src_idx < i,
                     "stage {:?} at index {} cannot read from {:?} at index {} (later or same stage)",
@@ -443,8 +469,14 @@ mod tests {
     fn build_input_keys_pose_estimation_reads_media_conversion() {
         let spec = stage_by_key("pose-estimation").unwrap();
         let keys = spec.build_input_keys("user_0");
-        assert_eq!(keys["front_video"], "jobs/user_0/media-conversion/front_video.mp4");
-        assert_eq!(keys["side_video"], "jobs/user_0/media-conversion/side_video.mp4");
+        assert_eq!(
+            keys["front_video"],
+            "jobs/user_0/media-conversion/front_video.mp4"
+        );
+        assert_eq!(
+            keys["side_video"],
+            "jobs/user_0/media-conversion/side_video.mp4"
+        );
     }
 
     #[test]

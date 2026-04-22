@@ -8,6 +8,7 @@ on:
       - 'igait-lib/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'Dockerfile'
       - '.github/workflows/build-media-conversion.yml'
   workflow_dispatch:
 
@@ -49,7 +50,8 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./igait-stages/media-conversion/Dockerfile
+          file: ./Dockerfile
+          target: media-conversion
           platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

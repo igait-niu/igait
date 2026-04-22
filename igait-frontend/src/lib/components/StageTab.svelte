@@ -112,7 +112,9 @@
 	}
 
 	/* No-status variant picks up the primary color when active (admin queues). */
-	.stage-tab:not(.status-complete):not(.status-running):not(.status-error):not(.status-idle).active {
+	.stage-tab:not(.status-complete):not(.status-running):not(.status-error):not(
+			.status-idle
+		).active {
 		color: hsl(var(--primary));
 		border-color: hsl(var(--primary) / 0.3);
 	}

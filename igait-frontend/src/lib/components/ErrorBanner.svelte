@@ -80,7 +80,7 @@
 				>
 					<p class="mb-2 text-sm font-medium">Error Chain:</p>
 					<div class="flex flex-wrap items-center gap-2 text-sm">
-						{#each appError.contextChain as context, i}
+						{#each appError.contextChain as context, i (i)}
 							<span class="bg-destructive-foreground/10 rounded px-2 py-1">
 								{context}
 							</span>

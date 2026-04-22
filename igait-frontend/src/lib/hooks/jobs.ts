@@ -90,8 +90,6 @@ export function isJobsError(state: JobsState): state is { status: 'error'; error
 /**
  * Helper to check if jobs state is loaded
  */
-export function isJobsLoaded(
-	state: JobsState
-): state is { status: 'loaded'; jobs: JobWithId[] } {
+export function isJobsLoaded(state: JobsState): state is { status: 'loaded'; jobs: JobWithId[] } {
 	return state.status === 'loaded';
 }

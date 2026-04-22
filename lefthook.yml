@@ -1,0 +1,36 @@
+# Lefthook — local pre-commit gates that mirror .github/workflows/ci.yml.
+#
+# Install once per clone:   lefthook install
+# Skip for a single commit: LEFTHOOK=0 git commit ...
+# Run manually:             lefthook run pre-commit
+#
+# Each job here corresponds 1:1 with a PR-blocking CI job so a clean local
+# commit should also pass CI. The `glob`/`root` filters mean we only spin up
+# a toolchain when files it cares about changed.
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: rust-fmt
+      glob: "*.rs"
+      run: cargo fmt --all --check
+
+    - name: rust-clippy
+      glob: "*.rs"
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+    - name: frontend-lint
+      root: "igait-frontend/"
+      glob: "*.{ts,js,svelte,css,html,json}"
+      run: bun run lint
+
+    - name: frontend-check
+      root: "igait-frontend/"
+      glob: "*.{ts,js,svelte}"
+      run: bun run check
+
+pre-push:
+  jobs:
+    - name: rust-test
+      glob: "*.rs"
+      run: cargo test --workspace

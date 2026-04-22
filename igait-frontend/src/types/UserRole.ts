@@ -2,7 +2,7 @@
 
 /**
  * User role options - who is completing the submission form.
- * 
+ *
  * # Variants
  * * `Parent` - Parent of the patient
  * * `Doctor` - Medical professional
@@ -11,4 +11,4 @@
  * * `Grandparent` - Grandparent of the patient
  * * `Self_` - Patient themselves
  */
-export type UserRole = "parent" | "doctor" | "schoolOfficial" | "sibling" | "grandparent" | "self";
+export type UserRole = 'parent' | 'doctor' | 'schoolOfficial' | 'sibling' | 'grandparent' | 'self';

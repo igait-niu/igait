@@ -5,7 +5,6 @@
 import { getFirebaseDatabase } from '$lib/firebase';
 import { ref, onValue, set, type Unsubscribe } from 'firebase/database';
 import type { Job } from '../../types/Job';
-import type { JobStatus } from '../../types/JobStatus';
 
 /**
  * Queue item structure from Firebase RTDB
@@ -249,8 +248,8 @@ export function queueItemToJob(item: QueueItem | FinalizeQueueItem): Job & { id:
 		id: item.job_id,
 		age: item.metadata?.age ?? 0,
 		email: item.metadata?.email ?? '',
-		ethnicity: (item.metadata?.ethnicity ?? 'Unknown') as any,
-		sex: (item.metadata?.sex ?? 'O') as any,
+		ethnicity: (item.metadata?.ethnicity ?? 'Unknown') as unknown as Job['ethnicity'],
+		sex: (item.metadata?.sex ?? 'O') as Job['sex'],
 		height: item.metadata?.height ?? '',
 		weight: item.metadata?.weight ?? 0,
 		timestamp: Math.floor(item.enqueued_at / 1000),

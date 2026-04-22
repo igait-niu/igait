@@ -3,16 +3,11 @@
 //! This endpoint is NOT exposed publicly and should only be called by
 //! the stage microservices to update job status.
 
-use axum::{
-    extract::State,
-    Json,
-};
-use serde::{Deserialize, Serialize};
 use anyhow::Context;
+use axum::{extract::State, Json};
+use serde::{Deserialize, Serialize};
 
-use crate::helper::{
-    lib::{AppError, AppStatePtr, JobStatus},
-};
+use crate::helper::lib::{AppError, AppStatePtr, JobStatus};
 
 /// Request body for status update
 #[derive(Debug, Deserialize)]
@@ -29,7 +24,7 @@ pub struct UpdateStatusResponse {
 }
 
 /// Internal endpoint to update job status
-/// 
+///
 /// This is called by stage microservices to update the status of a job
 /// as it progresses through the pipeline.
 pub async fn update_status(
@@ -38,7 +33,9 @@ pub async fn update_status(
 ) -> Result<Json<UpdateStatusResponse>, AppError> {
     println!(
         "Received status update for user {} job {}: {:?}",
-        request.user_id, request.job_key, request.status.code()
+        request.user_id,
+        request.job_key,
+        request.status.code()
     );
 
     // Update the status in the database

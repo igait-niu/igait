@@ -47,6 +47,9 @@
                     bitwarden-cli
                     jq
 
+                    # Pre-commit hooks — mirrors CI gates locally
+                    lefthook
+
                     # Useful for microservices development
                     ffmpeg  # media-conversion, pose-estimation
                     python  # pose-estimation, cycle-detection, prediction
@@ -55,6 +58,7 @@
                     ''
                     git submodule init
                     git submodule update
+                    lefthook install
                     export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath (buildInputs ++ [ pkgs.stdenv.cc.cc ])}
                     '';
 

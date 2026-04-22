@@ -1,0 +1,129 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  rust-fmt:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - igait-lib
+          - igait-backend
+          - igait-stages/media-conversion
+          - igait-stages/pose-estimation
+          - igait-stages/cycle-detection
+          - igait-stages/prediction
+          - igait-stages/finalize
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+        working-directory: ${{ matrix.crate }}
+
+  rust-clippy:
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - igait-lib
+          - igait-backend
+          - igait-stages/media-conversion
+          - igait-stages/pose-estimation
+          - igait-stages/cycle-detection
+          - igait-stages/prediction
+          - igait-stages/finalize
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.crate }}
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: ${{ matrix.crate }}
+
+  rust-test:
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - igait-lib
+          - igait-backend
+          - igait-stages/media-conversion
+          - igait-stages/pose-estimation
+          - igait-stages/cycle-detection
+          - igait-stages/prediction
+          - igait-stages/finalize
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.crate }}
+      - run: cargo test
+        working-directory: ${{ matrix.crate }}
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: igait-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run check
+
+  integration:
+    runs-on: ubuntu-24.04-arm
+    needs: [rust-clippy, frontend]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Bring up hermetic stack
+        run: docker compose up --build --wait --timeout 300
+        env:
+          FIREBASE_RTDB_URL: http://firebase-emulator:9000/?ns=igait-local
+          FIREBASE_ACCESS_KEY: local-emulator-key
+          FIREBASE_AUTH_EMULATOR_HOST: firebase-emulator:9099
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin
+          AWS_S3_BUCKET: igait-storage
+          AWS_REGION: us-east-2
+          AWS_ENDPOINT_URL_S3: http://minio:9000
+          AWS_ENDPOINT_URL_SESV2: http://ses-mock:8005
+          AWS_S3_FORCE_PATH_STYLE: "true"
+          SES_FROM_ADDRESS: noreply@local.test
+          SES_FROM_IDENTITY_ARN: arn:aws:ses:us-east-2:000000000000:identity/local
+          OPENAI_API_KEY: sk-integration-test-stub
+          VITE_API_BASE_URL: http://localhost:3000
+          CORS_ALLOW_ORIGIN: http://localhost:4173
+      - name: Capture compose logs on failure
+        if: failure()
+        run: docker compose logs > compose-logs.txt
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: compose-logs
+          path: compose-logs.txt
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

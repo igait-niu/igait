@@ -30,7 +30,7 @@
 			: (message.content as string)
 	);
 
-	const isBot = $derived(
+	const _isBot = $derived(
 		message.type === 'Message' || message.type === 'Typing' || message.type === 'Jobs'
 	);
 	const isUser = $derived(message.type === 'You');

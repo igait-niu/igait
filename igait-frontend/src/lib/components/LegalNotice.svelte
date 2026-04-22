@@ -78,7 +78,7 @@
 						<h2 class="text-xl font-semibold">How We Protect Your Health Information</h2>
 					</div>
 					<ul class="space-y-3">
-						{#each ['Treating all of your health information that we collect as confidential', 'Stating confidentiality policies and practices in our policies, as well as disciplinary measures for privacy violations', 'Restricting access to your health information only to those who need to know your health information', 'Only disclosing your health information that is necessary and ensuring all those receiving information have agreed to protect and maintain confidentiality', 'Maintaining physical, electronic, and procedural safeguards to comply with federal and state regulations'] as item}
+						{#each ['Treating all of your health information that we collect as confidential', 'Stating confidentiality policies and practices in our policies, as well as disciplinary measures for privacy violations', 'Restricting access to your health information only to those who need to know your health information', 'Only disclosing your health information that is necessary and ensuring all those receiving information have agreed to protect and maintain confidentiality', 'Maintaining physical, electronic, and procedural safeguards to comply with federal and state regulations'] as item (item)}
 							<li class="flex items-start gap-3">
 								<div class="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-primary"></div>
 								<span class="text-muted-foreground">{item}</span>

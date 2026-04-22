@@ -5,34 +5,39 @@
 
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
-use axum::{body::Bytes, extract::{Multipart, State}};
-use anyhow::{Result, Context, anyhow};
+use anyhow::{anyhow, Context, Result};
+use axum::{
+    body::Bytes,
+    extract::{Multipart, State},
+};
 use firebase_auth::FirebaseUser;
 
-use igait_lib::microservice::{StoragePaths, JobMetadata, QueueItem, StageId, FirebaseRtdb, queue_item_path};
+use igait_lib::microservice::{
+    queue_item_path, FirebaseRtdb, JobMetadata, QueueItem, StageId, StoragePaths,
+};
 
 use crate::helper::{
     email::send_welcome_email,
-    lib::{AppError, AppState, AppStatePtr, Job, JobStatus, Sex, Ethnicity},
+    lib::{AppError, AppState, AppStatePtr, Ethnicity, Job, JobStatus, Sex},
 };
 
 /// The required arguments for the upload request.
 struct UploadRequestArguments {
-    age:        i16,
-    ethnicity:  Ethnicity,
-    sex:        Sex,
-    height:     String,
-    weight:     i16,
-    email:      String,
+    age: i16,
+    ethnicity: Ethnicity,
+    sex: Sex,
+    height: String,
+    weight: i16,
+    email: String,
     front_file: UploadRequestFile,
-    side_file:  UploadRequestFile,
+    side_file: UploadRequestFile,
     requires_approval: bool,
 }
 
 /// A representation of a file in a `Multipart` request.
 #[derive(Debug)]
 struct UploadRequestFile {
-    name:  String,
+    name: String,
     bytes: Bytes,
 }
 
@@ -45,19 +50,19 @@ struct UploadRequestFile {
 /// * `multipart` - The `Multipart` object to unpack.
 async fn unpack_upload_arguments(multipart: &mut Multipart) -> Result<UploadRequestArguments> {
     // Initialize all of the fields as options
-    let mut age_option:       Option<i16>       = None;
+    let mut age_option: Option<i16> = None;
     let mut ethnicity_option: Option<Ethnicity> = None;
-    let mut sex_option:       Option<Sex>       = None;
-    let mut height_option:    Option<String> = None;
-    let mut weight_option:    Option<i16>    = None;
-    let mut email_option:     Option<String> = None;
+    let mut sex_option: Option<Sex> = None;
+    let mut height_option: Option<String> = None;
+    let mut weight_option: Option<i16> = None;
+    let mut email_option: Option<String> = None;
     let mut requires_approval: bool = false;
 
     // Initialize the file fields as options
-    let mut front_file_name_option:  Option<String> = None;
-    let mut side_file_name_option:   Option<String> = None;
-    let mut front_file_bytes_option: Option<Bytes>  = None;
-    let mut side_file_bytes_option:  Option<Bytes>  = None;
+    let mut front_file_name_option: Option<String> = None;
+    let mut side_file_name_option: Option<String> = None;
+    let mut front_file_bytes_option: Option<Bytes> = None;
+    let mut side_file_bytes_option: Option<Bytes> = None;
 
     // Loop through the fields
     while let Some(field) = multipart
@@ -163,18 +168,22 @@ async fn unpack_upload_arguments(multipart: &mut Multipart) -> Result<UploadRequ
     }
 
     // Make sure all of the fields are present
-    let age       = age_option.ok_or(anyhow!("Missing 'age' in request"))?;
+    let age = age_option.ok_or(anyhow!("Missing 'age' in request"))?;
     let ethnicity = ethnicity_option.ok_or(anyhow!("Missing 'ethnicity' in request"))?;
-    let sex       = sex_option.ok_or(anyhow!("Missing 'sex' in request"))?;
-    let height    = height_option.ok_or(anyhow!("Missing 'height' in request"))?;
-    let weight    = weight_option.ok_or(anyhow!("Missing 'weight' in request"))?;
-    let email     = email_option.ok_or(anyhow!("Missing 'email' in request"))?;
+    let sex = sex_option.ok_or(anyhow!("Missing 'sex' in request"))?;
+    let height = height_option.ok_or(anyhow!("Missing 'height' in request"))?;
+    let weight = weight_option.ok_or(anyhow!("Missing 'weight' in request"))?;
+    let email = email_option.ok_or(anyhow!("Missing 'email' in request"))?;
 
     // Make sure all of the file fields are present
-    let front_file_name  = front_file_name_option.ok_or(anyhow!("Missing 'fileuploadfront' in request!"))?;
-    let side_file_name   = side_file_name_option.ok_or(anyhow!("Missing 'fileuploadside' in request!"))?;
-    let front_file_bytes = front_file_bytes_option.ok_or(anyhow!("Missing 'fileuploadfront' bytes!"))?;
-    let side_file_bytes  = side_file_bytes_option.ok_or(anyhow!("Missing 'fileuploadside' bytes!"))?;
+    let front_file_name =
+        front_file_name_option.ok_or(anyhow!("Missing 'fileuploadfront' in request!"))?;
+    let side_file_name =
+        side_file_name_option.ok_or(anyhow!("Missing 'fileuploadside' in request!"))?;
+    let front_file_bytes =
+        front_file_bytes_option.ok_or(anyhow!("Missing 'fileuploadfront' bytes!"))?;
+    let side_file_bytes =
+        side_file_bytes_option.ok_or(anyhow!("Missing 'fileuploadside' bytes!"))?;
 
     Ok(UploadRequestArguments {
         age,
@@ -227,13 +236,13 @@ pub async fn upload_entrypoint(
 
     // Build the new job object
     let job = Job {
-        age:       arguments.age,
+        age: arguments.age,
         ethnicity: arguments.ethnicity.clone(),
-        sex:       arguments.sex,
-        height:    arguments.height.clone(),
-        weight:    arguments.weight,
-        status:    status.clone(),
-        email:     arguments.email.clone(),
+        sex: arguments.sex,
+        height: arguments.height.clone(),
+        weight: arguments.weight,
+        status: status.clone(),
+        email: arguments.email.clone(),
         timestamp: SystemTime::now(),
         requires_approval: arguments.requires_approval,
         // Start unapproved — the worker logic will allow pick-up
@@ -245,7 +254,8 @@ pub async fn upload_entrypoint(
     };
 
     // Add the job to the database — returns the generated UUID key
-    let job_key = app.db
+    let job_key = app
+        .db
         .lock()
         .await
         .new_job(&uid, job.clone())
@@ -278,7 +288,9 @@ pub async fn upload_entrypoint(
             .await
             .context("Failed to update the status of the job!")?;
 
-        return Err(AppError(err.context("Failed to upload files or dispatch job!")));
+        return Err(AppError(
+            err.context("Failed to upload files or dispatch job!"),
+        ));
     }
 
     // Update status - job has been submitted and is ready for Stage 1
@@ -335,13 +347,15 @@ async fn upload_and_dispatch(
     let side_key = StoragePaths::upload_side_video(job_id, side_extension);
 
     println!("Uploading front video to: {}", front_key);
-    let _: () = app.storage
+    let _: () = app
+        .storage
         .upload(&front_key, front_file.bytes.to_vec(), Some("video/mp4"))
         .await
         .context("Failed to upload front video to AWS S3!")?;
 
     println!("Uploading side video to: {}", side_key);
-    let _: () = app.storage
+    let _: () = app
+        .storage
         .upload(&side_key, side_file.bytes.to_vec(), Some("video/mp4"))
         .await
         .context("Failed to upload side video to AWS S3!")?;
@@ -373,9 +387,8 @@ async fn upload_and_dispatch(
     );
 
     // Push to Stage 1 queue in Firebase RTDB
-    let rtdb = FirebaseRtdb::from_env()
-        .context("Failed to initialize Firebase RTDB client")?;
-    
+    let rtdb = FirebaseRtdb::from_env().context("Failed to initialize Firebase RTDB client")?;
+
     let queue_path = queue_item_path(StageId::new("media-conversion"), job_id);
     rtdb.set(&queue_path, &queue_item)
         .await
