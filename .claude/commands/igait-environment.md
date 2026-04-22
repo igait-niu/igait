@@ -68,5 +68,6 @@ One line: how many env vars were written, whether the GCP key was materialised. 
 ## Notes
 
 - `.env` and `credentials/` are gitignored; never commit either.
-- `docker compose` picks up `.env` automatically from the project root — no extra step. For running binaries outside compose, the user sources `.env` themselves.
-- Re-running this command is the supported resync path after a Vaultwarden rotation. There is no watcher, no direnv, no automatic refresh.
+- `docker compose` picks up `.env` automatically from the project root — no extra step.
+- The tracked `.envrc` sources the same `.env` via `dotenv_if_exists`, so shells that have direnv hooked also get these vars after a `direnv reload`. `.envrc` itself does not touch Vaultwarden — this command is the only auth-bearing path.
+- Re-running this command is the supported resync path after a Vaultwarden rotation. There is no watcher and no automatic refresh.

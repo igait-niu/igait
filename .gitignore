@@ -11,7 +11,8 @@ firebase-debug.log
 .venv
 .codegraph
 
-# Secrets materialised by .envrc at shell load (sourced from Vaultwarden)
+# Secrets materialised by /igait-environment (sourced from Vaultwarden;
+# .env is loaded by both docker compose and .envrc's dotenv_if_exists)
 credentials/
 
 # Ignore test content

@@ -34,6 +34,7 @@ Please use Linux or [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install
 You'll want to have the following installed on your machine:
 - [Docker](https://www.docker.com/)
 - [Nix](https://nixos.org/download/). Enable [Nix Flakes](https://nixos.wiki/wiki/flakes)
+- [`direnv`](https://direnv.net/) — auto-enters the Nix dev shell and sources `.env` on `cd` into the repo. Hook your shell per the direnv docs.
 - [Claude Code](https://claude.com/claude-code) — the `/igait-environment` slash command materialises `.env` and `credentials/gcp-key.json` from Vaultwarden
 
 First, download this repository (note the submodules!):
@@ -58,7 +59,7 @@ Then, inside this repo, run the Claude Code slash command **`/igait-environment`
 - `.env` — every custom field except `GCP_KEY_JSON`, auto-loaded by `docker compose`.
 - `credentials/gcp-key.json` (mode 600) — the GCP service-account JSON the Firebase SDK insists must exist on disk.
 
-Re-run `/igait-environment` whenever a secret is rotated in Vaultwarden. There is no direnv, no watcher — one command, on demand. See `wiki/environment/VAULTWARDEN.md` for the field-editing workflow.
+Re-run `/igait-environment` whenever a secret is rotated in Vaultwarden, then `direnv reload` in any open shell. The tracked `.envrc` only does two things: `use flake` (Nix dev shell) and `dotenv_if_exists .env` (source the file the slash command wrote). It does **not** touch Vaultwarden — auth is a conscious action, not per-`cd` churn. See `wiki/environment/VAULTWARDEN.md` for the field-editing workflow.
 
 **Optional**:
 I strongly recommend using [Visual Studio Code](https://code.visualstudio.com/) with the Svelte and `rust-analyzer` extensions! 
