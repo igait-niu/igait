@@ -124,6 +124,18 @@ services:
         apk add --no-cache curl jq >/dev/null
         AUTH=http://firebase-emulator:9099/identitytoolkit.googleapis.com/v1
         RTDB=http://firebase-emulator:9000
+        # The firebase-emulator healthcheck probes :9000 (RTDB), but this
+        # script hits :9099 (Auth). Those ports bind independently inside
+        # the same JVM, so "healthy" doesn't imply auth is ready. Wait
+        # explicitly before the first request. ~30s is generous; real
+        # readiness is typically sub-second after RTDB healthy.
+        for i in $$(seq 1 60); do
+          if curl -sf -o /dev/null "http://firebase-emulator:9099/"; then break; fi
+          if [ "$$i" = "60" ]; then
+            echo "auth emulator never became reachable" >&2; exit 1
+          fi
+          sleep 0.5
+        done
         # NOTE: kept in sync with the dev banner on the login page
         # (igait-frontend/src/routes/(public)/login/+page.svelte). If you
         # rotate these, update that file too.
