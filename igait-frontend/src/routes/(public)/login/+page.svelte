@@ -98,9 +98,7 @@
 						<dt>Password</dt>
 						<dd><code>{DEV_ADMIN_PASSWORD}</code></dd>
 					</dl>
-					<button type="button" class="dev-banner-fill" onclick={fillDevAdmin}>
-						Fill in
-					</button>
+					<button type="button" class="dev-banner-fill" onclick={fillDevAdmin}> Fill in </button>
 				</div>
 			{/if}
 
@@ -302,13 +300,7 @@
 		margin-bottom: 1.5rem;
 		padding: 0.875rem 1rem;
 		border: 2px dashed #f59e0b;
-		background: repeating-linear-gradient(
-			45deg,
-			#fef3c7,
-			#fef3c7 10px,
-			#fde68a 10px,
-			#fde68a 20px
-		);
+		background: repeating-linear-gradient(45deg, #fef3c7, #fef3c7 10px, #fde68a 10px, #fde68a 20px);
 		color: #78350f;
 		border-radius: 0.5rem;
 		font-size: 0.875rem;
