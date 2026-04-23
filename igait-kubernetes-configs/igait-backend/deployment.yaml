@@ -113,7 +113,7 @@ spec:
         - name: STAGE_CYCLE_DETECTION_IMAGE
           value: ghcr.io/igait-niu/igait/cycle-detection:sha-d52d3b4
         - name: STAGE_PREDICTION_IMAGE
-          value: ghcr.io/igait-niu/igait/prediction:sha-9067bd6
+          value: ghcr.io/igait-niu/igait/prediction:sha-d52d3b4
         - name: STAGE_FINALIZE_IMAGE
           value: ghcr.io/igait-niu/igait/finalize:sha-d52d3b4
         resources:
