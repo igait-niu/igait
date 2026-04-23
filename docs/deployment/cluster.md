@@ -99,6 +99,35 @@ kubectl get application -n argocd -o jsonpath='{range .items[*]}{.metadata.name}
 Any future path restructure PR should include these patch commands in its
 merge checklist — git alone won't update the live cluster.
 
+### Don't `docker login` on the cluster node
+
+Kubelet's credential resolution for image pulls reads, in order: the pod's
+`imagePullSecrets`, the service account's `imagePullSecrets`, then
+`/root/.docker/config.json` on the node (because kubelet runs as root).
+
+If someone `docker login ghcr.io`s on `ai-leads` for a one-off pull, the
+resulting `~/.docker/config.json` becomes a silent node-wide credential
+source for *every* subsequent image pull. When its token expires (GitHub
+`ghs_*` session tokens last hours; even PATs rotate), kubelet keeps sending
+the expired credential — and ghcr returns **403** to invalid creds instead
+of falling back to anonymous. Public packages suddenly fail to pull with
+`failed to fetch oauth token: 403 Forbidden`.
+
+**Don't `docker login` on the node.** If you need to pull a private image:
+
+1. Prefer making the ghcr package public (we do this for every app/stage
+   image — they're binaries, not source).
+2. Otherwise, add an `imagePullSecrets` entry to the Deployment or its
+   ServiceAccount. There's already an unused `ghcr-pull-secret` in the
+   `igait` namespace if you need it.
+
+If someone already did `docker login`, clean it up:
+
+```bash
+ssh root@ai-leads rm /root/.docker/config.json
+ssh root@ai-leads kubectl -n igait delete pods -l app=<affected>
+```
+
 ## Access scope for Claude / agents
 
 SSH access is authorized for:
