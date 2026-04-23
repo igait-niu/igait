@@ -69,7 +69,7 @@ The backend adds `tower-http::CorsLayer` only if this env var is set. Without it
 
 ### Firebase emulator is a prebuilt image
 
-The RTDB emulator is a JVM process, and `firebase-tools` dropped support for Java <21. Rather than installing openjdk + firebase-tools on every boot (which historically took several minutes and periodically blew past the healthcheck window, cascading failures through every `service_healthy` dependent), the emulator is now built from `dev/firebase/Dockerfile` — it bakes in JRE 21, `firebase-tools`, the pre-downloaded emulator jars (`firebase setup:emulators:{auth,database}`), and `.firebaserc`. First `docker compose build` takes ~3–5 min once; every boot after that is JVM startup (~5–10s), so `start_period: 30s` is plenty.
+The RTDB emulator is a JVM process, and `firebase-tools` dropped support for Java <21. Rather than installing openjdk + firebase-tools on every boot (which historically took several minutes and periodically blew past the healthcheck window, cascading failures through every `service_healthy` dependent), the emulator is now built from `.docker/firebase-emulator/Dockerfile` — it bakes in JRE 21, `firebase-tools`, the pre-downloaded emulator jars (`firebase setup:emulators:{auth,database}`), and `.firebaserc`. First `docker compose build` takes ~3–5 min once; every boot after that is JVM startup (~5–10s), so `start_period: 30s` is plenty.
 
 If you bump the `firebase-tools` version or swap JREs, rebuild with `docker compose build firebase-emulator`.
 

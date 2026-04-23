@@ -9,7 +9,7 @@ name: igait
 # long-running services here (worker mode) rather than one-shot K8s Jobs.
 #
 # Usage:
-#   direnv allow         # loads OPENAI_* + GCP key from Vaultwarden
+#   /igait-environment   # Claude Code slash command — materialises .env from Vaultwarden
 #   docker compose up    # browse http://localhost:4173
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -38,15 +38,14 @@ x-pipeline-env: &pipeline-env
   # emulator JWTs — skip RS256 verification and just extract claims.
   FIREBASE_AUTH_EMULATOR_HOST: firebase-emulator:9099
   # GCP credentials — emulator ignores auth, but the SDK still insists on a
-  # file existing. .envrc recreates this from the igait/dev-env VW item.
+  # file existing. A stub `/credentials/gcp-key.json` is baked into every
+  # runtime image by `.docker/workspace/Dockerfile` (runtime-base stage).
   GOOGLE_APPLICATION_CREDENTIALS: /credentials/gcp-key.json
   RUST_LOG: info
 
-# Stage services share an identical shape — common build + env + wait-for-deps.
+# Stage services share an identical shape — common env + wait-for-deps.
 x-stage-service: &stage-service
   environment: *pipeline-env
-  volumes:
-    - ./credentials/gcp-key.json:/credentials/gcp-key.json:ro
   depends_on:
     firebase-emulator:
       condition: service_healthy
@@ -61,9 +60,9 @@ services:
     # jars, so boot = JVM startup (~5-10s) instead of apk + npm install
     # (several minutes, which previously blew past healthcheck windows and
     # cascaded failures through every `service_healthy` dependent).
-    build: ./dev/firebase
+    build: ./.docker/firebase-emulator
     volumes:
-      - ./dev/firebase/firebase.json:/app/firebase.json:ro
+      - ./.docker/firebase-emulator/firebase.json:/app/firebase.json:ro
       - ./database.rules.json:/app/database.rules.json:ro
     ports:
       - "9000:9000"  # RTDB
@@ -171,7 +170,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: .docker/workspace/Dockerfile
       target: backend
     ports:
       - "3000:3000"
@@ -186,8 +185,6 @@ services:
       OPENAI_VECTOR_STORE_ID: ${OPENAI_VECTOR_STORE_ID:-}
       # Let the browser preview build (localhost:4173) through CORS.
       CORS_ALLOW_ORIGIN: http://localhost:4173
-    volumes:
-      - ./credentials/gcp-key.json:/credentials/gcp-key.json:ro
     depends_on:
       firebase-emulator:
         condition: service_healthy
@@ -199,7 +196,7 @@ services:
   frontend:
     build:
       context: ./igait-frontend
-      dockerfile: Dockerfile
+      dockerfile: ../.docker/frontend/Dockerfile
       # VITE_* vars are baked into the bundle at build time. Browser-facing
       # URLs use localhost because they resolve from the user's machine,
       # not the compose network.
@@ -238,28 +235,28 @@ services:
     <<: *stage-service
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: .docker/workspace/Dockerfile
       target: media-conversion
 
   pose-estimation:
     <<: *stage-service
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: .docker/workspace/Dockerfile
       target: pose-estimation
 
   cycle-detection:
     <<: *stage-service
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: .docker/workspace/Dockerfile
       target: cycle-detection
 
   prediction:
     <<: *stage-service
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: .docker/workspace/Dockerfile
       target: prediction
 
   finalize:
@@ -267,11 +264,9 @@ services:
     # depends_on to add ses-mock as a health-gated dependency.
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: .docker/workspace/Dockerfile
       target: finalize
     environment: *pipeline-env
-    volumes:
-      - ./credentials/gcp-key.json:/credentials/gcp-key.json:ro
     depends_on:
       firebase-emulator:
         condition: service_healthy

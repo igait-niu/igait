@@ -14,7 +14,7 @@ In the pursuit of keeping this file lean, all tribal knowledge is encoded in `./
 
 ## Slash commands
 
-- **`/igait-environment`** — materialise `.env` + `credentials/gcp-key.json` from Vaultwarden. One-shot; re-run to resync. Replaces the old direnv flow.
+- **`/igait-environment`** — materialise `.env` from Vaultwarden. One-shot; re-run to resync. Replaces the old direnv flow. (A stub GCP key is baked into the runtime images by `.docker/workspace/Dockerfile`; no on-disk credentials file is needed for local dev or CI.)
 
 
 ## Tips for Success

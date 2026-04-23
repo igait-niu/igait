@@ -5,6 +5,7 @@ on:
     branches: ['master']
     paths:
       - 'igait-frontend/**'
+      - '.docker/frontend/**'
       - '.github/workflows/build-web.yml'
   workflow_dispatch:
 
@@ -48,7 +49,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./igait-frontend
-          file: ./igait-frontend/Dockerfile
+          file: ./.docker/frontend/Dockerfile
           platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

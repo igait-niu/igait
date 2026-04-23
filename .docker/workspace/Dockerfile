@@ -5,9 +5,9 @@
 # target/ directory and Cargo.lock. Each service image is a target below that
 # just COPY --from=builder's its binary and installs its runtime deps.
 #
-# Build a specific service:
-#   docker build -f Dockerfile --target backend -t igait-backend .
-#   docker build -f Dockerfile --target pose-estimation -t igait-pose .
+# Build a specific service (from repo root):
+#   docker build -f .docker/workspace/Dockerfile --target backend -t igait-backend .
+#   docker build -f .docker/workspace/Dockerfile --target pose-estimation -t igait-pose .
 # ─────────────────────────────────────────────────────────────────────────────
 
 FROM rust:1.93-slim-bookworm AS chef
@@ -42,32 +42,39 @@ RUN cargo build --release --workspace \
     --bin finalize
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Runtime stages — one per service. All use debian:bookworm-slim so the
-# binaries built against the bookworm builder run unmodified.
+# Runtime base — shared by every service image.
+#
+# Bakes a stub `/credentials/gcp-key.json` so the Firebase SDK's
+# GOOGLE_APPLICATION_CREDENTIALS file-existence check passes in local dev
+# and CI runs against the emulator (which ignores auth). In prod, the K8s
+# deployment mounts the real key as a Secret volume at /credentials, which
+# replaces this stub — production is unaffected.
 # ─────────────────────────────────────────────────────────────────────────────
-
-# ── backend ─────────────────────────────────────────────────────────────────
-FROM debian:bookworm-slim AS backend
+FROM debian:bookworm-slim AS runtime-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates libssl3 \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/igait-backend /usr/local/bin/igait-backend
+RUN mkdir -p /credentials && printf '%s' \
+    '{"type":"service_account","project_id":"igait-local","private_key_id":"stub","private_key":"-----BEGIN PRIVATE KEY-----\nSTUB\n-----END PRIVATE KEY-----\n","client_email":"stub@igait-local.iam.gserviceaccount.com","client_id":"0","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token"}' \
+    > /credentials/gcp-key.json
 ENV RUST_LOG=info
+
+# ── backend ─────────────────────────────────────────────────────────────────
+FROM runtime-base AS backend
+COPY --from=builder /app/target/release/igait-backend /usr/local/bin/igait-backend
 CMD ["igait-backend"]
 
 # ── media-conversion (ffmpeg) ───────────────────────────────────────────────
-FROM debian:bookworm-slim AS media-conversion
+FROM runtime-base AS media-conversion
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 ffmpeg \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/media-conversion /usr/local/bin/worker
-ENV RUST_LOG=info
 CMD ["worker"]
 
 # ── pose-estimation (Python + mediapipe + torch) ────────────────────────────
-FROM debian:bookworm-slim AS pose-estimation
+FROM runtime-base AS pose-estimation
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 \
     python3 python3-pip \
     libgl1 libglib2.0-0 ffmpeg \
     && pip3 install --no-cache-dir --break-system-packages \
@@ -75,40 +82,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY igait-stages/pose-estimation/igait-mediapipe/3DPoseEstimation.py /app/3DPoseEstimation.py
 COPY --from=builder /app/target/release/pose-estimation /usr/local/bin/worker
-ENV RUST_LOG=info
 CMD ["worker"]
 
 # ── cycle-detection (Python + scientific stack) ─────────────────────────────
-FROM debian:bookworm-slim AS cycle-detection
+FROM runtime-base AS cycle-detection
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 \
     python3 python3-pip \
     && pip3 install --no-cache-dir --break-system-packages \
         numpy pandas scipy matplotlib \
     && rm -rf /var/lib/apt/lists/*
 COPY igait-stages/cycle-detection/igait-gait-cycle-detection/gait_analysis_mediapipe.py /app/gait_analysis_mediapipe.py
 COPY --from=builder /app/target/release/cycle-detection /usr/local/bin/worker
-ENV RUST_LOG=info
 CMD ["worker"]
 
 # ── prediction (Python + model IO requirements) ─────────────────────────────
-FROM debian:bookworm-slim AS prediction
+FROM runtime-base AS prediction
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 \
     python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
 COPY igait-stages/prediction/iGAIT_MODEL_IO /app/iGAIT_MODEL_IO
 RUN pip3 install --no-cache-dir --break-system-packages \
     -r /app/iGAIT_MODEL_IO/requirements.txt || true
 COPY --from=builder /app/target/release/prediction /usr/local/bin/worker
-ENV RUST_LOG=info
 CMD ["worker"]
 
 # ── finalize (just needs TLS for SES) ───────────────────────────────────────
-FROM debian:bookworm-slim AS finalize
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+FROM runtime-base AS finalize
 COPY --from=builder /app/target/release/finalize /usr/local/bin/worker
-ENV RUST_LOG=info
 CMD ["worker"]

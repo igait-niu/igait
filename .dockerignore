@@ -38,8 +38,6 @@ flake.nix
 flake.lock
 .direnv/
 
-# Credentials (should be mounted as volume)
-credentials/
 *.json
 !**/Cargo.toml
 !**/Cargo.lock

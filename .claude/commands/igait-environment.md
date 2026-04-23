@@ -1,17 +1,18 @@
 ---
-description: Materialise iGait dev environment (.env + credentials/gcp-key.json) from Vaultwarden. Run once per machine; re-run to resync after a secret rotation.
+description: Materialise iGait dev environment (.env) from Vaultwarden. Run once per machine; re-run to resync after a secret rotation.
 ---
 
 You are setting up — or resyncing — the iGait development environment for the user in this repo. Work through the steps below. Be concise: one short status line per step is enough. Only get chatty if something breaks and the user needs to intervene.
 
 ## Goal
 
-Produce two artefacts at repo root:
+Produce one artefact at repo root:
 
 1. `./.env` — a plain `KEY=value` file that `docker compose` auto-loads (and that the user can `set -a; source .env; set +a` into a shell).
-2. `./credentials/gcp-key.json` (mode 600) — the GCP service-account JSON the Firebase SDK insists must exist on disk, even when the emulator ignores it.
 
-Both must come from the Vaultwarden item `igait/dev-env` (org: `igait-niu`). The item stores every required field in its `.fields[]` array; one field named `GCP_KEY_JSON` holds the JSON blob that lands in `credentials/gcp-key.json`.
+Content comes from the Vaultwarden item `igait/dev-env` (org: `igait-niu`), whose `.fields[]` array holds every required value.
+
+> The Firebase SDK's GCP key file (`/credentials/gcp-key.json`) used to live here too — it's now baked as a stub into every runtime image by `.docker/workspace/Dockerfile` so local dev and CI no longer need a real key. Prod continues to mount the real key from a K8s Secret. If the Vaultwarden item still has a `GCP_KEY_JSON` field, skip it.
 
 ## Steps
 
@@ -53,23 +54,17 @@ If the fetch fails, the user probably lacks read access to the `igait-niu` colle
 
 ### 4. Write `.env`
 
-Parse the returned JSON and write every `fields[]` entry as `NAME=value` to `./.env`, **except** `GCP_KEY_JSON` (skip it — it's a file payload, not an env var). Use `jq` to emit the lines; quote values that contain whitespace or special characters so shell sourcing stays correct.
+Parse the returned JSON and write every `fields[]` entry as `NAME=value` to `./.env`, **except** `GCP_KEY_JSON` (skip it — legacy field, no longer needed; the runtime image bakes a stub). Use `jq` to emit the lines; quote values that contain whitespace or special characters so shell sourcing stays correct.
 
 Idempotent: overwrite `.env` wholesale. Set it to mode 600.
 
-### 5. Materialise the GCP key
+### 5. Report
 
-Extract `GCP_KEY_JSON` from the same JSON, `mkdir -p credentials`, write it to `credentials/gcp-key.json`, and `chmod 600`.
-
-If the field is missing or empty, fall back to any existing file on disk; if neither exists, warn the user and explain that they need to add a `GCP_KEY_JSON` custom field to the `igait/dev-env` item (full service-account JSON as the value).
-
-### 6. Report
-
-One line: how many env vars were written, whether the GCP key was materialised. Done.
+One line: how many env vars were written. Done.
 
 ## Notes
 
-- `.env` and `credentials/` are gitignored; never commit either.
+- `.env` is gitignored; never commit it.
 - `docker compose` picks up `.env` automatically from the project root — no extra step.
 - The tracked `.envrc` sources the same `.env` via `dotenv_if_exists`, so shells that have direnv hooked also get these vars after a `direnv reload`. `.envrc` itself does not touch Vaultwarden — this command is the only auth-bearing path.
 - Re-running this command is the supported resync path after a Vaultwarden rotation. There is no watcher and no automatic refresh.
