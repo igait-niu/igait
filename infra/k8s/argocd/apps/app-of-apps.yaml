@@ -9,8 +9,6 @@ spec:
     repoURL: https://github.com/igait-niu/igait.git
     targetRevision: main
     path: infra/k8s/argocd/apps
-    directory:
-      recurse: false
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
