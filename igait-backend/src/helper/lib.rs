@@ -450,7 +450,11 @@ pub struct AppState {
     pub db: Mutex<Database>,
     pub storage: StorageClient,
     pub email_client: EmailClient,
-    pub openai_client: Client<OpenAIConfig>,
+    /// Optional OpenAI client. `None` when `OPENAI_API_KEY` is unset at boot
+    /// (the typical local-dev shape, since HIPAA-compliance plans point at a
+    /// self-hosted model). Routes that depend on it return a 503 at call time
+    /// rather than panicking or failing opaquely.
+    pub openai_client: Option<Client<OpenAIConfig>>,
     pub openai_assistant: Option<AssistantObject>,
     pub firebase_auth: FirebaseAuth,
     /// Optional handle to the K8s Job orchestrator. Present iff ENABLE_ORCHESTRATOR=true
@@ -479,28 +483,46 @@ impl AppState {
     ///   - `OPENAI_ASSISTANT_ID` - OpenAI assistant ID
     ///   - AWS credentials for SES
     pub async fn new() -> Result<Self> {
-        let client = Client::new();
         let firebase_project_id =
             std::env::var("FIREBASE_PROJECT_ID").context("FIREBASE_PROJECT_ID must be set")?;
         let firebase_auth = FirebaseAuth::new(&firebase_project_id).await;
 
-        // Try to initialize the assistant (optional for upload route)
-        let assistant = match std::env::var("OPENAI_ASSISTANT_ID") {
-            Ok(assistant_id) => match client.assistants().retrieve(&assistant_id).await {
-                Ok(a) => {
-                    println!("✅ OpenAI Assistant loaded successfully");
-                    Some(a)
-                }
-                Err(e) => {
-                    eprintln!("⚠️  Failed to load OpenAI Assistant: {}", e);
-                    eprintln!("   Upload and processing will work, but AI assistant features will be disabled");
-                    None
-                }
-            },
-            Err(_) => {
-                eprintln!("⚠️  OPENAI_ASSISTANT_ID not set");
-                eprintln!("   Upload and processing will work, but AI assistant features will be disabled");
-                None
+        // OpenAI is optional: `None` when OPENAI_API_KEY is unset or empty
+        // (the typical local-dev shape — `docker compose` interpolates `${X:-}`
+        // to an empty string, which std::env::var reads as Ok("")). Routes
+        // that need the client return 503 at call time.
+        let (client, assistant) = match std::env::var("OPENAI_API_KEY") {
+            Ok(key) if !key.is_empty() => {
+                let client = Client::new();
+                let assistant = match std::env::var("OPENAI_ASSISTANT_ID") {
+                    Ok(assistant_id) => {
+                        match client.assistants().retrieve(&assistant_id).await {
+                            Ok(a) => {
+                                println!("✅ OpenAI Assistant loaded successfully");
+                                Some(a)
+                            }
+                            Err(e) => {
+                                eprintln!("⚠️  Failed to load OpenAI Assistant: {}", e);
+                                eprintln!("   Assistant routes will return 503; upload/processing unaffected");
+                                None
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        eprintln!("⚠️  OPENAI_ASSISTANT_ID not set");
+                        eprintln!(
+                            "   Assistant routes will return 503; upload/processing unaffected"
+                        );
+                        None
+                    }
+                };
+                (Some(client), assistant)
+            }
+            _ => {
+                eprintln!("⚠️  OPENAI_API_KEY not set — OpenAI client disabled");
+                eprintln!("   Assistant routes will return 503; upload/processing unaffected");
+                eprintln!("   To enable locally: `echo OPENAI_API_KEY=sk-... >> .env` and restart");
+                (None, None)
             }
         };
 

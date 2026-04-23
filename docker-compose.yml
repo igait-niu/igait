@@ -9,8 +9,12 @@ name: igait
 # long-running services here (worker mode) rather than one-shot K8s Jobs.
 #
 # Usage:
-#   /igait-environment   # Claude Code slash command — materialises .env from Vaultwarden
-#   docker compose up    # browse http://localhost:4173
+#   docker compose up    # zero-config; browse http://localhost:4173
+#
+# Every env var this stack needs is hardcoded against local surrogates
+# (MinIO, ses-mock, Firebase emulator). No .env required. The only
+# optional passthrough is OPENAI_* (below) — assistant routes return 503
+# when unset, so the stack boots and exercises end-to-end without it.
 # ────────────────────────────────────────────────────────────────────────────
 
 # Pipeline-wide env: every service (backend + stages) gets these, pointed at
@@ -179,7 +183,10 @@ services:
       PORT: "3000"
       # Deliberately DO NOT set ENABLE_ORCHESTRATOR — compose runs stages in
       # worker mode instead of having the backend spawn K8s Jobs.
-      # Pass-through: OpenAI is prod-only (no local mock). Set via .envrc.
+      # OpenAI is prod-only. Unset values fall through as empty strings; the
+      # backend detects empty OPENAI_API_KEY at boot, skips client init, and
+      # serves /assistant routes with 503. Drop `OPENAI_*=...` into a local
+      # .env if you need real OpenAI behaviour while developing.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_ASSISTANT_ID: ${OPENAI_ASSISTANT_ID:-}
       OPENAI_VECTOR_STORE_ID: ${OPENAI_VECTOR_STORE_ID:-}

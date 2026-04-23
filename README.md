@@ -34,8 +34,7 @@ Please use Linux or [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install
 You'll want to have the following installed on your machine:
 - [Docker](https://www.docker.com/)
 - [Nix](https://nixos.org/download/). Enable [Nix Flakes](https://nixos.wiki/wiki/flakes)
-- [`direnv`](https://direnv.net/) — auto-enters the Nix dev shell and sources `.env` on `cd` into the repo. Hook your shell per the direnv docs.
-- [Claude Code](https://claude.com/claude-code) — the `/igait-environment` slash command materialises `.env` from Vaultwarden
+- [`direnv`](https://direnv.net/) — auto-enters the Nix dev shell on `cd` into the repo. Hook your shell per the direnv docs.
 
 First, download this repository (note the submodules!):
 ```bash
@@ -43,20 +42,19 @@ git clone --recurse-submodules https://github.com/igait-niu/igait.git
 cd igait
 ```
 
-Then, set up access to secrets. We use [Vaultwarden](https://vault.igaitapp.com) — no more shared dotfiles on OneDrive. Ask @hiibolt for an invite to the `igait-niu` organization if you don't already have one.
+That's it for dev secrets — **the hermetic stack is env-var-free**. Every service runs against local surrogates (MinIO, ses-mock, Firebase emulator) with hardcoded values; a stub GCP key is baked into the runtime images. No Vaultwarden, no slash command, no `.env` required to boot.
+
+The only exception is OpenAI. The backend boots cleanly without it and `/assistant` routes return 503. If you specifically need to work on OpenAI-backed features:
 
 ```bash
-# One-time per machine:
-bw config server https://vault.igaitapp.com
-bw login                           # interactive: email + master password + 2FA
-
-# One-time per shell (or put in your rc — the session token lives here):
-export BW_SESSION=$(bw unlock --raw)
+cat > .env <<EOF
+OPENAI_API_KEY=sk-...
+OPENAI_ASSISTANT_ID=asst_...
+OPENAI_VECTOR_STORE_ID=vs_...
+EOF
 ```
 
-Then, inside this repo, run the Claude Code slash command **`/igait-environment`**. It reads the `igait/dev-env` item and writes `./.env` — every custom field, auto-loaded by `docker compose`. (The legacy `GCP_KEY_JSON` field is now ignored; `.docker/workspace/Dockerfile` bakes a stub key into every runtime image for local/CI, and prod mounts the real key as a K8s Secret.)
-
-Re-run `/igait-environment` whenever a secret is rotated in Vaultwarden, then `direnv reload` in any open shell. The tracked `.envrc` only does two things: `use flake` (Nix dev shell) and `dotenv_if_exists .env` (source the file the slash command wrote). It does **not** touch Vaultwarden — auth is a conscious action, not per-`cd` churn. See `wiki/environment/VAULTWARDEN.md` for the field-editing workflow.
+`docker compose` auto-loads `.env` from the repo root. Prod secrets live in Vaultwarden (moving to AWS Parameter Store soon) — see `wiki/environment/VAULTWARDEN.md`.
 
 **Optional**:
 I strongly recommend using [Visual Studio Code](https://code.visualstudio.com/) with the Svelte and `rust-analyzer` extensions! 
@@ -71,10 +69,7 @@ three local cloud-service surrogates online. No AWS, no Firebase project, no
 SES identity required; you can develop on airplane wifi.
 
 ```bash
-# (first time, or after a Vaultwarden rotation)
-/igait-environment  # Claude Code slash command — writes .env from Vaultwarden
-
-docker compose up   # first boot: ~5-10min for Rust/Python image builds
+docker compose up   # zero-config; first boot: ~5-10min for Rust/Python image builds
 ```
 
 When it's up, open:
