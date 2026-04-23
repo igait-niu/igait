@@ -144,6 +144,7 @@ async fn main() -> Result<()> {
 
     // Nest the API into the general app router
     let mut app = Router::new()
+        .route("/healthz", get(|| async { "ok" }))
         .nest("/api/v1", api_v1)
         .nest("/api/internal", api_internal)
         .layer(DefaultBodyLimit::max(500000000));
