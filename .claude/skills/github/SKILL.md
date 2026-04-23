@@ -133,8 +133,8 @@ The `item-add` command returns JSON with the item ID when `--format json` is use
 
 | Operation | Command |
 |-----------|---------|
-| Create branch | `git checkout -b <branch-name> master && git push -u origin <branch-name>` |
-| Create PR | `gh pr create --repo igait-niu/igait --title "..." --body "..." --base master --head <branch>` |
+| Create branch | `git checkout -b <branch-name> main && git push -u origin <branch-name>` |
+| Create PR | `gh pr create --repo igait-niu/igait --title "..." --body "..." --base main --head <branch>` |
 | Get PR | `gh pr view <N> --repo igait-niu/igait` |
 | Get PR (JSON) | `gh pr view <N> --repo igait-niu/igait --json title,body,state,files,reviews,comments,statusCheckRollup` |
 | PR changed files | `gh pr diff <N> --repo igait-niu/igait` |
@@ -172,7 +172,7 @@ For non-creation operations, skip the interview. Just do the thing and confirm.
 - **Move item to a column**: use the Status field ID and option ID from the Board Fields table, then call `item-edit`
   - **Special: moving to "In progress"** — when an item moves to In progress, also:
     1. **Assign the issue**: `gh issue edit <N> --repo igait-niu/igait --add-assignee hiibolt` (if not already assigned).
-    2. **Create a feature branch**: `git checkout -b <issue-number>-<short-description> master && git push -u origin <branch>`. Skip if a branch for this issue already exists.
+    2. **Create a feature branch**: `git checkout -b <issue-number>-<short-description> main && git push -u origin <branch>`. Skip if a branch for this issue already exists.
     3. **Link branch to issue**: `gh issue comment <N> --repo igait-niu/igait --body '**[Started]** Working on branch \`<branch-name>\`'`
     4. **Confirm** with: the new status, assignee, and branch name so the user can `git fetch && git checkout` immediately.
 - **Change priority/size**: use the field IDs and option IDs from the Board Fields table, then call `item-edit`
@@ -180,8 +180,8 @@ For non-creation operations, skip the interview. Just do the thing and confirm.
 - **Archive item**: `gh project item-archive 2 --owner igait-niu --id <item-id>`
 
 ### Branch & PR Operations
-- **Create branch for issue**: use pattern `<issue-number>-<short-description>`. All issue work must happen on a feature branch, never directly on `master`.
-- **Create PR**: `gh pr create` — set title, body, head branch, base branch (`master`). Always include `Closes #<issue-number>` in the PR body so GitHub auto-links and auto-closes the issue on merge. After creation, add to the project board via `gh project item-add` and set Status to "In review" using the hardcoded field IDs.
+- **Create branch for issue**: use pattern `<issue-number>-<short-description>`. All issue work must happen on a feature branch, never directly on `main`.
+- **Create PR**: `gh pr create` — set title, body, head branch, base branch (`main`). Always include `Closes #<issue-number>` in the PR body so GitHub auto-links and auto-closes the issue on merge. After creation, add to the project board via `gh project item-add` and set Status to "In review" using the hardcoded field IDs.
 - **Check PR status**: `gh pr view` or `gh pr checks`
 - **Review PR**: `gh pr diff` to see changes, then `gh pr review`
 - **Merge PR**: `gh pr merge` — confirm merge method with user first. Do **not** auto-set the board status to "Done" — leave that for the user or a separate explicit action.

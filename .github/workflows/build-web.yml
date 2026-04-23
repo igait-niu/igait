@@ -2,7 +2,7 @@ name: Build Web Frontend
 
 on:
   push:
-    branches: ['master']
+    branches: ['main']
     paths:
       - 'apps/frontend/**'
       - 'infra/docker/frontend/**'
@@ -79,12 +79,12 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin git@github.com:igait-niu/igait.git
           for i in 1 2 3 4 5; do
-            git fetch origin master
-            git reset --hard origin/master
+            git fetch origin main
+            git reset --hard origin/main
             sed -i "s|image: ghcr.io/igait-niu/igait/frontend:.*|image: ghcr.io/igait-niu/igait/frontend:sha-${SHA_SHORT}|" infra/k8s/frontend/deployment.yaml
             git add infra/k8s/
             git diff --cached --quiet && echo "Already up to date" && exit 0
             git commit -m "deploy: frontend:sha-${SHA_SHORT}"
-            git push origin master && exit 0
+            git push origin main && exit 0
           done
           echo "Failed to push after 5 attempts" && exit 1

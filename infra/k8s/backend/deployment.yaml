@@ -145,7 +145,7 @@ spec:
         # Stage container images (updated by CI/CD). Env var keys are
         # STAGE_<UPPER_SNAKE_KEY>_IMAGE; values track the ghcr image
         # tag for each stage and are sed-patched by the per-stage
-        # build workflows on every push to master.
+        # build workflows on every push to main.
         - name: STAGE_MEDIA_CONVERSION_IMAGE
           value: ghcr.io/igait-niu/igait/media-conversion:sha-e530730
         - name: STAGE_POSE_ESTIMATION_IMAGE
