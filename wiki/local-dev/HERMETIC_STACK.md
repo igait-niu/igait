@@ -35,7 +35,7 @@
 | Firebase RTDB | Firebase emulator | Project `igait-local`; rules from repo-root `database.rules.json` |
 | Firebase Auth | Firebase emulator | Tokens are unsigned JWTs — see *Auth verification* below |
 | K8s orchestrator | (disabled) | `ENABLE_ORCHESTRATOR` unset; stages run in worker mode |
-| OpenAI | (pass-through) | No local mock; `OPENAI_*` from host `.env` |
+| OpenAI | (optional) | Backend boots without `OPENAI_API_KEY`; `/assistant` routes return 503. Set `OPENAI_*` in a repo-root `.env` to enable. |
 
 ## Mode flags
 

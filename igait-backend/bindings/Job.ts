@@ -29,7 +29,7 @@ requires_approval: boolean,
 approved: boolean, 
 /**
  * Per-stage logs collected during processing. Keys are stage registry
- * keys (e.g. "media-conversion", "validity-check"); values are the
+ * keys (e.g. "media-conversion", "pose-estimation"); values are the
  * log text.
  */
 stage_logs: { [key in string]: string }, 

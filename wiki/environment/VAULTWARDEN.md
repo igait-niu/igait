@@ -1,11 +1,18 @@
 # Vaultwarden — iGait Secrets
 
+> **Prod-only.** Local dev does not touch Vaultwarden at all; the hermetic
+> `docker compose` stack is env-var-free and uses hardcoded local surrogates
+> for every cloud dep. See `wiki/local-dev/HERMETIC_STACK.md`.
+>
+> **Planned migration:** Vaultwarden is slated to be replaced by AWS Parameter
+> Store for prod-secret storage. Tracked separately; this page documents the
+> current state.
+
 ## What a model needs to know
 
-- **Source of truth for dev secrets**: Vaultwarden item `igait/dev-env` (org `igait-niu`) at <https://vault.igaitapp.com>. Fields live in `.fields[]`.
-- **Materialisation is a one-shot command**: `/igait-environment` writes `.env` at repo root (auto-loaded by `docker compose` **and** sourced by the tracked `.envrc` via `dotenv_if_exists`). The command is idempotent and re-run after rotations.
-- **`.envrc` is minimal and does not touch Vaultwarden.** It only does `use flake` + `dotenv_if_exists .env`. Auth to Vaultwarden is a deliberate, on-demand action via the slash command — not a side-effect of `cd`. After a rotation: re-run the slash command, then `direnv reload`.
-- **`GCP_KEY_JSON` is a legacy field.** The Firebase SDK needs a file to exist at `GOOGLE_APPLICATION_CREDENTIALS`, but the emulator ignores its contents — so `.docker/workspace/Dockerfile` (runtime-base stage) bakes a stub `/credentials/gcp-key.json` into every runtime image. No on-disk credentials file is needed for local dev or CI. Prod continues to mount the real key as a K8s Secret volume at `/credentials`, which replaces the stub at runtime. If the field is still present on the item, the slash command skips it.
+- **Source of truth for prod secrets**: Vaultwarden item `igait/dev-env` (org `igait-niu`) at <https://vault.igaitapp.com>. Fields live in `.fields[]`. Despite the historical name (`dev-env`), the values now flow into the K8s `igait-secrets` Secret that prod pods read from — they are production secrets, not dev ones.
+- **There is no slash command or automation.** The Vaultwarden ↔ `igait-secrets` dual-update is manual and deliberate. After editing a field here, update the matching K8s Secret on the cluster (see `wiki/deployment/`).
+- **`GCP_KEY_JSON` is a legacy field.** It used to be written to disk for local dev. It's no longer needed there — `.docker/workspace/Dockerfile` bakes a stub into the runtime images and prod mounts the real key via a K8s Secret volume. Leave it in Vaultwarden as the source for prod rotations.
 
 ## Adding or editing a field via CLI
 
@@ -30,4 +37,4 @@ Removal: same pattern with `.fields |= map(select(.name != "VAR_TO_DROP"))`.
 
 ## Classification guidance
 
-Only store things that every engineer needs identical. Per-developer preferences (editor settings, personal `RUST_LOG` overrides) and per-service runtime ports belong in `docker-compose.yml` / K8s manifests, not the shared bundle.
+Only store things that prod needs and that every operator should see identical. Per-developer preferences and per-service runtime ports do not belong here — they belong in `docker-compose.yml` / K8s manifests.

@@ -113,7 +113,6 @@ jobs:
           AWS_S3_FORCE_PATH_STYLE: "true"
           SES_FROM_ADDRESS: noreply@local.test
           SES_FROM_IDENTITY_ARN: arn:aws:ses:us-east-2:000000000000:identity/local
-          OPENAI_API_KEY: sk-integration-test-stub
           VITE_API_BASE_URL: http://localhost:3000
           CORS_ALLOW_ORIGIN: http://localhost:4173
       - name: Capture compose logs on failure

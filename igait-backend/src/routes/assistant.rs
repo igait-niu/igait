@@ -13,7 +13,8 @@ use async_openai::{
 };
 use axum::{
     extract::{ws::WebSocket, State, WebSocketUpgrade},
-    response::Response,
+    http,
+    response::{IntoResponse, Response},
 };
 use firebase_auth::FirebaseUser;
 use futures_util::{SinkExt, StreamExt};
@@ -557,6 +558,13 @@ pub async fn assistant_entrypoint(
     State(app): State<AppStatePtr>,
     ws: WebSocketUpgrade,
 ) -> Response {
+    if app.state.openai_client.is_none() {
+        return (
+            http::StatusCode::SERVICE_UNAVAILABLE,
+            r#"{"error":"OpenAI client not configured on this deployment"}"#,
+        )
+            .into_response();
+    }
     println!("Upgrading WS connection...");
     ws.on_upgrade(move |socket| handle_socket_helper(app.state, socket, current_user))
 }
@@ -603,6 +611,14 @@ async fn handle_socket(
 
     println!("User ID '{id}' connected to assistant!");
 
+    // `assistant_entrypoint` rejects upgrades with 503 when the client is
+    // absent, so reaching `handle_socket` implies Some. Belt-and-suspenders
+    // expect keeps the invariant visible if the entrypoint is ever bypassed.
+    let openai_client = app
+        .openai_client
+        .as_ref()
+        .context("openai_client is None — should have been rejected at entrypoint")?;
+
     let vector_store_id = std::env::var("OPENAI_VECTOR_STORE_ID")
         .context("Couldn't find the OpenAI vector store ID!")?;
 
@@ -617,8 +633,7 @@ async fn handle_socket(
         }),
         ..Default::default()
     };
-    let thread = app
-        .openai_client
+    let thread = openai_client
         .threads()
         .create(create_thread_request)
         .await?;
@@ -656,7 +671,7 @@ async fn handle_socket(
 
         if let Err(e) = send_response(
             &app,
-            &app.openai_client,
+            openai_client,
             &thread,
             assistant,
             &msg,
@@ -678,7 +693,7 @@ async fn handle_socket(
     }
 
     // Close the thread
-    app.openai_client.threads().delete(&thread.id).await?;
+    openai_client.threads().delete(&thread.id).await?;
     println!("Thread closed!");
 
     Ok(())

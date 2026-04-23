@@ -6,16 +6,19 @@ iGait is a web-based autism screening tool that analyzes gait (walking) patterns
 
 In the pursuit of keeping this file lean, all tribal knowledge is encoded in `./wiki/`. Each subfolder owns a topic — read the one that matches your task before grepping the codebase:
 
-- **`./wiki/environment/`** — environment variables, secrets, and the Vaultwarden ↔ `igait-secrets` dev/prod dual-update flow.
+- **`./wiki/environment/`** — prod secrets (Vaultwarden ↔ `igait-secrets`). Local dev is env-var-free; see below.
 - **`./wiki/deployment/`** — prod cluster access (`ssh root@ai-leads`), `kubectl` recipes, rollout ops, agent access scope.
 - **`./wiki/github/`** — GitHub Project board IDs (canonical is project **#2**), field/option ID reference, and `gh` CLI recipes for moving issues through the board.
 - **`./wiki/architecture/`** — cross-cutting design notes. Stage execution modes (worker vs K8s-Jobs), the unified Firebase RTDB client.
 - **`./wiki/local-dev/`** — hermetic `docker compose` stack, local surrogates for AWS/Firebase/SES, load-bearing env vars.
 
-## Slash commands
+## Local dev is env-var-free
 
-- **`/igait-environment`** — materialise `.env` from Vaultwarden. One-shot; re-run to resync. Replaces the old direnv flow. (A stub GCP key is baked into the runtime images by `.docker/workspace/Dockerfile`; no on-disk credentials file is needed for local dev or CI.)
+The hermetic `docker compose` stack hardcodes everything it needs against local surrogates (MinIO, ses-mock, Firebase emulator). A stub GCP key is baked into the runtime images by `.docker/workspace/Dockerfile`. **No `.env`, no Vaultwarden, no slash command required to boot the stack.**
 
+The only optional passthrough is `OPENAI_*`. The backend boots cleanly when unset and serves `/assistant` routes with 503. If you specifically need OpenAI behaviour: `echo OPENAI_API_KEY=sk-... > .env` (auto-loaded by docker compose).
+
+Vaultwarden continues to hold **prod** secrets (the values that flow into the K8s `igait-secrets` Secret). That path is tracked separately — it'll move to AWS Parameter Store in a later issue.
 
 ## Tips for Success
 
