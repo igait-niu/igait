@@ -8,8 +8,10 @@ name: igait
 # design and docs/architecture/stage-execution-modes.md for why stages are
 # long-running services here (worker mode) rather than one-shot K8s Jobs.
 #
-# Usage (alias `dc` is set up by .envrc):
-#   dc up              # equivalent to: docker compose -f infra/compose.yml up
+# Usage:
+#   docker compose up  # .envrc exports COMPOSE_FILE=infra/compose.yml, so
+#                      # bare `docker compose` finds this file from anywhere
+#                      # in the repo. No -f flag needed.
 #
 # Every env var this stack needs is hardcoded against local surrogates
 # (MinIO, ses-mock, Firebase emulator). No .env required. The only
