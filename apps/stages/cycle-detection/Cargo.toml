@@ -1,0 +1,15 @@
+[package]
+name = "cycle-detection"
+version = "0.1.0"
+edition = "2021"
+description = "Gait cycle detection microservice for iGait pipeline"
+
+[[bin]]
+name = "cycle-detection"
+path = "src/main.rs"
+
+[dependencies]
+lib = { path = "../../shared", features = ["microservice"] }
+anyhow = "1"
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }

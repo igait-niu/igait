@@ -935,6 +935,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "backend"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-openai",
+ "aws-config",
+ "aws-sdk-sesv2",
+ "axum 0.7.9",
+ "chrono",
+ "chrono-tz",
+ "dotenv",
+ "firebase-auth",
+ "futures-util",
+ "k8s-openapi",
+ "kube",
+ "lib",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
+ "rustls 0.23.38",
+ "serde",
+ "serde_json",
+ "time-util",
+ "tokio",
+ "tokio-tungstenite",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
 name = "backoff"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1327,7 +1359,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "igait-lib",
+ "lib",
  "tokio",
 ]
 
@@ -1647,7 +1679,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "chrono-tz",
- "igait-lib",
+ "lib",
  "serde",
  "serde_json",
  "tokio",
@@ -2419,58 +2451,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "igait-backend"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-openai",
- "aws-config",
- "aws-sdk-sesv2",
- "axum 0.7.9",
- "chrono",
- "chrono-tz",
- "dotenv",
- "firebase-auth",
- "futures-util",
- "igait-lib",
- "k8s-openapi",
- "kube",
- "rand 0.8.6",
- "reqwest 0.12.28",
- "rustls 0.23.38",
- "serde",
- "serde_json",
- "time-util",
- "tokio",
- "tokio-tungstenite",
- "tower-http 0.5.2",
- "tracing",
- "tracing-subscriber",
- "ts-rs",
- "uuid",
-]
-
-[[package]]
-name = "igait-lib"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "aws-config",
- "aws-sdk-s3",
- "aws-sdk-sesv2",
- "axum 0.7.9",
- "chrono",
- "chrono-tz",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "tower-http 0.5.2",
-]
-
-[[package]]
 name = "impl-more"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2734,6 +2714,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
+name = "lib"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
+ "aws-sdk-sesv2",
+ "axum 0.7.9",
+ "chrono",
+ "chrono-tz",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tower-http 0.5.2",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.185"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2835,7 +2835,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "igait-lib",
+ "lib",
  "serde_json",
  "tokio",
 ]
@@ -3219,7 +3219,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "igait-lib",
+ "lib",
  "tokio",
 ]
 
@@ -3253,7 +3253,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "igait-lib",
+ "lib",
  "serde_json",
  "tokio",
 ]

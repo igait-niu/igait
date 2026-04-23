@@ -20,12 +20,12 @@ pre-commit:
       run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
     - name: frontend-lint
-      root: "igait-frontend/"
+      root: "apps/frontend/"
       glob: "*.{ts,js,svelte,css,html,json}"
       run: bun run lint
 
     - name: frontend-check
-      root: "igait-frontend/"
+      root: "apps/frontend/"
       glob: "*.{ts,js,svelte}"
       run: bun run check
 

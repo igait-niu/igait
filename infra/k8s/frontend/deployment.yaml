@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: igait
+  labels:
+    app: frontend
+spec:
+  revisionHistoryLimit: 1
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - image: ghcr.io/igait-niu/igait/frontend:sha-a96a7a8
+        name: frontend
+        ports:
+        - containerPort: 4173
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 750m
+            memory: 2Gi
+            ephemeral-storage: 128Mi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+            ephemeral-storage: 32Mi
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 4173
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 4173
+          initialDelaySeconds: 10
+          periodSeconds: 30

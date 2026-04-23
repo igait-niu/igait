@@ -6,11 +6,11 @@ on:
     branches: [master]
     # Skip on pushes that only touch K8s manifests — those are produced by
     # the `github-actions[bot]` image-tag bumps after each build-*.yml run
-    # (commit messages like `deploy: igait-backend:sha-...`), and they
-    # don't affect any test surface. Real code changes never land under
-    # igait-kubernetes-configs/ alone; they ride in through PRs.
+    # (commit messages like `deploy: backend:sha-...`), and they don't
+    # affect any test surface. Real code changes never land under
+    # infra/k8s/ alone; they ride in through PRs.
     paths-ignore:
-      - 'igait-kubernetes-configs/**'
+      - 'infra/k8s/**'
 
 jobs:
   rust-fmt:
@@ -19,13 +19,13 @@ jobs:
       fail-fast: false
       matrix:
         crate:
-          - igait-lib
-          - igait-backend
-          - igait-stages/media-conversion
-          - igait-stages/pose-estimation
-          - igait-stages/cycle-detection
-          - igait-stages/prediction
-          - igait-stages/finalize
+          - apps/shared
+          - apps/backend
+          - apps/stages/media-conversion
+          - apps/stages/pose-estimation
+          - apps/stages/cycle-detection
+          - apps/stages/prediction
+          - apps/stages/finalize
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,13 +42,13 @@ jobs:
       fail-fast: false
       matrix:
         crate:
-          - igait-lib
-          - igait-backend
-          - igait-stages/media-conversion
-          - igait-stages/pose-estimation
-          - igait-stages/cycle-detection
-          - igait-stages/prediction
-          - igait-stages/finalize
+          - apps/shared
+          - apps/backend
+          - apps/stages/media-conversion
+          - apps/stages/pose-estimation
+          - apps/stages/cycle-detection
+          - apps/stages/prediction
+          - apps/stages/finalize
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,13 +68,13 @@ jobs:
       fail-fast: false
       matrix:
         crate:
-          - igait-lib
-          - igait-backend
-          - igait-stages/media-conversion
-          - igait-stages/pose-estimation
-          - igait-stages/cycle-detection
-          - igait-stages/prediction
-          - igait-stages/finalize
+          - apps/shared
+          - apps/backend
+          - apps/stages/media-conversion
+          - apps/stages/pose-estimation
+          - apps/stages/cycle-detection
+          - apps/stages/prediction
+          - apps/stages/finalize
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: igait-frontend
+        working-directory: apps/frontend
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -106,7 +106,7 @@ jobs:
         with:
           submodules: recursive
       - name: Bring up hermetic stack
-        run: docker compose up --build --wait --timeout 300
+        run: docker compose -f infra/compose.yml up --build --wait --timeout 300
         env:
           FIREBASE_RTDB_URL: http://firebase-emulator:9000/?ns=igait-local
           FIREBASE_ACCESS_KEY: local-emulator-key
@@ -124,7 +124,7 @@ jobs:
           CORS_ALLOW_ORIGIN: http://localhost:4173
       - name: Capture compose logs on failure
         if: failure()
-        run: docker compose logs > compose-logs.txt
+        run: docker compose -f infra/compose.yml logs > compose-logs.txt
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -132,4 +132,4 @@ jobs:
           path: compose-logs.txt
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: docker compose -f infra/compose.yml down -v

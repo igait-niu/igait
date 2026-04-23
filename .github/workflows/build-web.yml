@@ -4,14 +4,14 @@ on:
   push:
     branches: ['master']
     paths:
-      - 'igait-frontend/**'
-      - '.docker/frontend/**'
+      - 'apps/frontend/**'
+      - 'infra/docker/frontend/**'
       - '.github/workflows/build-web.yml'
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/igait-frontend
+  IMAGE_NAME: ${{ github.repository }}/frontend
 
 jobs:
   build-and-push:
@@ -48,8 +48,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./igait-frontend
-          file: ./.docker/frontend/Dockerfile
+          context: ./apps/frontend
+          file: ./infra/docker/frontend/Dockerfile
           platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -81,10 +81,10 @@ jobs:
           for i in 1 2 3 4 5; do
             git fetch origin master
             git reset --hard origin/master
-            sed -i "s|image: ghcr.io/igait-niu/igait/igait-frontend:.*|image: ghcr.io/igait-niu/igait/igait-frontend:sha-${SHA_SHORT}|" igait-kubernetes-configs/igait-frontend/deployment.yaml
-            git add igait-kubernetes-configs/
+            sed -i "s|image: ghcr.io/igait-niu/igait/frontend:.*|image: ghcr.io/igait-niu/igait/frontend:sha-${SHA_SHORT}|" infra/k8s/frontend/deployment.yaml
+            git add infra/k8s/
             git diff --cached --quiet && echo "Already up to date" && exit 0
-            git commit -m "deploy: igait-frontend:sha-${SHA_SHORT}"
+            git commit -m "deploy: frontend:sha-${SHA_SHORT}"
             git push origin master && exit 0
           done
           echo "Failed to push after 5 attempts" && exit 1
