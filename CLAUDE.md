@@ -4,17 +4,17 @@ iGait is a web-based autism screening tool that analyzes gait (walking) patterns
 
 ## Tribal Knowledge
 
-In the pursuit of keeping this file lean, all tribal knowledge is encoded in `./wiki/`. Each subfolder owns a topic — read the one that matches your task before grepping the codebase:
+In the pursuit of keeping this file lean, all tribal knowledge is encoded in `./docs/`. Each subfolder owns a topic — read the one that matches your task before grepping the codebase:
 
-- **`./wiki/environment/`** — prod secrets (Vaultwarden ↔ `igait-secrets`). Local dev is env-var-free; see below.
-- **`./wiki/deployment/`** — prod cluster access (`ssh root@ai-leads`), `kubectl` recipes, rollout ops, agent access scope.
-- **`./wiki/github/`** — GitHub Project board IDs (canonical is project **#2**), field/option ID reference, and `gh` CLI recipes for moving issues through the board.
-- **`./wiki/architecture/`** — cross-cutting design notes. Stage execution modes (worker vs K8s-Jobs), the unified Firebase RTDB client.
-- **`./wiki/local-dev/`** — hermetic `docker compose` stack, local surrogates for AWS/Firebase/SES, load-bearing env vars.
+- **`./docs/environment/`** — prod secrets (Vaultwarden ↔ `igait-secrets`). Local dev is env-var-free; see below.
+- **`./docs/deployment/`** — prod cluster access (`ssh root@ai-leads`), `kubectl` recipes, rollout ops, agent access scope.
+- **`./docs/github/`** — GitHub Project board IDs (canonical is project **#2**), field/option ID reference, and `gh` CLI recipes for moving issues through the board.
+- **`./docs/architecture/`** — cross-cutting design notes. Stage execution modes (worker vs K8s-Jobs), the unified Firebase RTDB client.
+- **`./docs/local-dev/`** — hermetic `docker compose` stack, local surrogates for AWS/Firebase/SES, load-bearing env vars.
 
 ## Local dev is env-var-free
 
-The hermetic `docker compose` stack hardcodes everything it needs against local surrogates (MinIO, ses-mock, Firebase emulator). A stub GCP key is baked into the runtime images by `.docker/workspace/Dockerfile`. **No `.env`, no Vaultwarden, no slash command required to boot the stack.**
+The hermetic `docker compose` stack hardcodes everything it needs against local surrogates (MinIO, ses-mock, Firebase emulator). A stub GCP key is baked into the runtime images by `infra/docker/workspace/Dockerfile`. **No `.env`, no Vaultwarden, no slash command required to boot the stack.**
 
 The only optional passthrough is `OPENAI_*`. The backend boots cleanly when unset and serves `/assistant` routes with 503. If you specifically need OpenAI behaviour: `echo OPENAI_API_KEY=sk-... > .env` (auto-loaded by docker compose).
 

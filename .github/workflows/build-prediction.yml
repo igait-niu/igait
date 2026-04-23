@@ -4,11 +4,11 @@ on:
   push:
     branches: ['master']
     paths:
-      - 'igait-stages/prediction/**'
-      - 'igait-lib/**'
+      - 'apps/stages/prediction/**'
+      - 'apps/shared/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - '.docker/workspace/Dockerfile'
+      - 'infra/docker/workspace/Dockerfile'
       - '.github/workflows/build-prediction.yml'
   workflow_dispatch:
 
@@ -52,7 +52,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./.docker/workspace/Dockerfile
+          file: ./infra/docker/workspace/Dockerfile
           target: prediction
           platforms: linux/arm64
           push: true
@@ -75,8 +75,8 @@ jobs:
           for i in 1 2 3 4 5; do
             git fetch origin master
             git reset --hard origin/master
-            sed -i "s|value: ghcr.io/igait-niu/igait/prediction:.*|value: ghcr.io/igait-niu/igait/prediction:sha-${SHA_SHORT}|" igait-kubernetes-configs/igait-backend/deployment.yaml
-            git add igait-kubernetes-configs/
+            sed -i "s|value: ghcr.io/igait-niu/igait/prediction:.*|value: ghcr.io/igait-niu/igait/prediction:sha-${SHA_SHORT}|" infra/k8s/backend/deployment.yaml
+            git add infra/k8s/
             git diff --cached --quiet && echo "Already up to date" && exit 0
             git commit -m "deploy: prediction:sha-${SHA_SHORT}"
             git push origin master && exit 0

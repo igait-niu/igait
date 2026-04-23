@@ -1,0 +1,286 @@
+name: igait
+
+# ────────────────────────────────────────────────────────────────────────────
+# Hermetic local dev stack.
+#
+# Brings up the full iGait pipeline against local cloud-service surrogates —
+# no AWS, no Firebase, no SES. See docs/local-dev/hermetic-stack.md for the
+# design and docs/architecture/stage-execution-modes.md for why stages are
+# long-running services here (worker mode) rather than one-shot K8s Jobs.
+#
+# Usage (alias `dc` is set up by .envrc):
+#   dc up              # equivalent to: docker compose -f infra/compose.yml up
+#
+# Every env var this stack needs is hardcoded against local surrogates
+# (MinIO, ses-mock, Firebase emulator). No .env required. The only
+# optional passthrough is OPENAI_* (below) — assistant routes return 503
+# when unset, so the stack boots and exercises end-to-end without it.
+# ────────────────────────────────────────────────────────────────────────────
+
+# Pipeline-wide env: every service (backend + stages) gets these, pointed at
+# the local surrogate services below. Overrides via AWS_ENDPOINT_URL_* are
+# honoured automatically by aws-sdk-rust (BehaviorVersion::latest).
+x-pipeline-env: &pipeline-env
+  # AWS / S3 → MinIO
+  AWS_REGION: us-east-2
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: minioadmin
+  AWS_ENDPOINT_URL_S3: http://minio:9000
+  # MinIO requires path-style (host/bucket) — virtual-host would try to
+  # resolve `<bucket>.minio` which has no DNS record in the compose network.
+  AWS_S3_FORCE_PATH_STYLE: "true"
+  AWS_ENDPOINT_URL_SESV2: http://ses-mock:8005
+  IGAIT_S3_BUCKET: igait-storage
+  # SES → ses-mock
+  SES_FROM_ADDRESS: noreply@local.test
+  SES_FROM_IDENTITY_ARN: arn:aws:ses:us-east-2:000000000000:identity/local
+  # Firebase → emulator (project id is namespace-scoped via ?ns=)
+  FIREBASE_PROJECT_ID: igait-local
+  FIREBASE_ACCESS_KEY: local-emulator-key
+  FIREBASE_RTDB_URL: http://firebase-emulator:9000/?ns=igait-local
+  # Signals to the `firebase-auth` crate that ID tokens are unsigned
+  # emulator JWTs — skip RS256 verification and just extract claims.
+  FIREBASE_AUTH_EMULATOR_HOST: firebase-emulator:9099
+  # GCP credentials — emulator ignores auth, but the SDK still insists on a
+  # file existing. A stub `/credentials/gcp-key.json` is baked into every
+  # runtime image by `infra/docker/workspace/Dockerfile` (runtime-base stage).
+  GOOGLE_APPLICATION_CREDENTIALS: /credentials/gcp-key.json
+  RUST_LOG: info
+
+# Stage services share an identical shape — common env + wait-for-deps.
+x-stage-service: &stage-service
+  environment: *pipeline-env
+  depends_on:
+    firebase-emulator:
+      condition: service_healthy
+    minio-bootstrap:
+      condition: service_completed_successfully
+
+services:
+  # ── Cloud-service surrogates ──────────────────────────────────────────────
+
+  firebase-emulator:
+    # Custom image bakes in JRE 21 + firebase-tools + pre-downloaded emulator
+    # jars, so boot = JVM startup (~5-10s) instead of apk + npm install
+    # (several minutes, which previously blew past healthcheck windows and
+    # cascaded failures through every `service_healthy` dependent).
+    build: ./docker/firebase-emulator
+    volumes:
+      - ./docker/firebase-emulator/firebase.json:/app/firebase.json:ro
+      - ./firebase/database.rules.json:/app/database.rules.json:ro
+    ports:
+      - "9000:9000"  # RTDB
+      - "9099:9099"  # Auth
+      - "4000:4000"  # Emulator UI
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- 'http://localhost:9000/.json?ns=igait-local' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s  # JVM startup only — everything else is baked in
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9002:9000"  # S3 API (host port avoids 9000 collision with Firebase)
+      - "9001:9001"  # Console
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+    volumes:
+      - minio-data:/data
+
+  minio-bootstrap:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/igait-storage &&
+        echo 'MinIO bucket ready'
+      "
+
+  # Seeds a deterministic admin account into the auth + RTDB emulators so
+  # the admin panel is reachable on a fresh `docker compose up`. Emulator
+  # state is ephemeral (no volume mount on firebase-emulator), so this runs
+  # every boot. Idempotent: on restart, accounts:signUp returns EMAIL_EXISTS,
+  # we fall back to accounts:lookup to recover the uid, then PUT the RTDB
+  # record (which is a no-op if administrator:true is already set).
+  firebase-bootstrap:
+    image: alpine:3.20
+    depends_on:
+      firebase-emulator:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache curl jq >/dev/null
+        AUTH=http://firebase-emulator:9099/identitytoolkit.googleapis.com/v1
+        RTDB=http://firebase-emulator:9000
+        # The firebase-emulator healthcheck probes :9000 (RTDB), but this
+        # script hits :9099 (Auth). Those ports bind independently inside
+        # the same JVM, so "healthy" doesn't imply auth is ready. Wait
+        # explicitly before the first request. ~30s is generous; real
+        # readiness is typically sub-second after RTDB healthy.
+        for i in $$(seq 1 60); do
+          if curl -sf -o /dev/null "http://firebase-emulator:9099/"; then break; fi
+          if [ "$$i" = "60" ]; then
+            echo "auth emulator never became reachable" >&2; exit 1
+          fi
+          sleep 0.5
+        done
+        # NOTE: kept in sync with the dev banner on the login page
+        # (apps/frontend/src/routes/(public)/login/+page.svelte). If you
+        # rotate these, update that file too.
+        EMAIL=admin@igait.local
+        PASS=admin123
+        RESP=$$(curl -s -X POST "$$AUTH/accounts:signUp?key=fake" \
+          -H 'Content-Type: application/json' \
+          -d "{\"email\":\"$$EMAIL\",\"password\":\"$$PASS\",\"returnSecureToken\":true}")
+        UID=$$(echo "$$RESP" | jq -r '.localId // empty')
+        if [ -z "$$UID" ]; then
+          # Account already exists — look it up by email.
+          UID=$$(curl -s -X POST "$$AUTH/accounts:lookup?key=fake" \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":[\"$$EMAIL\"]}" | jq -r '.users[0].localId')
+        fi
+        curl -sf -X PUT "$$RTDB/users/$$UID.json?ns=igait-local" \
+          -d '{"administrator": true, "jobs": {}}' >/dev/null
+        echo "Seeded admin: $$EMAIL / $$PASS  (uid=$$UID)"
+
+  ses-mock:
+    image: ghcr.io/domdomegg/aws-ses-v2-local:latest
+    environment:
+      AUTH_MODE: open
+    ports:
+      - "8005:8005"
+    # No healthcheck: aws-ses-v2-local has no /health route and the image
+    # ships without curl/wget to probe anything else. It boots in seconds,
+    # and the backend won't touch it until the first job reaches finalize
+    # (~15s into a pipeline run), so service_started is a fine gate.
+
+  # ── Application services ──────────────────────────────────────────────────
+
+  backend:
+    build:
+      context: ..
+      dockerfile: infra/docker/workspace/Dockerfile
+      target: backend
+    ports:
+      - "3000:3000"
+    environment:
+      <<: *pipeline-env
+      PORT: "3000"
+      # Deliberately DO NOT set ENABLE_ORCHESTRATOR — compose runs stages in
+      # worker mode instead of having the backend spawn K8s Jobs.
+      # OpenAI is prod-only. Unset values fall through as empty strings; the
+      # backend detects empty OPENAI_API_KEY at boot, skips client init, and
+      # serves /assistant routes with 503. Drop `OPENAI_*=...` into a local
+      # .env if you need real OpenAI behaviour while developing.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_ASSISTANT_ID: ${OPENAI_ASSISTANT_ID:-}
+      OPENAI_VECTOR_STORE_ID: ${OPENAI_VECTOR_STORE_ID:-}
+      # Let the browser preview build (localhost:4173) through CORS.
+      CORS_ALLOW_ORIGIN: http://localhost:4173
+    depends_on:
+      firebase-emulator:
+        condition: service_healthy
+      minio-bootstrap:
+        condition: service_completed_successfully
+      ses-mock:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ../apps/frontend
+      dockerfile: ../../infra/docker/frontend/Dockerfile
+      # VITE_* vars are baked into the bundle at build time. Browser-facing
+      # URLs use localhost because they resolve from the user's machine,
+      # not the compose network.
+      args:
+        VITE_API_BASE_URL: http://localhost:3000
+        VITE_FIREBASE_PROJECT_ID: igait-local
+        VITE_FIREBASE_DATABASE_URL: http://localhost:9000/?ns=igait-local
+        VITE_FIREBASE_API_KEY: local-emulator-key
+        VITE_FIREBASE_AUTH_DOMAIN: localhost
+        VITE_FIREBASE_STORAGE_BUCKET: igait-local.appspot.com
+        VITE_FIREBASE_MESSAGING_SENDER_ID: "0"
+        VITE_FIREBASE_APP_ID: "1:0:web:local"
+        # Flips firebase.ts into emulator mode — connectAuthEmulator +
+        # connectDatabaseEmulator fire at first SDK use. Prod builds
+        # leave this unset, and prod SDK init behaves exactly as before.
+        VITE_FIREBASE_USE_EMULATOR: "true"
+    # vite.config.ts is re-evaluated on `bun run preview` and asserts
+    # VITE_API_BASE_URL is present in process.env. Build ARGs don't survive
+    # into the runtime env, so we mirror the one it checks as a service env.
+    environment:
+      VITE_API_BASE_URL: http://localhost:3000
+    ports:
+      - "4173:4173"
+    depends_on:
+      backend:
+        condition: service_started
+      firebase-bootstrap:
+        condition: service_completed_successfully
+
+  # ── Pipeline stages (worker mode — long-running, poll RTDB) ───────────────
+  # Each stage is a daemon that polls its queue in Firebase RTDB and processes
+  # jobs one at a time. No IGAIT_JOB_PAYLOAD is set, so main.rs selects
+  # run_stage_worker() rather than run_stage_job().
+
+  media-conversion:
+    <<: *stage-service
+    build:
+      context: ..
+      dockerfile: infra/docker/workspace/Dockerfile
+      target: media-conversion
+
+  pose-estimation:
+    <<: *stage-service
+    build:
+      context: ..
+      dockerfile: infra/docker/workspace/Dockerfile
+      target: pose-estimation
+
+  cycle-detection:
+    <<: *stage-service
+    build:
+      context: ..
+      dockerfile: infra/docker/workspace/Dockerfile
+      target: cycle-detection
+
+  prediction:
+    <<: *stage-service
+    build:
+      context: ..
+      dockerfile: infra/docker/workspace/Dockerfile
+      target: prediction
+
+  finalize:
+    # finalize also needs SES to deliver the result email — override
+    # depends_on to add ses-mock as a health-gated dependency.
+    build:
+      context: ..
+      dockerfile: infra/docker/workspace/Dockerfile
+      target: finalize
+    environment: *pipeline-env
+    depends_on:
+      firebase-emulator:
+        condition: service_healthy
+      minio-bootstrap:
+        condition: service_completed_successfully
+      ses-mock:
+        condition: service_started
+
+volumes:
+  minio-data:

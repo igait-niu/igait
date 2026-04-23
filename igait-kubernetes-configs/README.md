@@ -1,1 +1,0 @@
-# igait-kubernetes-configs

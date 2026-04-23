@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-    "igait-lib",
-    "igait-backend",
-    "igait-stages/media-conversion",
-    "igait-stages/pose-estimation",
-    "igait-stages/cycle-detection",
-    "igait-stages/prediction",
-    "igait-stages/finalize",
+    "apps/shared",
+    "apps/backend",
+    "apps/stages/media-conversion",
+    "apps/stages/pose-estimation",
+    "apps/stages/cycle-detection",
+    "apps/stages/prediction",
+    "apps/stages/finalize",
 ]
 
 [profile.release]

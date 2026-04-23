@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: igait
+  labels:
+    app: backend
+spec:
+  revisionHistoryLimit: 1
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      serviceAccountName: backend
+      containers:
+      - image: ghcr.io/igait-niu/igait/backend:sha-579a4cf
+        name: backend
+        ports:
+        - containerPort: 3000
+          protocol: TCP
+        env:
+        # Per-service runtime config (not a shared secret)
+        - name: PORT
+          value: "3000"
+        - name: RUST_LOG
+          value: "info"
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: GOOGLE_APPLICATION_CREDENTIALS
+        - name: FIREBASE_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: FIREBASE_PROJECT_ID
+        - name: FIREBASE_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: FIREBASE_ACCESS_KEY
+        - name: FIREBASE_RTDB_URL
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: FIREBASE_RTDB_URL
+        - name: IGAIT_S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: IGAIT_S3_BUCKET
+        - name: SES_FROM_ADDRESS
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: SES_FROM_ADDRESS
+        - name: SES_FROM_IDENTITY_ARN
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: SES_FROM_IDENTITY_ARN
+        - name: AWS_REGION
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: AWS_REGION
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: AWS_SECRET_ACCESS_KEY
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: OPENAI_API_KEY
+        - name: OPENAI_ASSISTANT_ID
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: OPENAI_ASSISTANT_ID
+        - name: OPENAI_VECTOR_STORE_ID
+          valueFrom:
+            secretKeyRef:
+              name: igait-secrets
+              key: OPENAI_VECTOR_STORE_ID
+        # Pipeline orchestrator
+        - name: ENABLE_ORCHESTRATOR
+          value: "true"
+        # Stage container images (updated by CI/CD). Env var keys are
+        # STAGE_<UPPER_SNAKE_KEY>_IMAGE; values track the ghcr image
+        # tag for each stage and are sed-patched by the per-stage
+        # build workflows on every push to master.
+        - name: STAGE_MEDIA_CONVERSION_IMAGE
+          value: ghcr.io/igait-niu/igait/media-conversion:sha-9067bd6
+        - name: STAGE_POSE_ESTIMATION_IMAGE
+          value: ghcr.io/igait-niu/igait/pose-estimation:sha-9067bd6
+        - name: STAGE_CYCLE_DETECTION_IMAGE
+          value: ghcr.io/igait-niu/igait/cycle-detection:sha-9067bd6
+        - name: STAGE_PREDICTION_IMAGE
+          value: ghcr.io/igait-niu/igait/prediction:sha-9067bd6
+        - name: STAGE_FINALIZE_IMAGE
+          value: ghcr.io/igait-niu/igait/finalize:sha-9067bd6
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+            ephemeral-storage: 256Mi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+            ephemeral-storage: 64Mi
+        volumeMounts:
+        - name: gcp-key
+          mountPath: /credentials
+          readOnly: true
+      volumes:
+      - name: gcp-key
+        secret:
+          secretName: gcp-key

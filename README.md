@@ -9,7 +9,7 @@ iGait uses a microservice-based architecture due to its multi-stage pipeline:
 - **2.** The central backend then receives it, handling user/job creation and initial submission emails
 - **3-9.** The pipeline then steps in, executing each stage. The final stage accumulates the final result or failure, and decides how to convey this information to the user.
 
-All microservices and the backend share a common library (`igait-lib`) to facilitate the common grounds each stage and the backend have in common.
+All microservices and the backend share a common library (`apps/shared`) to facilitate the common grounds each stage and the backend have in common.
 
 The process of I/O is done atomically through Google Firebase RTDB and AWS S3. 
 
@@ -54,7 +54,7 @@ OPENAI_VECTOR_STORE_ID=vs_...
 EOF
 ```
 
-`docker compose` auto-loads `.env` from the repo root. Prod secrets live in Vaultwarden (moving to AWS Parameter Store soon) — see `wiki/environment/VAULTWARDEN.md`.
+`docker compose` auto-loads `.env` from the repo root. Prod secrets live in Vaultwarden (moving to AWS Parameter Store soon) — see `docs/environment/vaultwarden.md`.
 
 **Optional**:
 I strongly recommend using [Visual Studio Code](https://code.visualstudio.com/) with the Svelte and `rust-analyzer` extensions! 
@@ -84,7 +84,7 @@ When it's up, open:
 
 **What's tested end-to-end:** upload → S3 → 5 stage pipeline → result email.
 **What's not tested:** the K8s Jobs orchestrator code path (stages run in
-worker mode here; see `wiki/architecture/stage-execution-modes.md`).
+worker mode here; see `docs/architecture/stage-execution-modes.md`).
 
 **Low-RAM machines (<16GB):** BuildKit parallelises stage image builds by
 default, which can be rough. Serialise with:
@@ -99,7 +99,7 @@ docker compose up -d
 retries to accommodate. Subsequent boots are instant.
 
 Troubleshooting and deeper design notes live in
-`wiki/local-dev/hermetic-stack.md`.
+`docs/local-dev/hermetic-stack.md`.
 
 ### Working on iGait
 **Backend/Pipeline**:
