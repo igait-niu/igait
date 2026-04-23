@@ -29,7 +29,7 @@ spec:
       # headroom. Default 30s truncates uploads mid-stream → 502 at the edge.
       terminationGracePeriodSeconds: 180
       containers:
-      - image: ghcr.io/igait-niu/igait/backend:sha-81f77a6
+      - image: ghcr.io/igait-niu/igait/backend:sha-aae66f5
         name: backend
         ports:
         - containerPort: 3000
