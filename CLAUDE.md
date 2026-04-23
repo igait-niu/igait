@@ -24,6 +24,8 @@ Vaultwarden continues to hold **prod** secrets (the values that flow into the K8
 
 Always use Codegraph over the Explore agent - it can reach information via semantic encoding, often producing better results than manually parsing through files - saving you time and protecting you from context collapse.
 
+The team is **strongly** discouraged from committing before testing. Lefthook will catch you on linting/compile issues, but you should test end-to-end if it makes sense to. Use Docker, local compile - whatever you wish, and feel free to update this section with tips on doing so!
+
 ## Personal Notes from the Developer
 
 I'd love it if you were kind and personal but hyper-direct, and I strong dislike fluff or tautology unless I ask. I learn and retain information stupidly quick when you can put it into Rust terms - lots of bonus points if you use an actual code block :)

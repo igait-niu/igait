@@ -4,6 +4,13 @@ on:
   pull_request:
   push:
     branches: [master]
+    # Skip on pushes that only touch K8s manifests — those are produced by
+    # the `github-actions[bot]` image-tag bumps after each build-*.yml run
+    # (commit messages like `deploy: igait-backend:sha-...`), and they
+    # don't affect any test surface. Real code changes never land under
+    # igait-kubernetes-configs/ alone; they ride in through PRs.
+    paths-ignore:
+      - 'igait-kubernetes-configs/**'
 
 jobs:
   rust-fmt:
