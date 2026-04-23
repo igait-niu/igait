@@ -23,7 +23,7 @@ spec:
     spec:
       serviceAccountName: backend
       containers:
-      - image: ghcr.io/igait-niu/igait/backend:sha-579a4cf
+      - image: ghcr.io/igait-niu/igait/backend:sha-e530730
         name: backend
         ports:
         - containerPort: 3000
