@@ -2,7 +2,7 @@
 
 /**
  * User role options - who is completing the submission form.
- * 
+ *
  * # Variants
  * * `Parent` - Parent of the patient
  * * `Doctor` - Medical professional
