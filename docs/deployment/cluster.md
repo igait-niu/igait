@@ -92,7 +92,7 @@ Neither mutates `~/.kube/config`. Context switching stays your call.
   stage Job. Dev mirror lives in Vaultwarden as `igait/dev-env`. Keep them
   in sync — see `docs/environment/vaultwarden.md`.
 - **ArgoCD** — deploys the `infra/k8s/` folder from the monorepo. Pushing
-  to `master` triggers a sync; you generally don't `kubectl apply` YAML
+  to `main` triggers a sync; you generally don't `kubectl apply` YAML
   directly unless doing an emergency override.
 - **cloudflared** — ingress. External traffic to `igaitapp.com` tunnels
   through.

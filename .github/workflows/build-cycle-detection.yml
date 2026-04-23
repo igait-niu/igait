@@ -2,7 +2,7 @@ name: Build Cycle Detection
 
 on:
   push:
-    branches: ['master']
+    branches: ['main']
     paths:
       - 'apps/stages/cycle-detection/**'
       - 'apps/shared/**'
@@ -73,12 +73,12 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin git@github.com:igait-niu/igait.git
           for i in 1 2 3 4 5; do
-            git fetch origin master
-            git reset --hard origin/master
+            git fetch origin main
+            git reset --hard origin/main
             sed -i "s|value: ghcr.io/igait-niu/igait/cycle-detection:.*|value: ghcr.io/igait-niu/igait/cycle-detection:sha-${SHA_SHORT}|" infra/k8s/backend/deployment.yaml
             git add infra/k8s/
             git diff --cached --quiet && echo "Already up to date" && exit 0
             git commit -m "deploy: cycle-detection:sha-${SHA_SHORT}"
-            git push origin master && exit 0
+            git push origin main && exit 0
           done
           echo "Failed to push after 5 attempts" && exit 1

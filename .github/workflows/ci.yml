@@ -3,7 +3,7 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [main]
     # Skip on pushes that only touch K8s manifests — those are produced by
     # the `github-actions[bot]` image-tag bumps after each build-*.yml run
     # (commit messages like `deploy: backend:sha-...`), and they don't
