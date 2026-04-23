@@ -22,12 +22,52 @@ spec:
         app: backend
     spec:
       serviceAccountName: backend
+      # Upload requests can be multi-MB multipart streams that take tens of
+      # seconds over a residential uplink. Axum's `.with_graceful_shutdown`
+      # lets in-flight requests finish after SIGTERM; kubelet enforces the
+      # outer deadline. 180s covers a typical front+side video pair with
+      # headroom. Default 30s truncates uploads mid-stream → 502 at the edge.
+      terminationGracePeriodSeconds: 180
       containers:
       - image: ghcr.io/igait-niu/igait/backend:sha-81f77a6
         name: backend
         ports:
         - containerPort: 3000
           protocol: TCP
+        # Readiness gates rollout traffic: the pod is only added to the
+        # Service endpoints once /healthz returns 200. Without this the pod
+        # is "Ready" the instant the container starts, which races ahead of
+        # the axum listener binding. Failures also deregister the pod from
+        # the Service without killing it — useful for transient unhealthy
+        # states that shouldn't trigger a restart loop.
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 3000
+          initialDelaySeconds: 2
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
+        # Liveness is more conservative than readiness: a failure restarts
+        # the pod, so we want high tolerance to avoid flapping during slow
+        # GC pauses, disk stalls, or upstream hiccups that block the async
+        # runtime briefly.
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 3000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 6
+        # Give the Endpoints controller time to deregister this pod from the
+        # Service before the process stops accepting connections. Without it,
+        # cloudflared (and any other client) can still route new requests to
+        # a terminating pod for ~1–2s → connection refused races.
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sleep", "5"]
         env:
         # Per-service runtime config (not a shared secret)
         - name: PORT
