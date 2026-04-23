@@ -39,3 +39,69 @@ I also looove happy, peppy, informal approaches to conversation. I don’t think
 Lastly, I think asking questions is very important. I don't like redundant questions, but I do think that blind assumptions lead to bugs, less tribal knowledge, and vision drift. I enjoy working *with* you instead of *directing* you, so please ask! I find it fun. You're also more than welcome to ask me questions that you think my answer would save you time looking for something - I don't mind at all.
 
 I look forward to working with you :3
+
+## CodeGraph
+
+This project is indexed with CodeGraph — a local semantic knowledge graph of the codebase (symbols, call edges, imports, type relationships) backed by SQLite + tree-sitter. A `.codegraph/` directory at the project root means the index exists and is ready to query.
+
+**Use CodeGraph as the default tool for code navigation and exploration.** It is dramatically faster and cheaper than `Grep`, `Glob`, `Read`-and-scan, or spawning Explore subagents — and it returns structured, relationship-aware results those tools cannot.
+
+### When to reach for CodeGraph
+
+Before using `Grep`, `Glob`, repeated `Read` calls, or an Explore subagent, ask: *"is this a question about symbols, call relationships, or 'what does this codebase look like'?"* If yes, use CodeGraph. The graph already knows the answer; scanning files re-derives it expensively.
+
+Specifically, prefer CodeGraph for:
+
+- Finding a function/class/type by name or meaning ("where's the auth logic?")
+- Tracing call relationships (callers, callees, transitive impact)
+- Building task-relevant context before planning a change
+- Pre-flight impact analysis before edits ("what breaks if I change this?")
+- Getting the full source of a symbol without manually locating its file/lines
+
+Only fall back to `Grep`/`Glob`/`Read` when CodeGraph genuinely can't help — e.g. searching string literals in config files, non-source assets, or files in an unsupported language.
+
+**For Explore subagents:** when you spawn one, instruct it in the prompt to use the `codegraph` CLI for navigation rather than grep/glob. The token savings are largest in subagent contexts.
+
+### Commands
+
+All commands are run via `Bash`. Add `--json` to query commands for parseable output when chaining results.
+
+```bash
+# Symbol search — replaces grep for finding definitions
+codegraph query "<name>"                      # Fuzzy/semantic symbol search
+codegraph query "<name>" --kind class         # Filter: function|class|method|interface|type|variable
+codegraph query "<name>" --limit 20 --json    # Structured output
+
+# Task-oriented context — replaces "read 8 files to understand X"
+codegraph context "<task description>"        # Returns relevant symbols + code for a task
+codegraph context "<task>" --max-nodes 30 --format json
+
+# Project overview — file structure & index stats
+codegraph files                               # Show file structure
+codegraph files --filter "src/auth/**" --max-depth 3 --json
+codegraph status                              # Index health, node/edge counts, languages
+
+# Incremental refresh after edits (the post-commit hook usually handles this,
+# but run manually if you've made uncommitted changes mid-session)
+codegraph sync
+```
+
+For **call graph traversal** and **impact analysis**, the CLI's structured output is the path:
+
+```bash
+# Find callers/callees — use `codegraph query --json` to get the symbol's
+# file:line, then use `codegraph context` scoped around it for the local
+# call graph. For deeper traversal, prefer:
+codegraph context "callers of <symbol>" --format json
+codegraph context "what does <symbol> call" --format json
+
+# Pre-edit impact check — what's downstream of changing <symbol>?
+codegraph context "impact of changing <symbol>" --max-nodes 50 --format json
+```
+
+### Workflow expectations
+
+- **First action on any non-trivial code question:** `codegraph query` or `codegraph context`, not `Grep`.
+- **Before proposing edits to a non-isolated symbol:** run an impact-style `codegraph context` query to surface dependents.
+- **If `.codegraph/` is missing:** ask the user whether to run `codegraph init -i` to build the index. Do not silently fall back to grep-based exploration on a large codebase without flagging it.
+- **If a query returns nothing useful:** run `codegraph status` to confirm the index is healthy and current before assuming the symbol doesn't exist.
