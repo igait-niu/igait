@@ -61,6 +61,44 @@ kubectl -n igait get secret igait-secrets -o jsonpath='{.data}' | jq 'keys'
 
 (Values are base64 — decode on purpose, never casually.)
 
+### Re-point ArgoCD apps after a path restructure
+
+ArgoCD `Application` resources store `spec.source.path` in the cluster, not
+git. When a monorepo restructure moves `infra/k8s/**` (or the ArgoCD apps
+folder itself), the deployed Applications still point at the *old* path even
+after git is updated — you'll see `ComparisonError: app path does not exist`
+in the UI.
+
+The `app-of-apps` pattern *cannot* self-heal this: if its current `path`
+points nowhere, it can't read the new manifest for itself.
+
+**Fix:** patch every affected Application once via `kubectl`, then let
+selfHeal take over again.
+
+```bash
+ssh root@ai-leads 'bash -s' <<'REMOTE'
+patch() {
+  kubectl -n argocd patch application "$1" --type=merge \
+    -p "{\"spec\":{\"source\":{\"path\":\"$2\"}}}"
+  kubectl -n argocd annotate application "$1" \
+    argocd.argoproj.io/refresh=hard --overwrite
+}
+patch app-of-apps  infra/k8s/argocd/apps
+patch cloudflared  infra/k8s/cloudflared
+patch igait        infra/k8s
+patch vaultwarden  infra/k8s/vaultwarden
+REMOTE
+```
+
+Survey afterwards — every Git-sourced app should be `Synced`:
+
+```bash
+kubectl get application -n argocd -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.source.path}{"\t"}{.status.sync.status}{"\t"}{.status.health.status}{"\n"}{end}'
+```
+
+Any future path restructure PR should include these patch commands in its
+merge checklist — git alone won't update the live cluster.
+
 ## Access scope for Claude / agents
 
 SSH access is authorized for:
