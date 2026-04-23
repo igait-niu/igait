@@ -8,7 +8,7 @@ on:
       - 'igait-lib/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'Dockerfile'
+      - '.docker/workspace/Dockerfile'
       - '.github/workflows/build-pose-estimation.yml'
   workflow_dispatch:
 
@@ -52,7 +52,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile
+          file: ./.docker/workspace/Dockerfile
           target: pose-estimation
           platforms: linux/arm64
           push: true

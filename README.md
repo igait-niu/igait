@@ -35,7 +35,7 @@ You'll want to have the following installed on your machine:
 - [Docker](https://www.docker.com/)
 - [Nix](https://nixos.org/download/). Enable [Nix Flakes](https://nixos.wiki/wiki/flakes)
 - [`direnv`](https://direnv.net/) — auto-enters the Nix dev shell and sources `.env` on `cd` into the repo. Hook your shell per the direnv docs.
-- [Claude Code](https://claude.com/claude-code) — the `/igait-environment` slash command materialises `.env` and `credentials/gcp-key.json` from Vaultwarden
+- [Claude Code](https://claude.com/claude-code) — the `/igait-environment` slash command materialises `.env` from Vaultwarden
 
 First, download this repository (note the submodules!):
 ```bash
@@ -54,10 +54,7 @@ bw login                           # interactive: email + master password + 2FA
 export BW_SESSION=$(bw unlock --raw)
 ```
 
-Then, inside this repo, run the Claude Code slash command **`/igait-environment`**. It reads the `igait/dev-env` item and writes two files at repo root:
-
-- `.env` — every custom field except `GCP_KEY_JSON`, auto-loaded by `docker compose`.
-- `credentials/gcp-key.json` (mode 600) — the GCP service-account JSON the Firebase SDK insists must exist on disk.
+Then, inside this repo, run the Claude Code slash command **`/igait-environment`**. It reads the `igait/dev-env` item and writes `./.env` — every custom field, auto-loaded by `docker compose`. (The legacy `GCP_KEY_JSON` field is now ignored; `.docker/workspace/Dockerfile` bakes a stub key into every runtime image for local/CI, and prod mounts the real key as a K8s Secret.)
 
 Re-run `/igait-environment` whenever a secret is rotated in Vaultwarden, then `direnv reload` in any open shell. The tracked `.envrc` only does two things: `use flake` (Nix dev shell) and `dotenv_if_exists .env` (source the file the slash command wrote). It does **not** touch Vaultwarden — auth is a conscious action, not per-`cd` churn. See `wiki/environment/VAULTWARDEN.md` for the field-editing workflow.
 
@@ -75,7 +72,7 @@ SES identity required; you can develop on airplane wifi.
 
 ```bash
 # (first time, or after a Vaultwarden rotation)
-/igait-environment  # Claude Code slash command — writes .env + credentials/gcp-key.json
+/igait-environment  # Claude Code slash command — writes .env from Vaultwarden
 
 docker compose up   # first boot: ~5-10min for Rust/Python image builds
 ```
