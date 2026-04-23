@@ -33,7 +33,7 @@ Please use Linux or [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install
 
 You'll want to have the following installed on your machine:
 - [Docker](https://www.docker.com/)
-- [Nix](https://nixos.org/download/). Enable [Nix Flakes](https://nixos.docs/docs/flakes)
+- [Nix](https://nixos.org/download/). Enable [Nix Flakes](https://nixos.wiki/wiki/flakes)
 - [`direnv`](https://direnv.net/) — auto-enters the Nix dev shell on `cd` into the repo. Hook your shell per the direnv docs.
 
 First, download this repository (note the submodules!):
