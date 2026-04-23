@@ -21,9 +21,13 @@ chef cache. Two distinct toolchains, two distinct Dockerfiles.
 ## Build context
 
 Context is the **repo root** (`.`) because the builder needs `Cargo.toml`,
-`Cargo.lock`, `lib/`, `backend/`, and `igait-stages/`. The root
-`.dockerignore` governs what gets uploaded — `.dockerignore` is positional to
-the build context so it stays at the repo root, not here.
+`Cargo.lock`, `lib/`, `backend/`, and `igait-stages/`. What gets uploaded is
+governed by the sidecar `Dockerfile.dockerignore` next to this README —
+BuildKit looks up `<dockerfile-path>.dockerignore` before falling back to
+`<context-root>/.dockerignore`, so we keep the ignore rules co-located with
+the Dockerfile even though the context is the repo root. **Requires
+BuildKit** (default on Docker ≥23); a legacy `docker build` would silently
+ignore the sidecar and ship a fat context.
 
 ```sh
 # from repo root
