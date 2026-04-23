@@ -6,31 +6,37 @@
 #
 # Each job here corresponds 1:1 with a PR-blocking CI job so a clean local
 # commit should also pass CI. The `glob`/`root` filters mean we only spin up
-# a toolchain when files it cares about changed.
+# a toolchain when files it cares about changed — but the globs are broad
+# enough to catch dep bumps (Cargo.toml/Cargo.lock, bun.lock) that can still
+# break clippy/tests without touching any .rs or .ts file.
 
 pre-commit:
   parallel: true
   jobs:
     - name: rust-fmt
-      glob: "*.rs"
+      glob: "{*.rs,Cargo.toml,Cargo.lock}"
       run: cargo fmt --all --check
 
+    # Flags match CI's per-crate `cargo clippy --all-targets -- -D warnings`.
+    # `--workspace` here is stricter (lints every crate at once) but uses the
+    # same feature set CI does — no `--all-features`, which would lint code
+    # CI never compiles and could produce local errors CI can't reproduce.
     - name: rust-clippy
-      glob: "*.rs"
-      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      glob: "{*.rs,Cargo.toml,Cargo.lock}"
+      run: cargo clippy --workspace --all-targets -- -D warnings
 
     - name: frontend-lint
       root: "apps/frontend/"
-      glob: "*.{ts,js,svelte,css,html,json}"
-      run: bun run lint
+      glob: "*.{ts,js,svelte,css,html,json,lock}"
+      run: "[ -d node_modules ] || bun install --frozen-lockfile; bun run lint"
 
     - name: frontend-check
       root: "apps/frontend/"
-      glob: "*.{ts,js,svelte}"
-      run: bun run check
+      glob: "*.{ts,js,svelte,lock}"
+      run: "[ -d node_modules ] || bun install --frozen-lockfile; bun run check"
 
 pre-push:
   jobs:
     - name: rust-test
-      glob: "*.rs"
+      glob: "{*.rs,Cargo.toml,Cargo.lock}"
       run: cargo test --workspace
