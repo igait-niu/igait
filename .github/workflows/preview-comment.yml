@@ -6,12 +6,11 @@ name: preview-comment
 # with a repo-scoped token and the PR number from the event payload.
 on:
   pull_request_target:
-    types: [opened, reopened, synchronize, labeled]
+    types: [opened, reopened, synchronize]
 
 jobs:
   comment:
     runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.labels.*.name, 'preview')
     permissions:
       pull-requests: write
     steps:
@@ -25,7 +24,7 @@ jobs:
               `**Preview:** ${url}`,
               '',
               '_Accessible only to members of the `igait-niu.org.github` tailnet._',
-              '_Previews take ~2 min to spin up after the label is applied._',
+              '_Previews take ~2 min to spin up; they tear down when the PR closes._',
             ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
