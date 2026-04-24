@@ -8,3 +8,4 @@ resources:
   - backend/rbac.yaml
   - backend/deployment.yaml
   - backend/service.yaml
+  - backend/external-secrets.yaml

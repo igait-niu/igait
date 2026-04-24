@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tailscale-operator
+  namespace: argocd
+  annotations:
+    # Syncs after tailscale-operator-config so the Operator Deployment
+    # starts with operator-oauth Secret already materialized by ESO.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://pkgs.tailscale.com/helmcharts
+    chart: tailscale-operator
+    targetRevision: 1.76.1
+    helm:
+      values: |
+        # Leave OAuth values empty so the chart skips creating
+        # operator-oauth itself — we create it via ExternalSecret in
+        # tailscale-operator-config. The chart's Deployment still
+        # references `operator-oauth` via secretKeyRef, picking up our
+        # ESO-managed Secret.
+        oauth:
+          clientId: ""
+          clientSecret: ""
+        operatorConfig:
+          defaultTags:
+            - tag:k8s-igait-operator
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tailscale
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

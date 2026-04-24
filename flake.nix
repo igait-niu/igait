@@ -28,6 +28,7 @@
                     (firebase-tools.override {
                         buildNpmPackage = buildNpmPackage.override { nodejs = nodejs_22; };
                     })
+                    awscli
 
                     # Build dependencies
                     pkg-config
