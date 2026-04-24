@@ -88,9 +88,17 @@ Neither mutates `~/.kube/config`. Context switching stays your call.
   dynamically by the orchestrator). Stage Jobs appear on-demand; don't
   expect to see long-lived stage pods.
 - **`igait-secrets`** (K8s Secret, `igait` ns) — shared runtime config
-  consumed by `envFrom: secretRef` in both the backend Deployment and every
-  stage Job. Dev mirror lives in Vaultwarden as `igait/dev-env`. Keep them
-  in sync — see `docs/environment/vaultwarden.md`.
+  consumed by `secretKeyRef` in both the backend Deployment and every
+  stage Job. Materialized by External Secrets Operator from AWS SSM
+  Parameter Store (`/igait/prod/env/*`); do not edit in-cluster directly
+  — edit the SSM param and ESO picks it up within ~5m. See
+  `docs/deployment/external-secrets.md` for the full flow and rotation
+  recipe.
+- **`gcp-key`** (K8s Secret, `igait` ns) — the GCP service-account JSON,
+  mounted as a file volume. Also ESO-managed from
+  `/igait/prod/gcp-key/key.json`.
+- **`operator-oauth`** (K8s Secret, `tailscale` ns) — Tailscale Operator's
+  OAuth client creds, ESO-managed from `/igait/prod/tailscale/*`.
 - **ArgoCD** — deploys the `infra/k8s/` folder from the monorepo. Pushing
   to `main` triggers a sync; you generally don't `kubectl apply` YAML
   directly unless doing an emergency override.

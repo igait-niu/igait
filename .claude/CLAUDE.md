@@ -6,8 +6,8 @@ iGait is a web-based autism screening tool that analyzes gait (walking) patterns
 
 In the pursuit of keeping this file lean, all tribal knowledge is encoded in `./docs/`. Each subfolder owns a topic — read the one that matches your task before grepping the codebase:
 
-- **`./docs/environment/`** — prod secrets (Vaultwarden ↔ `igait-secrets`). Local dev is env-var-free; see below.
-- **`./docs/deployment/`** — prod cluster access (`ssh root@ai-leads`), `kubectl` recipes, rollout ops, agent access scope.
+- **`./docs/environment/`** — Vaultwarden (in-cluster team password vault; no longer the source of truth for prod runtime secrets). Local dev is env-var-free; see below.
+- **`./docs/deployment/`** — prod cluster access (`ssh root@ai-leads`), `kubectl` recipes, rollout ops, and **`external-secrets.md`** (the authoritative reference for prod secret management: AWS SSM Parameter Store → External Secrets Operator → K8s Secrets).
 - **`./docs/architecture/`** — cross-cutting design notes. Stage execution modes (worker vs K8s-Jobs), the unified Firebase RTDB client.
 - **`./docs/local-dev/`** — hermetic `docker compose` stack, local surrogates for AWS/Firebase/SES, load-bearing env vars.
 
@@ -17,7 +17,7 @@ The hermetic `docker compose` stack hardcodes everything it needs against local 
 
 The only optional passthrough is `OPENAI_*`. The backend boots cleanly when unset and serves `/assistant` routes with 503. If you specifically need OpenAI behaviour: `echo OPENAI_API_KEY=sk-... > .env` (auto-loaded by docker compose).
 
-Vaultwarden continues to hold **prod** secrets (the values that flow into the K8s `igait-secrets` Secret). That path is tracked separately — it'll move to AWS Parameter Store in a later issue.
+**Prod secrets live in AWS SSM Parameter Store** under `/igait/prod/*`. External Secrets Operator materializes them into the K8s `igait-secrets` and `gcp-key` Secrets automatically — no manual `kubectl apply` step. See `docs/deployment/external-secrets.md` for the architecture, IAM policy, and rotation recipe. The in-cluster Vaultwarden at `https://vault.igaitapp.com` continues to run for team password sharing, but is no longer on the path for cluster runtime config. The AWS CLI is in the Nix dev shell (`nix develop`) for managing SSM params from a dev machine.
 
 ## Tips for Success
 
