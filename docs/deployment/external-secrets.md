@@ -195,8 +195,11 @@ Required in `https://login.tailscale.com/admin/acls`:
 ```hujson
 {
   "tagOwners": {
-    "tag:k8s-igait-operator": [],                    // self-owned
-    "tag:k8s-igait": ["tag:k8s-igait-operator"],     // operator-owned
+    // admins mint the Operator's own auth keys -- empty list means
+    // nobody can mint it (Tailscale returns 400 "not permitted"):
+    "tag:k8s-igait-operator": ["autogroup:admin"],
+    // only the Operator spawns workload devices:
+    "tag:k8s-igait": ["tag:k8s-igait-operator"],
     // ...existing tags unchanged
   },
   "acls": [

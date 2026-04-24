@@ -23,9 +23,18 @@ spec:
         oauth:
           clientId: ""
           clientSecret: ""
+        # Tag applied to the Operator pod's own tailnet device. Must be
+        # in the OAuth client's allowed tags list AND have an owner in
+        # the tailnet ACL's tagOwners (typically `autogroup:admin`).
         operatorConfig:
           defaultTags:
             - tag:k8s-igait-operator
+        # Tag applied to proxy devices the Operator spawns (exposed
+        # Services etc.). tagOwners must list `tag:k8s-igait-operator`
+        # as an owner so only the Operator can mint these.
+        proxyConfig:
+          defaultTags:
+            - tag:k8s-igait
   destination:
     server: https://kubernetes.default.svc
     namespace: tailscale
