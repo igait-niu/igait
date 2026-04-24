@@ -8,7 +8,6 @@ In the pursuit of keeping this file lean, all tribal knowledge is encoded in `./
 
 - **`./docs/environment/`** — prod secrets (Vaultwarden ↔ `igait-secrets`). Local dev is env-var-free; see below.
 - **`./docs/deployment/`** — prod cluster access (`ssh root@ai-leads`), `kubectl` recipes, rollout ops, agent access scope.
-- **`./docs/github/`** — GitHub Project board IDs (canonical is project **#2**), field/option ID reference, and `gh` CLI recipes for moving issues through the board.
 - **`./docs/architecture/`** — cross-cutting design notes. Stage execution modes (worker vs K8s-Jobs), the unified Firebase RTDB client.
 - **`./docs/local-dev/`** — hermetic `docker compose` stack, local surrogates for AWS/Firebase/SES, load-bearing env vars.
 
