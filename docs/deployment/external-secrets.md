@@ -53,10 +53,15 @@ Attach to `igait-eso-ssm-reader`:
       "Action": [
         "ssm:GetParameter",
         "ssm:GetParameters",
-        "ssm:GetParametersByPath",
-        "ssm:DescribeParameters"
+        "ssm:GetParametersByPath"
       ],
       "Resource": "arn:aws:ssm:us-east-2:*:parameter/igait/prod/*"
+    },
+    {
+      "Sid": "DescribeAllParametersMetadata",
+      "Effect": "Allow",
+      "Action": "ssm:DescribeParameters",
+      "Resource": "*"
     },
     {
       "Sid": "DecryptSecureStrings",
@@ -73,49 +78,36 @@ Attach to `igait-eso-ssm-reader`:
 }
 ```
 
-The `kms:Decrypt` condition scopes decryption to keys invoked via SSM — even
-though the `Resource: "*"` looks loose, the condition makes it safe.
+Three things to note about this policy:
 
-## Cutover playbook (initial migration from manually-applied Secrets)
+1. **`ssm:DescribeParameters` must be unscoped (`Resource: "*"`).** It is a
+   region-wide listing API; AWS does not support resource-level IAM for it.
+   Used by ESO's `find.name.regexp` matcher to enumerate params. The only
+   leakage is param *names* in the account — values stay locked to
+   `/igait/prod/*` by the first statement.
+2. **`kms:Decrypt` `Resource: "*"` is safe** because the `kms:ViaService`
+   condition scopes decryption to keys invoked via SSM only — a leaked key
+   cannot decrypt arbitrary KMS blobs.
+3. **`GetParametersByPath` is resource-scopeable** (unlike `DescribeParameters`),
+   so if you later migrate the ExternalSecret from `name.regexp` to `path`-based
+   discovery, you can drop the `DescribeAllParametersMetadata` statement
+   entirely.
 
-Run **after** the PR is merged and ArgoCD has synced, and **after** all 14 SSM
-params are populated:
+## Adoption of pre-existing Secrets
 
-```bash
-# 1. Verify ESO pods are Running.
-kubectl -n external-secrets get pods
+ESO v0.10+ with `creationPolicy: Owner` will **adopt** an existing K8s Secret
+if it has no conflicting `ownerReferences` — no manual cutover needed. When
+the initial migration happened, `igait-secrets` and `gcp-key` already existed
+as manually-applied Secrets; ESO simply took ownership on its first successful
+reconcile and began keeping them in sync with SSM. No `kubectl delete`, no
+pod restart. Worth knowing for future clusters — you do not need to pre-clean
+the target namespace.
 
-# 2. Verify ClusterSecretStore is Ready.
-kubectl get clustersecretstore aws-ssm \
-  -o jsonpath='{.status.conditions[0].type}={.status.conditions[0].status}'
-# Expect: Ready=True
-
-# 3. Check ExternalSecret status — will say SecretSyncedError because the
-#    existing manually-applied Secret blocks `creationPolicy: Owner` takeover.
-kubectl -n igait get externalsecret
-
-# 4. Back up current Secrets (paranoia — 10 seconds of insurance):
-kubectl -n igait get secret igait-secrets -o yaml > /tmp/igait-secrets.bak.yaml
-kubectl -n igait get secret gcp-key       -o yaml > /tmp/gcp-key.bak.yaml
-
-# 5. Delete the manually-applied Secrets. ESO recreates from SSM within seconds.
-kubectl -n igait delete secret igait-secrets gcp-key
-
-# 6. Confirm ESO created fresh Secrets (look for owner reference to ExternalSecret):
-kubectl -n igait get secret igait-secrets -o yaml | grep -A2 ownerReferences
-
-# 7. Restart backend to pick up the new Secret values (envFrom would hot-reload,
-#    but we use individual `secretKeyRef` which only re-read on pod start):
-kubectl -n igait rollout restart deployment/backend
-kubectl -n igait rollout status deployment/backend
-```
-
-Rollback (if step 5 goes sideways):
-
-```bash
-kubectl -n igait apply -f /tmp/igait-secrets.bak.yaml
-kubectl -n igait apply -f /tmp/gcp-key.bak.yaml
-```
+If ESO ever reports `SecretAlreadyExists` / `NotManaged` instead of adopting,
+it means the existing Secret has an `ownerReferences` entry pointing at some
+*other* controller. In that case, remove the stale owner reference (or delete
+the Secret outright) and ESO will reconcile into the vacated slot on the next
+cycle.
 
 ## Rotation verification
 
@@ -210,17 +202,26 @@ Required in `https://login.tailscale.com/admin/acls`:
 }
 ```
 
-### OAuth client scope footgun
+### OAuth client scopes
 
-The OAuth client used by the Operator **must** have `tag:k8s-igait-operator`
-AND `tag:k8s-igait` in its allowed tags list (Tailscale admin →
-OAuth clients → edit → Tags). Without this, auth-key minting fails
-with an opaque 401 and the Operator logs "failed to create auth key"
-with no clue why. Scope at the OAuth client should be:
+Tailscale OAuth clients attach tags *to individual scopes* — tags are not a
+separate top-level list. Per Tailscale's Kubernetes Operator docs, the client
+needs these three scopes, all **write**:
 
-- Devices: Core Read+Write
-- Auth Keys: Write
-- Tags: `tag:k8s-igait-operator`, `tag:k8s-igait`
+- **Devices Core**
+- **Auth Keys**
+- **Services**
+
+Attach `tag:k8s-igait-operator` to each of the three scopes. The workload tag
+`tag:k8s-igait` is **not** needed here — it is minted by the Operator device
+itself via the ACL's `tagOwners` delegation (`tag:k8s-igait-operator` owns
+`tag:k8s-igait`), not by the OAuth client.
+
+**Common failure mode:** if the scopes do not include `tag:k8s-igait-operator`,
+auth-key minting fails with `Status: 400, Message: "requested tags
+[tag:k8s-igait-operator] are invalid or not permitted"` and the Operator
+crashloops on `creating operator authkey`. Fix is UI-only — edit the OAuth
+client, add the tag to each scope, save. Next pod start succeeds.
 
 ### Rotating Tailscale OAuth creds
 
