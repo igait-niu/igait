@@ -32,9 +32,12 @@ spec:
         # Tag applied to proxy devices the Operator spawns (exposed
         # Services etc.). tagOwners must list `tag:k8s-igait-operator`
         # as an owner so only the Operator can mint these.
+        # Chart quirk: proxyConfig.defaultTags is templated *verbatim*
+        # into env[].value, which must be a string. A YAML list here
+        # produces `value: [tag:k8s-igait]` → API rejects with the
+        # opaque "unrecognized type: string". Pass as a string.
         proxyConfig:
-          defaultTags:
-            - tag:k8s-igait
+          defaultTags: "tag:k8s-igait"
   destination:
     server: https://kubernetes.default.svc
     namespace: tailscale
