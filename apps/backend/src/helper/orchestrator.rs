@@ -42,10 +42,7 @@ use tracing::{error, info, instrument, warn};
 ///   3. the literal `"igait"` fallback, preserving historical behavior
 ///      outside a cluster (e.g. local `cargo run` against a remote API).
 ///
-/// Making this dynamic is what lets one backend image serve production
-/// (`igait` ns) and per-PR preview envs (`igait-pr-<N>` ns) without a
-/// rebuild — Jobs land in whichever namespace the backend pod itself
-/// lives in.
+/// Jobs land in whichever namespace the backend pod itself lives in.
 fn pipeline_namespace() -> &'static str {
     static NS: OnceLock<String> = OnceLock::new();
     NS.get_or_init(|| {
@@ -1057,14 +1054,14 @@ mod tests {
     #[test]
     fn env_var_wins_when_present() {
         assert_eq!(
-            resolve_namespace(Some("igait-pr-42"), Some("should-be-ignored")),
-            "igait-pr-42",
+            resolve_namespace(Some("igait-staging"), Some("should-be-ignored")),
+            "igait-staging",
         );
     }
 
     #[test]
     fn falls_back_to_service_account_file() {
-        assert_eq!(resolve_namespace(None, Some("igait-pr-7\n")), "igait-pr-7",);
+        assert_eq!(resolve_namespace(None, Some("igait-dev\n")), "igait-dev",);
     }
 
     #[test]
@@ -1072,13 +1069,10 @@ mod tests {
         // Kubelets sometimes inject empty strings for unset downward-API
         // fields; we treat those as absent rather than as the namespace
         // literally being "".
+        assert_eq!(resolve_namespace(Some(""), Some("igait-dev")), "igait-dev");
         assert_eq!(
-            resolve_namespace(Some(""), Some("igait-pr-9")),
-            "igait-pr-9"
-        );
-        assert_eq!(
-            resolve_namespace(Some("   "), Some("igait-pr-9")),
-            "igait-pr-9"
+            resolve_namespace(Some("   "), Some("igait-dev")),
+            "igait-dev"
         );
     }
 
