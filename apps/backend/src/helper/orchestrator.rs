@@ -29,13 +29,49 @@ use lib::microservice::{
     JOB_RESULT_TAKE_TIMEOUT_MS,
 };
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 
 /// The K8s namespace where pipeline Jobs are created.
-const NAMESPACE: &str = "igait";
+///
+/// Resolved once at first use from (in order):
+///   1. `POD_NAMESPACE` env var (set via downward API, if present)
+///   2. the namespace file auto-mounted into every pod by the kubelet
+///   3. the literal `"igait"` fallback, preserving historical behavior
+///      outside a cluster (e.g. local `cargo run` against a remote API).
+///
+/// Making this dynamic is what lets one backend image serve production
+/// (`igait` ns) and per-PR preview envs (`igait-pr-<N>` ns) without a
+/// rebuild — Jobs land in whichever namespace the backend pod itself
+/// lives in.
+fn pipeline_namespace() -> &'static str {
+    static NS: OnceLock<String> = OnceLock::new();
+    NS.get_or_init(|| {
+        let env = std::env::var("POD_NAMESPACE").ok();
+        let file =
+            std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace").ok();
+        resolve_namespace(env.as_deref(), file.as_deref())
+    })
+    .as_str()
+}
+
+/// Pure namespace-resolution logic, extracted so it's testable without
+/// touching real env vars or the filesystem.
+fn resolve_namespace(env_var: Option<&str>, sa_file: Option<&str>) -> String {
+    env_var
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            sa_file
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "igait".to_string())
+}
 
 /// The K8s secret containing pipeline environment variables.
 const SECRET_NAME: &str = "igait-secrets";
@@ -224,7 +260,7 @@ impl Orchestrator {
             job_epoch,
         );
 
-        let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
+        let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), pipeline_namespace());
         jobs_api
             .create(&PostParams::default(), &k8s_job)
             .await
@@ -265,7 +301,7 @@ impl Orchestrator {
             job_epoch,
         );
 
-        let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
+        let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), pipeline_namespace());
         jobs_api
             .create(&PostParams::default(), &k8s_job)
             .await
@@ -318,7 +354,7 @@ impl Orchestrator {
         Job {
             metadata: ObjectMeta {
                 name: Some(job_name.to_string()),
-                namespace: Some(NAMESPACE.to_string()),
+                namespace: Some(pipeline_namespace().to_string()),
                 labels: Some(std::collections::BTreeMap::from([
                     ("app".to_string(), "igait-pipeline".to_string()),
                     ("managed-by".to_string(), "backend".to_string()),
@@ -753,7 +789,7 @@ impl Orchestrator {
     /// proactive "please stop now" that avoids the wasted compute.
     #[instrument(skip(self), fields(job_id = %job_id))]
     pub async fn cancel_in_flight_jobs(&self, job_id: &str) -> Result<usize> {
-        let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
+        let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), pipeline_namespace());
         let lp = ListParams::default().labels("app=igait-pipeline,managed-by=backend");
 
         let job_list = jobs_api
@@ -804,7 +840,7 @@ impl Orchestrator {
     /// Checks for stale K8s Jobs that have failed/timed out without writing a result.
     #[instrument(skip(self))]
     async fn check_stale_jobs(&self) -> Result<()> {
-        let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), NAMESPACE);
+        let jobs_api: Api<Job> = Api::namespaced(self.kube_client.clone(), pipeline_namespace());
         let lp = ListParams::default().labels("app=igait-pipeline,managed-by=backend");
 
         let job_list = jobs_api
@@ -1011,5 +1047,44 @@ pub async fn completion_monitor_loop(orchestrator: Arc<Orchestrator>) {
         }
 
         tokio::time::sleep(Duration::from_secs(COMPLETION_POLL_INTERVAL_SECS)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_namespace;
+
+    #[test]
+    fn env_var_wins_when_present() {
+        assert_eq!(
+            resolve_namespace(Some("igait-pr-42"), Some("should-be-ignored")),
+            "igait-pr-42",
+        );
+    }
+
+    #[test]
+    fn falls_back_to_service_account_file() {
+        assert_eq!(resolve_namespace(None, Some("igait-pr-7\n")), "igait-pr-7",);
+    }
+
+    #[test]
+    fn empty_env_var_is_skipped() {
+        // Kubelets sometimes inject empty strings for unset downward-API
+        // fields; we treat those as absent rather than as the namespace
+        // literally being "".
+        assert_eq!(
+            resolve_namespace(Some(""), Some("igait-pr-9")),
+            "igait-pr-9"
+        );
+        assert_eq!(
+            resolve_namespace(Some("   "), Some("igait-pr-9")),
+            "igait-pr-9"
+        );
+    }
+
+    #[test]
+    fn final_fallback_is_igait() {
+        assert_eq!(resolve_namespace(None, None), "igait");
+        assert_eq!(resolve_namespace(Some(""), Some("")), "igait");
     }
 }

@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ses-mock
+  labels:
+    app: ses-mock
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ses-mock
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: ses-mock
+    spec:
+      containers:
+        - name: ses-mock
+          image: ghcr.io/domdomegg/aws-ses-v2-local:latest
+          env:
+            - name: AUTH_MODE
+              value: open
+          ports:
+            - name: http
+              containerPort: 8005
+          # aws-ses-v2-local has no /health route and ships without
+          # curl/wget. Gate readiness on a TCP connect instead.
+          readinessProbe:
+            tcpSocket:
+              port: 8005
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

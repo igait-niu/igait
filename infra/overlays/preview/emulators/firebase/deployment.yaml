@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: firebase-emulator
+  labels:
+    app: firebase-emulator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: firebase-emulator
+  # Emulator state is ephemeral — on restart, firebase-bootstrap Job
+  # re-seeds the admin account. No rolling update dance needed.
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: firebase-emulator
+    spec:
+      containers:
+        - name: firebase-emulator
+          # Pushed by .github/workflows/build-firebase-emulator.yml;
+          # image-tag is patched in per-PR by the ApplicationSet (slice 3)
+          # via kustomize.images. :latest is only a render-time default.
+          image: ghcr.io/igait-niu/igait/firebase-emulator:latest
+          ports:
+            - name: rtdb
+              containerPort: 9000
+            - name: auth
+              containerPort: 9099
+            - name: ui
+              containerPort: 4000
+          # Match compose's 30s start_period — the JVM takes a beat to
+          # bind 9000 and 9099, and we want Jobs that hit the emulator
+          # to not race its boot.
+          readinessProbe:
+            httpGet:
+              path: /.json?ns=igait-local
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
