@@ -54,7 +54,7 @@ OPENAI_VECTOR_STORE_ID=vs_...
 EOF
 ```
 
-`docker compose` auto-loads `.env` from the repo root. Prod secrets live in Vaultwarden (moving to AWS Parameter Store soon) — see `docs/environment/vaultwarden.md`.
+`docker compose` auto-loads `.env` from the repo root. Prod secrets live in AWS SSM Parameter Store — see `docs/deployment/external-secrets.md`.
 
 **Optional**:
 I strongly recommend using [Visual Studio Code](https://code.visualstudio.com/) with the Svelte and `rust-analyzer` extensions! 
@@ -116,3 +116,5 @@ Working on the frontend is a roughly the same, navigate to its folder:
 bun install
 bun run dev
 ```
+
+For role-aware onboarding (frontend / backend / pipeline / infra), deploy flow, secrets, kubectl recipes, and everything else, see [`docs/README.md`](docs/README.md).
