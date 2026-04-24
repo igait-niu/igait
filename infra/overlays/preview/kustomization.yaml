@@ -1,0 +1,76 @@
+# Preview overlay — per-PR environment that runs the full iGait stack
+# against in-namespace emulators (Firebase, MinIO, ses-mock) instead of
+# real AWS + prod Firebase. The ArgoCD ApplicationSet (slice 3 of #106)
+# sets `namespace:` per-PR at render time via `kustomize.namespace`, so
+# the literal below is only a default for manual testing; in production
+# every preview namespace is named `igait-pr-<N>`.
+#
+# What this overlay does relative to the base (infra/k8s):
+#   1. Replaces both ExternalSecret resources (igait-secrets, gcp-key)
+#      with plain Secrets holding emulator-pointing literals. Emulator
+#      credentials are not secrets — baking them in keeps previews
+#      independent of ESO / SSM and avoids polluting prod SSM with
+#      preview-only values.
+#   2. Adds the three emulator Deployments + Services.
+#   3. Patches the backend Deployment to inject POD_NAMESPACE via the
+#      downward API, so the orchestrator's Job-creation namespace
+#      resolves to the preview ns instead of the `"igait"` fallback.
+#   4. Points backend at the in-namespace emulator services via a
+#      replacement of the Secret-sourced env vars (done inline by
+#      substituting values in igait-secrets itself).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: igait-pr-template
+
+resources:
+  - ../../k8s
+  - emulators/firebase/deployment.yaml
+  - emulators/firebase/service.yaml
+  - emulators/minio/deployment.yaml
+  - emulators/minio/service.yaml
+  - emulators/minio/bootstrap-job.yaml
+  - emulators/ses-mock/deployment.yaml
+  - emulators/ses-mock/service.yaml
+  - secrets/igait-secrets.yaml
+  - secrets/gcp-key.yaml
+
+# Remove the namespace resource from the base; the preview namespace is
+# created by ArgoCD (CreateNamespace=true sync option) with the right
+# PR-specific name.
+patches:
+  - target:
+      kind: Namespace
+      name: igait
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: igait
+  # Delete the two ExternalSecrets from the base — the preview overlay
+  # supplies plain Secrets with the same names, so ESO isn't needed in
+  # the preview namespace at all.
+  - target:
+      kind: ExternalSecret
+      name: igait-secrets
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1beta1
+      kind: ExternalSecret
+      metadata:
+        name: igait-secrets
+  - target:
+      kind: ExternalSecret
+      name: gcp-key
+    patch: |-
+      $patch: delete
+      apiVersion: external-secrets.io/v1beta1
+      kind: ExternalSecret
+      metadata:
+        name: gcp-key
+  # Backend: inject POD_NAMESPACE via downward API.
+  - path: patches/backend-deployment.yaml
+    target:
+      kind: Deployment
+      name: backend

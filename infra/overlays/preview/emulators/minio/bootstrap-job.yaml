@@ -1,0 +1,42 @@
+# One-shot Job to create the `igait-storage` bucket on a fresh emulator.
+# Mirrors the `minio-bootstrap` compose service. Idempotent — `mc mb
+# --ignore-existing` is a no-op on re-run. Kustomize gives this Job a new
+# generated name on each apply so ArgoCD doesn't fight K8s over immutable
+# Job fields; for manual re-runs, delete the Job and let sync recreate.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-bootstrap
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: minio/mc:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              # Wait for minio to be reachable (readiness probe races sync timing).
+              for i in $(seq 1 60); do
+                if mc alias set local http://minio:9000 minioadmin minioadmin 2>/dev/null; then
+                  break
+                fi
+                sleep 1
+              done
+              mc mb --ignore-existing local/igait-storage
+              echo "MinIO bucket ready"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
