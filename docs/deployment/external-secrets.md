@@ -150,9 +150,80 @@ kubectl -n igait get secret igait-secrets \
 | `/igait/prod/env/OPENAI_ASSISTANT_ID` | `igait-secrets.OPENAI_ASSISTANT_ID` |
 | `/igait/prod/env/OPENAI_VECTOR_STORE_ID` | `igait-secrets.OPENAI_VECTOR_STORE_ID` |
 | `/igait/prod/gcp-key/key.json` | `gcp-key.gcp-key.json` |
+| `/igait/prod/tailscale/client_id` | `operator-oauth.client_id` (ns: `tailscale`) |
+| `/igait/prod/tailscale/client_secret` | `operator-oauth.client_secret` (ns: `tailscale`) |
 
 To add a new secret: put it in SSM under `/igait/prod/env/` and it'll appear
 in `igait-secrets` on the next refresh — the `dataFrom: find:` selector in
 `infra/k8s/backend/external-secrets.yaml` auto-discovers everything under
 that path. Then add a `secretKeyRef` entry in the backend deployment to
 surface it as an env var.
+
+## Tailscale Operator
+
+The Tailscale Operator is installed via Helm (ArgoCD App:
+`tailscale-operator`) and its OAuth credentials are supplied by ESO, not
+by the chart's values. The flow:
+
+1. `tailscale-operator-config` App (sync-wave `-1`) creates the
+   `tailscale` namespace and the `ExternalSecret` targeting
+   `operator-oauth`.
+2. ESO materializes `operator-oauth` in the `tailscale` namespace with
+   keys `client_id` / `client_secret` from SSM.
+3. `tailscale-operator` App (sync-wave `0`) installs the Helm chart.
+   Chart values leave `oauth.clientId` / `oauth.clientSecret` empty —
+   the chart's conditional Secret template skips creation, and the
+   Operator Deployment picks up our ESO-managed `operator-oauth` via
+   `secretKeyRef`.
+
+### Tag hierarchy
+
+Two tags, owned correctly:
+
+- `tag:k8s-igait-operator` — the Operator pod registers itself with
+  this tag. Self-owned so only devices already bearing it can mint new
+  auth keys for it (bootstrap capability).
+- `tag:k8s-igait` — assigned by the Operator to the workload devices
+  it spawns (exposed Services, Ingresses). Owned by
+  `tag:k8s-igait-operator`, so *only the Operator* can register a
+  device with this tag.
+
+### Tailnet ACL snippet
+
+Required in `https://login.tailscale.com/admin/acls`:
+
+```hujson
+{
+  "tagOwners": {
+    "tag:k8s-igait-operator": [],                    // self-owned
+    "tag:k8s-igait": ["tag:k8s-igait-operator"],     // operator-owned
+    // ...existing tags unchanged
+  },
+  "acls": [
+    // Let tailnet members reach workload devices:
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:k8s-igait:*"] },
+    // ...existing rules unchanged
+  ],
+}
+```
+
+### OAuth client scope footgun
+
+The OAuth client used by the Operator **must** have `tag:k8s-igait-operator`
+AND `tag:k8s-igait` in its allowed tags list (Tailscale admin →
+OAuth clients → edit → Tags). Without this, auth-key minting fails
+with an opaque 401 and the Operator logs "failed to create auth key"
+with no clue why. Scope at the OAuth client should be:
+
+- Devices: Core Read+Write
+- Auth Keys: Write
+- Tags: `tag:k8s-igait-operator`, `tag:k8s-igait`
+
+### Rotating Tailscale OAuth creds
+
+Same pattern as any other SSM param — edit the value under
+`/igait/prod/tailscale/*`, wait ≤5m, restart the Operator:
+
+```bash
+kubectl -n tailscale rollout restart deployment/operator
+```

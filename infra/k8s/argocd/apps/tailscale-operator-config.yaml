@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tailscale-operator-config
+  namespace: argocd
+  annotations:
+    # Syncs before the tailscale-operator chart itself, so the
+    # namespace + operator-oauth Secret exist before the Operator
+    # Deployment starts (which references operator-oauth via
+    # secretKeyRef and would crashloop otherwise).
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/igait-niu/igait.git
+    targetRevision: main
+    path: infra/k8s/tailscale-operator
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tailscale
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
