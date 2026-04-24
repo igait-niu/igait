@@ -54,13 +54,15 @@ spec:
           # values — that's what the patches below are for (stage images
           # live in backend's STAGE_*_IMAGE env vars, not its container
           # image).
+          #
+          # ArgoCD's Application CRD takes image overrides as strings
+          # ("name:newTag" or "name=newName:newTag"), NOT the
+          # {name, newTag} object form standalone kustomization.yaml
+          # files use. Different schema, same semantic intent.
           images:
-            - name: ghcr.io/igait-niu/igait/backend
-              newTag: latest
-            - name: ghcr.io/igait-niu/igait/frontend
-              newTag: latest
-            - name: ghcr.io/igait-niu/igait/firebase-emulator
-              newTag: latest
+            - ghcr.io/igait-niu/igait/backend:latest
+            - ghcr.io/igait-niu/igait/frontend:latest
+            - ghcr.io/igait-niu/igait/firebase-emulator:latest
           patches:
             # Backend env: point stage images at :latest, and set
             # CORS_ALLOW_ORIGIN to this PR's MagicDNS URL. Strategic
