@@ -9,7 +9,7 @@ flake.nix
 .envrc
 /.direnv
 
-# Lock files (not needed, bun.lock is copied explicitly)
+# Lock files
 package-lock.json
 
 # Git
