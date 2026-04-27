@@ -6,8 +6,14 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import JobsDataTableToolbar from './JobsDataTableToolbar.svelte';
 	import type { Job } from '../../../types/Job';
-	import type { JobStatus } from '../../../types/JobStatus';
 	import { registryStore, isRegistryLoaded } from '$lib/stores';
+	import {
+		getEffectiveJobStatus,
+		isInFlight,
+		jobStatusLabel,
+		jobStatusVariant,
+		type EffectiveJobStatus
+	} from '$lib/jobStatus';
 
 	type JobWithId = Job & { id: string };
 
@@ -78,29 +84,10 @@
 		statusFilter = initialStatusFilter;
 	});
 
-	// Helper to get status display info
-	function getStatusInfo(status: JobStatus) {
-		switch (status.code) {
-			case 'Complete':
-				return {
-					label: status.asd ? 'ASD Indicators' : 'No ASD Indicators',
-					variant: 'secondary' as const
-				};
-			case 'Error':
-				return { label: 'Error', variant: 'destructive' as const };
-			case 'Processing': {
-				const registryState = registryStore.state;
-				const stages = isRegistryLoaded(registryState) ? registryState.stages : [];
-				const spec = stages.find((s) => s.key === status.stage);
-				return {
-					label: spec?.display_name ?? status.stage,
-					variant: 'secondary' as const
-				};
-			}
-			case 'Submitted':
-			default:
-				return { label: 'Submitted', variant: 'outline' as const };
-		}
+	const stages = $derived(isRegistryLoaded(registryStore.state) ? registryStore.state.stages : []);
+
+	function rowEffective(job: Job): EffectiveJobStatus {
+		return getEffectiveJobStatus(job, stages);
 	}
 
 	// Filter and sort data
@@ -110,10 +97,12 @@
 		// Apply status filter
 		if (statusFilter !== 'all') {
 			filtered = filtered.filter((job) => {
-				if (statusFilter === 'completed') return job.status.code === 'Complete';
-				if (statusFilter === 'error') return job.status.code === 'Error';
-				if (statusFilter === 'processing')
-					return job.status.code === 'Processing' || job.status.code === 'Submitted';
+				const eff = rowEffective(job);
+				if (statusFilter === 'completed') return eff.kind === 'complete';
+				if (statusFilter === 'error') return eff.kind === 'error';
+				// "processing" groups every non-terminal state (incl. awaiting_review)
+				// so admins can find approval-blocked jobs from the same chip.
+				if (statusFilter === 'processing') return isInFlight(eff);
 				return true;
 			});
 		}
@@ -125,7 +114,7 @@
 				const matchesBasic =
 					job.id.toLowerCase().includes(query) ||
 					job.status.value.toLowerCase().includes(query) ||
-					getStatusInfo(job.status).label.toLowerCase().includes(query) ||
+					jobStatusLabel(rowEffective(job)).toLowerCase().includes(query) ||
 					new Date(job.timestamp * 1000).toLocaleDateString().includes(query);
 
 				if (showEmail) {
@@ -137,6 +126,16 @@
 
 		// Apply sorting - use toSorted to avoid mutation
 		if (sortColumn) {
+			// Severity-ish ordering: things that need eyes float to the top.
+			const kindOrder: Record<EffectiveJobStatus['kind'], number> = {
+				error: 0,
+				awaiting_review: 1,
+				running: 2,
+				queued: 3,
+				awaiting_pickup: 3,
+				submitted: 4,
+				complete: 5
+			};
 			filtered = filtered.toSorted((a, b) => {
 				let aVal: number, bVal: number;
 
@@ -144,10 +143,8 @@
 					aVal = a.timestamp;
 					bVal = b.timestamp;
 				} else {
-					// Sort order: Error > Processing > Submitted > Complete
-					const statusOrder = { Error: 0, Processing: 1, Submitted: 2, Complete: 3 };
-					aVal = statusOrder[a.status.code] ?? 2;
-					bVal = statusOrder[b.status.code] ?? 2;
+					aVal = kindOrder[rowEffective(a).kind] ?? 4;
+					bVal = kindOrder[rowEffective(b).kind] ?? 4;
 				}
 
 				return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
@@ -282,7 +279,7 @@
 			<Table.Body>
 				{#if filteredData.length > 0}
 					{#each filteredData as job (job.id)}
-						{@const statusInfo = getStatusInfo(job.status)}
+						{@const effective = rowEffective(job)}
 						<Table.Row
 							class="data-row {selectedId === job.id ? 'row-selected' : ''} {onRowClick
 								? 'row-clickable'
@@ -323,8 +320,8 @@
 								<span class="description">{job.status.value}</span>
 							</Table.Cell>
 							<Table.Cell>
-								<Badge variant={statusInfo.variant} class="status-badge">
-									{statusInfo.label}
+								<Badge variant={jobStatusVariant(effective)} class="status-badge">
+									{jobStatusLabel(effective)}
 								</Badge>
 							</Table.Cell>
 							<Table.Cell>

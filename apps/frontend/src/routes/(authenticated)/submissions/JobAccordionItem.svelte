@@ -2,17 +2,15 @@
 	import * as Accordion from '$lib/components/ui/accordion';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Separator } from '$lib/components/ui/separator';
-	import {
-		FileVideo,
-		CheckCircle2,
-		Clock,
-		XCircle,
-		Activity,
-		User as UserIcon,
-		Calendar
-	} from '@lucide/svelte';
+	import { FileVideo, Activity, User as UserIcon, Calendar } from '@lucide/svelte';
 	import type { Job } from '../../../types/Job';
-	import type { JobStatus } from '../../../types/JobStatus';
+	import { registryStore, isRegistryLoaded } from '$lib/stores';
+	import {
+		getEffectiveJobStatus,
+		jobStatusIcon,
+		jobStatusLabel,
+		jobStatusVariant
+	} from '$lib/jobStatus';
 
 	interface Props {
 		job: Job;
@@ -22,12 +20,15 @@
 
 	let { job, index, totalJobs }: Props = $props();
 
+	const stages = $derived(isRegistryLoaded(registryStore.state) ? registryStore.state.stages : []);
+	const effective = $derived(getEffectiveJobStatus(job, stages));
+
 	// Computed values
 	const submissionNumber = $derived(totalJobs - index);
 	const formattedDate = $derived(formatDate(job.timestamp));
-	const statusVariant = $derived(getStatusVariant(job.status.code));
-	const statusText = $derived(getStatusText(job.status.code));
-	const StatusIcon = $derived(getStatusIcon(job.status.code));
+	const statusVariant = $derived(jobStatusVariant(effective));
+	const statusText = $derived(jobStatusLabel(effective));
+	const StatusIcon = $derived(jobStatusIcon(effective));
 
 	function formatDate(timestamp: number): string {
 		const date = new Date(timestamp * 1000);
@@ -38,51 +39,6 @@
 			hour: '2-digit',
 			minute: '2-digit'
 		});
-	}
-
-	function getStatusVariant(
-		code: JobStatus['code']
-	): 'default' | 'secondary' | 'destructive' | 'outline' {
-		switch (code) {
-			case 'Complete':
-				return 'default';
-			case 'Processing':
-				return 'secondary';
-			case 'Error':
-				return 'destructive';
-			case 'Submitted':
-			default:
-				return 'outline';
-		}
-	}
-
-	function getStatusIcon(code: JobStatus['code']) {
-		switch (code) {
-			case 'Complete':
-				return CheckCircle2;
-			case 'Processing':
-				return Activity;
-			case 'Error':
-				return XCircle;
-			case 'Submitted':
-			default:
-				return Clock;
-		}
-	}
-
-	function getStatusText(code: JobStatus['code']): string {
-		switch (code) {
-			case 'Complete':
-				return 'Completed';
-			case 'Processing':
-				return 'Processing';
-			case 'Error':
-				return 'Error';
-			case 'Submitted':
-				return 'Submitted';
-			default:
-				return 'Unknown';
-		}
 	}
 
 	function formatSex(sex: string): string {

@@ -27,7 +27,6 @@
 		AlertCircle,
 		Film
 	} from '@lucide/svelte';
-	import type { JobStatus } from '../../../../types/JobStatus';
 	import type { StageStatus } from '../../../../types/StageStatus';
 	import {
 		registryStore,
@@ -38,6 +37,7 @@
 		isRegistryError,
 		type StageSpec
 	} from '$lib/stores';
+	import { getEffectiveJobStatus, jobStatusLabelVerbose, jobStatusVariant } from '$lib/jobStatus';
 
 	// ── Auth ──────────────────────────────────────────────
 	const user = getUser();
@@ -187,35 +187,7 @@
 	const stageHasContent = $derived(activeStageStatus !== 'not_started');
 
 	// ── Status helpers ─────────────────────────────────────
-	function getStatusLabel(status: JobStatus): string {
-		switch (status.code) {
-			case 'Complete':
-				return 'Analysis completed';
-			case 'Error':
-				return 'Analysis failed';
-			case 'Processing': {
-				const spec = stages.find((s) => s.key === status.stage);
-				return spec ? `Processing: ${spec.display_name}` : `Processing: ${status.stage}`;
-			}
-			case 'Submitted':
-				return 'Submitted';
-		}
-	}
-
-	function getStatusVariant(
-		status: JobStatus
-	): 'default' | 'secondary' | 'destructive' | 'outline' {
-		switch (status.code) {
-			case 'Complete':
-				return 'secondary';
-			case 'Error':
-				return 'destructive';
-			case 'Processing':
-				return 'secondary';
-			case 'Submitted':
-				return 'outline';
-		}
-	}
+	const effectiveStatus = $derived(job ? getEffectiveJobStatus(job, stages) : null);
 
 	function formatJobId(id: string): string {
 		const lastUnderscore = id.lastIndexOf('_');
@@ -334,7 +306,11 @@
 				<h2 class="header-title">
 					Job <span class="mono">{jobId}</span>
 				</h2>
-				<Badge variant={getStatusVariant(job.status)}>{getStatusLabel(job.status)}</Badge>
+				{#if effectiveStatus}
+					<Badge variant={jobStatusVariant(effectiveStatus)}
+						>{jobStatusLabelVerbose(effectiveStatus)}</Badge
+					>
+				{/if}
 			</div>
 		</header>
 
