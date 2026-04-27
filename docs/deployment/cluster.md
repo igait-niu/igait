@@ -27,49 +27,51 @@ Prerequisite: you're on Tailscale and can reach `ai-leads`. `tailscale status`
 should list it with a `100.x.x.x` IP and no `offline` tag. If not, fix
 Tailscale first — `/onboard` has the setup steps.
 
-Pick the recipe that matches your machine's existing kubeconfig state.
+### Why SSH'ing the kubeconfig out is OK
 
-### You have no existing `~/.kube/config` (clean machine)
+This is the one time SSH is the *correct* tool: kubectl can't bootstrap
+its own credentials. We pull `/etc/rancher/k3s/k3s.yaml` (k3s's generated
+admin kubeconfig) over SSH, rewrite the loopback server URL to the
+Tailscale hostname, and merge it into `~/.kube/config` locally.
 
-```bash
-mkdir -p ~/.kube
-ssh root@ai-leads 'cat /etc/rancher/k3s/k3s.yaml' \
-  | sed 's|server: https://127.0.0.1:6443|server: https://ai-leads:6443|' \
-  > ~/.kube/config
-chmod 600 ~/.kube/config
-kubectl config rename-context default igait-prod
-kubectl config use-context igait-prod
-kubectl get nodes   # should show `ai-leads  Ready  control-plane`
-```
+Honest tradeoff: `k3s.yaml` embeds a client cert in the `system:masters`
+group — that's full cluster-admin per dev. Acceptable for our small NIU
+team behind Tailscale; if the team grows, swap this for k3s's
+`--kube-apiserver-arg` + RBAC-scoped per-user kubeconfigs.
 
-The sed rewrite matters: k3s writes `server: https://127.0.0.1:6443` by
-default (the file is meant to be read *on* the node). The api-server's TLS
-cert already has `DNS:ai-leads` in its SAN list, so no cert regen needed.
+### Bootstrap recipe (works on clean *or* multi-cluster machines)
 
-### You already manage other clusters (merge into existing config)
-
-Don't overwrite `~/.kube/config` — merge. Kubeconfig merging is first-class:
+The flow imports `k3s.yaml` into a *temp* file, renames the context to
+`igait-prod`, then merges into `~/.kube/config`. Existing contexts
+(docker-desktop, minikube, a personal k3d, whatever) stay untouched and
+remain switchable via `kubectl config use-context`.
 
 ```bash
+# 1. Pull k3s's admin kubeconfig from the control plane.
+#    k3s writes `server: https://127.0.0.1:6443` by default (the file
+#    is meant to be read *on* the node), so we rewrite to the Tailscale
+#    hostname. The api-server's TLS cert already has `DNS:ai-leads` in
+#    its SAN list, so no cert regen needed.
 ssh root@ai-leads 'cat /etc/rancher/k3s/k3s.yaml' \
   | sed 's|server: https://127.0.0.1:6443|server: https://ai-leads:6443|' \
   > /tmp/igait-prod.yaml
-# Give the context a unique name so it can't collide with anything you have
+
+# 2. Rename the context inside the temp file to `igait-prod`
+#    (k3s names it `default`).
 KUBECONFIG=/tmp/igait-prod.yaml kubectl config rename-context default igait-prod
 
-# Merge, then atomically replace
+# 3. Merge into ~/.kube/config without clobbering existing entries.
+mkdir -p ~/.kube
 KUBECONFIG="$HOME/.kube/config:/tmp/igait-prod.yaml" \
   kubectl config view --flatten > "$HOME/.kube/config.new"
 mv "$HOME/.kube/config.new" "$HOME/.kube/config"
 chmod 600 "$HOME/.kube/config"
 rm /tmp/igait-prod.yaml
 
+# 4. Activate it. Toggle back any time with `kubectl config use-context <name>`.
 kubectl config use-context igait-prod
-kubectl get nodes
+kubectl get nodes   # should show `ai-leads  Ready  control-plane`
 ```
-
-Both recipes land you at the same state: `igait-prod` is a named context
-in `~/.kube/config`, and `kubectl` with no flags talks to the prod cluster.
 
 ### What `.envrc` does
 
