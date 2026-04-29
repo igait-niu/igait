@@ -68,8 +68,7 @@ Add `--json` for parseable output when chaining results. Run `codegraph status` 
 
 | Topic | Doc |
 |---|---|
-| Start here (role-aware) | [`../docs/README.md`](../docs/README.md) |
-| Role-sectioned onboarding | [`../docs/onboarding.md`](../docs/onboarding.md) |
+| Start here (role-aware onboarding + index) | [`../docs/README.md`](../docs/README.md) |
 | Hermetic local stack | [`../docs/local-dev/hermetic-stack.md`](../docs/local-dev/hermetic-stack.md) |
 | Quality gates + observability | [`../docs/local-dev/dev-loop.md`](../docs/local-dev/dev-loop.md) |
 | Stage execution modes | [`../docs/architecture/stage-execution-modes.md`](../docs/architecture/stage-execution-modes.md) |

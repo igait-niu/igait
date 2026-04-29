@@ -6,4 +6,4 @@ The iGait web client — where users upload videos and view results.
 
 **Stack:** SvelteKit + Bun, bits-ui + Tailwind, Firebase client SDK for auth.
 
-For the dev loop, route map, and where state/auth live, see **[`docs/onboarding.md#frontend`](../../docs/onboarding.md#frontend)**.
+For the dev loop, route map, and where state/auth live, see **[`docs/README.md#frontend`](../../docs/README.md#frontend)**.

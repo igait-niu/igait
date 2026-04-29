@@ -6,4 +6,4 @@ The iGait HTTP API — accepts uploads, enqueues pipeline work, and (in prod) or
 
 **Stack:** axum + tokio, Firebase admin SDK for auth, `aws-sdk-s3` + `aws-sdk-sesv2`, `kube` for the orchestrator.
 
-For the dev loop, route surface, and orchestrator gating, see **[`docs/onboarding.md#backend`](../../docs/onboarding.md#backend)**.
+For the dev loop, route surface, and orchestrator gating, see **[`docs/README.md#backend`](../../docs/README.md#backend)**.
