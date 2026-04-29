@@ -40,4 +40,4 @@ depends on.
 ## Working on stages
 
 For the dev loop (docker compose local, restart-on-edit, how to trigger
-a test job), see [`docs/onboarding.md#pipeline`](../../docs/onboarding.md#pipeline).
+a test job), see [`docs/README.md#pipeline`](../../docs/README.md#pipeline).

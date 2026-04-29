@@ -97,6 +97,15 @@ Frontend `VITE_*` env vars are baked into the Vite bundle at **build time** and 
 
 The frontend's `API_ENDPOINTS` (in `apps/frontend/src/lib/api/config.ts`) owns the `/api/v1` version prefix — `VITE_API_BASE_URL` is origin-only. Do not fold the prefix back into the env var "to make things work": it moves the mismatch from code into config and hides future version coexistence.
 
+## Low-RAM machines (<16GB)
+
+BuildKit parallelises stage image builds by default, which can OOM-kill on a constrained host (5 stages × Rust compiles is a lot of concurrent memory). Serialise the build, then bring the stack up:
+
+```bash
+COMPOSE_BAKE=true docker compose build --parallel 1
+docker compose up -d
+```
+
 ## Port 9000 collision
 
 MinIO's S3 API and the Firebase RTDB emulator both bind `:9000` inside their containers. The compose file publishes MinIO to host port **9002** to avoid the host-side clash; inside the compose network each service keeps its own 9000 (no conflict — different services, different DNS names).
