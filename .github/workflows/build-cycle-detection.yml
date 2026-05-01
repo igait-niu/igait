@@ -75,7 +75,7 @@ jobs:
           for i in 1 2 3 4 5; do
             git fetch origin main
             git reset --hard origin/main
-            sed -i "s|value: ghcr.io/igait-niu/igait/cycle-detection:.*|value: ghcr.io/igait-niu/igait/cycle-detection:sha-${SHA_SHORT}|" infra/k8s/backend/deployment.yaml
+            sed -i "s|image: ghcr.io/igait-niu/igait/cycle-detection:.*|image: ghcr.io/igait-niu/igait/cycle-detection:sha-${SHA_SHORT}|" infra/k8s/stages/cycle-detection/deployment.yaml
             git add infra/k8s/
             git diff --cached --quiet && echo "Already up to date" && exit 0
             git commit -m "deploy: cycle-detection:sha-${SHA_SHORT}"

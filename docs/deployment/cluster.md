@@ -86,12 +86,13 @@ Neither mutates `~/.kube/config`. Context switching stays your call.
 
 ## What lives on the cluster
 
-- **`igait` namespace** — backend Deployment + per-job stage Jobs (spawned
-  dynamically by the orchestrator). Stage Jobs appear on-demand; don't
-  expect to see long-lived stage pods.
+- **`igait` namespace** — backend Deployment + five long-lived stage
+  Deployments under `infra/k8s/stages/` (one per pipeline stage), each
+  polling Firebase RTDB queues directly. The K8s-Job orchestrator that
+  used to spawn ephemeral per-job pods is gone.
 - **`igait-secrets`** (K8s Secret, `igait` ns) — shared runtime config
-  consumed by `secretKeyRef` in both the backend Deployment and every
-  stage Job. Materialized by External Secrets Operator from AWS SSM
+  consumed by `secretKeyRef` in the backend Deployment and `envFrom` in
+  every stage Deployment. Materialized by External Secrets Operator from AWS SSM
   Parameter Store (`/igait/prod/env/*`); do not edit in-cluster directly
   — edit the SSM param and ESO picks it up within ~5m. See
   `docs/deployment/external-secrets.md` for the full flow and rotation
@@ -106,8 +107,6 @@ Neither mutates `~/.kube/config`. Context switching stays your call.
   directly unless doing an emergency override.
 - **cloudflared** — ingress. External traffic to `igaitapp.com` tunnels
   through.
-- **GPU** — available to stage Jobs that request it (pose estimation,
-  prediction).
 
 ## Common ops recipes (all kubectl, all from your laptop)
 
@@ -119,12 +118,34 @@ kubectl rollout status deployment/backend -n igait --timeout=3m
 kubectl logs -n igait -l app=backend --tail=50 --prefix=true
 ```
 
-### Tail live stage Jobs for a running pipeline
+### Tail a stage's logs
+
+Stages run as long-lived Deployments (one per stage). To watch what a stage
+is doing right now:
 
 ```bash
-kubectl -n igait get jobs --sort-by=.metadata.creationTimestamp | tail -10
-kubectl -n igait logs job/<job-name> --all-containers --follow
+kubectl -n igait get deploy
+kubectl -n igait logs deployment/<stage> --tail=200 --follow
+# <stage> ∈ {media-conversion, pose-estimation, cycle-detection, prediction, finalize}
 ```
+
+If a stage looks wedged on a specific job, inspect its claim in the Firebase
+RTDB Console under `queues/<stage>/<job_id>` — `claimed_at` older than 5
+minutes means the heartbeat died and the next worker will re-claim shortly.
+Per-job timeouts are enforced in code at
+`apps/shared/src/microservice/worker.rs::process_one_job` (matching the old
+`activeDeadlineSeconds` budgets the K8s-Job spec used to set).
+
+### One-shot post-cutover cleanup
+
+When the K8s-Job orchestrator was retired, the manual purge of any orphaned
+`Job` objects was:
+
+```bash
+kubectl -n igait delete jobs -l app=igait-pipeline
+```
+
+Safe to re-run; if the label has nothing matching it, the command is a no-op.
 
 ### Inspect the shared Secret
 

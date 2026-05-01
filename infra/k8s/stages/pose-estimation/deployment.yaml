@@ -1,0 +1,47 @@
+# Long-lived worker for the pose-estimation stage. See
+# infra/k8s/stages/media-conversion/deployment.yaml for the architectural
+# header — every stage Deployment shares the same shape.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pose-estimation
+  namespace: igait
+  labels:
+    app: pose-estimation
+    igait.niu.edu/stage: pose-estimation
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pose-estimation
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: pose-estimation
+        igait.niu.edu/stage: pose-estimation
+    spec:
+      serviceAccountName: stage-worker
+      # Per-job timeout is 1200s; +60s slack for graceful SIGTERM.
+      terminationGracePeriodSeconds: 1260
+      containers:
+      - name: pose-estimation
+        image: ghcr.io/igait-niu/igait/pose-estimation:sha-e530730
+        env:
+        - name: RUST_LOG
+          value: "info"
+        envFrom:
+        - secretRef:
+            name: igait-secrets
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 2Gi

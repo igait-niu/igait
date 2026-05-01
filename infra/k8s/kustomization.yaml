@@ -9,3 +9,4 @@ resources:
   - backend/deployment.yaml
   - backend/service.yaml
   - backend/external-secrets.yaml
+  - stages

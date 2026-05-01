@@ -183,8 +183,6 @@ services:
     environment:
       <<: *pipeline-env
       PORT: "3000"
-      # Deliberately DO NOT set ENABLE_ORCHESTRATOR — compose runs stages in
-      # worker mode instead of having the backend spawn K8s Jobs.
       # OpenAI is prod-only. Unset values fall through as empty strings; the
       # backend detects empty OPENAI_API_KEY at boot, skips client init, and
       # serves /assistant routes with 503. Drop `OPENAI_*=...` into a local
@@ -235,10 +233,10 @@ services:
       firebase-bootstrap:
         condition: service_completed_successfully
 
-  # ── Pipeline stages (worker mode — long-running, poll RTDB) ───────────────
-  # Each stage is a daemon that polls its queue in Firebase RTDB and processes
-  # jobs one at a time. No IGAIT_JOB_PAYLOAD is set, so main.rs selects
-  # run_stage_worker() rather than run_stage_job().
+  # ── Pipeline stages — long-running daemons, poll RTDB ─────────────────────
+  # Each stage polls its queue in Firebase RTDB and processes jobs one at a
+  # time. This matches prod, where each stage runs as a Deployment under
+  # infra/k8s/stages/.
 
   media-conversion:
     <<: *stage-service

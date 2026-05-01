@@ -3,30 +3,8 @@ kind: ServiceAccount
 metadata:
   name: backend
   namespace: igait
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: igait-job-manager
-  namespace: igait
-rules:
-- apiGroups: ["batch"]
-  resources: ["jobs"]
-  verbs: ["create", "get", "list", "watch", "delete"]
-- apiGroups: [""]
-  resources: ["pods", "pods/log"]
-  verbs: ["get", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: backend-job-manager
-  namespace: igait
-subjects:
-- kind: ServiceAccount
-  name: backend
-  namespace: igait
-roleRef:
-  kind: Role
-  name: igait-job-manager
-  apiGroup: rbac.authorization.k8s.io
+# No RoleBinding — backend no longer talks to the Kubernetes API. The
+# old `igait-job-manager` Role (verbs on `batch/jobs` + `pods`) was
+# only there for the K8s-Job orchestrator that lived in
+# apps/backend/src/helper/orchestrator.rs. Stages now run as long-lived
+# Deployments under infra/k8s/stages/ instead.
