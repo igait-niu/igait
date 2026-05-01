@@ -31,7 +31,7 @@ spec:
       terminationGracePeriodSeconds: 660
       containers:
       - name: prediction
-        image: ghcr.io/igait-niu/igait/prediction:sha-e530730
+        image: ghcr.io/igait-niu/igait/prediction:sha-766c2ee
         env:
         - name: RUST_LOG
           value: "info"
