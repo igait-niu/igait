@@ -29,6 +29,7 @@
                         buildNpmPackage = buildNpmPackage.override { nodejs = nodejs_22; };
                     })
                     awscli
+                    git
 
                     # Build dependencies
                     pkg-config
