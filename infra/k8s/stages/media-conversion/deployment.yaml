@@ -38,7 +38,7 @@ spec:
       terminationGracePeriodSeconds: 660
       containers:
       - name: media-conversion
-        image: ghcr.io/igait-niu/igait/media-conversion:sha-e530730
+        image: ghcr.io/igait-niu/igait/media-conversion:sha-766c2ee
         env:
         - name: RUST_LOG
           value: "info"
