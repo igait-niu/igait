@@ -1,0 +1,47 @@
+# Long-lived worker for the finalize stage. See
+# infra/k8s/stages/media-conversion/deployment.yaml for the architectural
+# header — every stage Deployment shares the same shape.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finalize
+  namespace: igait
+  labels:
+    app: finalize
+    igait.niu.edu/stage: finalize
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: finalize
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: finalize
+        igait.niu.edu/stage: finalize
+    spec:
+      serviceAccountName: stage-worker
+      # Per-job timeout is 300s; +60s slack for graceful SIGTERM.
+      terminationGracePeriodSeconds: 360
+      containers:
+      - name: finalize
+        image: ghcr.io/igait-niu/igait/finalize:sha-e530730
+        env:
+        - name: RUST_LOG
+          value: "info"
+        envFrom:
+        - secretRef:
+            name: igait-secrets
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi

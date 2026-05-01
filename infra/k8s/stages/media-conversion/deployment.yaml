@@ -1,0 +1,56 @@
+# Long-lived worker for the media-conversion stage. Polls Firebase RTDB
+# queues, claims jobs via CAS, processes one item at a time, and routes
+# results to the next stage queue (or to finalize on failure).
+#
+# Per-job timeout is enforced in code at
+# apps/shared/src/microservice/worker.rs::process_one_job — Deployments
+# don't support `activeDeadlineSeconds`, so the timeout helper there
+# carries forward the budget the K8s-Job spec used to set.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-conversion
+  namespace: igait
+  labels:
+    app: media-conversion
+    igait.niu.edu/stage: media-conversion
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: media-conversion
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: media-conversion
+        igait.niu.edu/stage: media-conversion
+    spec:
+      serviceAccountName: stage-worker
+      # Per-job timeout is 600s (stage_timeout_secs in worker.rs);
+      # +60s slack so SIGTERM lets the in-flight job hit the wrapper's
+      # failure path and release the claim before kubelet SIGKILLs.
+      terminationGracePeriodSeconds: 660
+      containers:
+      - name: media-conversion
+        image: ghcr.io/igait-niu/igait/media-conversion:sha-e530730
+        env:
+        - name: RUST_LOG
+          value: "info"
+        envFrom:
+        - secretRef:
+            name: igait-secrets
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+            ephemeral-storage: 256Mi
+          limits:
+            cpu: "2"
+            memory: 2Gi
+            ephemeral-storage: 1Gi

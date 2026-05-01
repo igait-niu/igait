@@ -15,7 +15,7 @@
 igait/
 ├── apps/
 │   ├── shared/        // igait-lib: domain types, StageWorker, storage + queue clients
-│   ├── backend/       // axum HTTP API + prod orchestrator
+│   ├── backend/       // axum HTTP API
 │   ├── frontend/      // SvelteKit + Bun + bits-ui + Tailwind
 │   └── stages/{5}/    // media-conversion → pose-estimation → cycle-detection → prediction → finalize
 ├── infra/{docker,k8s,firebase}/
@@ -33,8 +33,7 @@ Each of these *must not be casually undone* — the *why* matters as much as the
 - **Local dev is env-var-free.** `docker compose up` boots hermetically against MinIO / ses-mock / Firebase-emulator surrogates. The only optional passthrough is `OPENAI_*` (repo-root `.env`). **Why**: zero-friction onboarding + offline work. Don't reintroduce `.env` requirements.
 - **Bun, not npm.** Frontend is managed entirely by Bun + `bun.lock`. **Why**: speed and a single lockfile source of truth. If you see `npm` anywhere in frontend code or docs, it's a bug.
 - **Kustomize, not Helm.** `infra/k8s/` is flat Kustomize — no `charts/` dir, none will be introduced. **Why**: one prod target, no overlays needed; Helm templating obscures what actually ships.
-- **Stages are dual-mode via a single env-var gate.** `IGAIT_JOB_PAYLOAD` (or `IGAIT_FINALIZE_PAYLOAD` for finalize) selects worker vs K8s-Jobs mode in each stage's `main.rs`. **Why**: worker mode powers the hermetic stack; job mode powers prod. Both are load-bearing — don't collapse.
-- **Backend orchestrator is gated by `ENABLE_ORCHESTRATOR`.** Prod sets it; local dev leaves it unset. **Why**: local stages self-poll; prod needs the K8s Jobs dispatch loop.
+- **Stages are long-lived `Deployment`s.** Each stage runs `run_stage_worker()` (or the inline finalize loop) and polls Firebase RTDB queues continuously — no K8s-Jobs orchestrator. **Why**: prod and local-compose share one execution path, halving the maintenance surface. Per-job timeouts are enforced in code at `apps/shared/src/microservice/worker.rs::process_one_job`; manifests live in `infra/k8s/stages/`.
 - **Only one Firebase client: `igait_lib::microservice::FirebaseRtdb`.** Backend and stages share it. **Why**: `firebase-rs` rejects `http://` URLs, which broke the hermetic stack (issue #102). Extend `FirebaseRtdb`; don't add a second client.
 - **Prod secrets live in AWS SSM, not Vaultwarden.** ESO materializes them into K8s Secrets. **Why**: audit trail, IAM-gated, GitOps-friendly. [`../docs/deployment/external-secrets.md`](../docs/deployment/external-secrets.md) is the authoritative reference.
 - **SSH to the prod cluster is a cardinal sin.** Anything kubectl can do, use kubectl. **Why**: kubectl is the audited, RBAC-gated surface; `ssh root@ai-leads` bypasses all of that.
@@ -71,7 +70,6 @@ Add `--json` for parseable output when chaining results. Run `codegraph status` 
 | Start here (role-aware onboarding + index) | [`../docs/README.md`](../docs/README.md) |
 | Hermetic local stack | [`../docs/local-dev/hermetic-stack.md`](../docs/local-dev/hermetic-stack.md) |
 | Quality gates + observability | [`../docs/local-dev/dev-loop.md`](../docs/local-dev/dev-loop.md) |
-| Stage execution modes | [`../docs/architecture/stage-execution-modes.md`](../docs/architecture/stage-execution-modes.md) |
 | Firebase client invariant | [`../docs/architecture/firebase-client.md`](../docs/architecture/firebase-client.md) |
 | Deploy flow (push → sync) | [`../docs/deployment/deploy-flow.md`](../docs/deployment/deploy-flow.md) |
 | Cluster access + kubectl recipes | [`../docs/deployment/cluster.md`](../docs/deployment/cluster.md) |

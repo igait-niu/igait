@@ -193,19 +193,13 @@ async fn run_rerun_under_lease(
     target_stage: StageId,
     job: crate::helper::lib::Job,
 ) -> Result<usize, AppError> {
-    // ── 3. Cancel any still-running K8s Jobs for this job_id ────────
-    // The epoch bump below is the correctness guarantee; this is the
-    // proactive best-effort cancel that avoids wasted compute.
-    if let Some(orch) = app.orchestrator.read().await.clone() {
-        match orch.cancel_in_flight_jobs(job_id).await {
-            Ok(n) if n > 0 => info!(cancelled = n, "cancelled in-flight K8s Jobs"),
-            Ok(_) => {}
-            Err(e) => warn!("cancel_in_flight_jobs failed: {:?}", e),
-        }
-    }
-
-    // ── 4. Bump job epoch — orchestrator now rejects any straggler
-    //       JobResult stamped with the old epoch.
+    // ── 3. Bump job epoch — workers detect the lease change via the
+    //       heartbeat round-trip (`QueueOps::heartbeat` returns
+    //       `Ok(false)` once a sibling worker bumps the epoch) and
+    //       release their claim, after which the next claim cycle
+    //       picks up the rerun. The epoch bump is the sole correctness
+    //       guarantee; there's no proactive Pod cancellation since
+    //       stages now run as long-lived Deployments, not one-shot Jobs.
     let new_epoch = queue_ops
         .bump_job_epoch(target_uid, job_key, lease_id)
         .await

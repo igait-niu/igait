@@ -11,9 +11,6 @@ pub mod email;
 /// Contains the filesystem helper functions and custom types.
 pub mod lib;
 
-/// Contains the K8s Job orchestrator for the processing pipeline.
-pub mod orchestrator;
-
 /// Publishes the central stage registry to RTDB on startup so the
 /// frontend can render stage tabs directly from the source of truth.
 pub mod registry_publish;

@@ -8,8 +8,8 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use lib::microservice::{
-    check_env, run_stage_job, run_stage_worker, ProcessingResult, QueueItem, StageId, StageWorker,
-    StorageClient, STAGE_REQUIRED_ENV,
+    check_env, run_stage_worker, ProcessingResult, QueueItem, StageId, StageWorker, StorageClient,
+    STAGE_REQUIRED_ENV,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -291,10 +291,6 @@ async fn run_gait_cycle_detection(
 #[tokio::main]
 async fn main() -> Result<()> {
     check_env(STAGE_REQUIRED_ENV)?;
-    if std::env::var("IGAIT_JOB_PAYLOAD").is_ok() {
-        run_stage_job(CycleDetectionWorker).await
-    } else {
-        println!("Starting Cycle Detection worker...");
-        run_stage_worker(CycleDetectionWorker).await
-    }
+    println!("Starting Cycle Detection worker...");
+    run_stage_worker(CycleDetectionWorker).await
 }

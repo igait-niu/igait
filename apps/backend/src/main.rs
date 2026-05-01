@@ -14,7 +14,6 @@ use axum::{
 };
 use dotenv::dotenv;
 use helper::lib::{AppState, AppStatePtr};
-use helper::orchestrator::{self, Orchestrator};
 use lib::microservice::{check_env, BACKEND_REQUIRED_ENV};
 use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -39,9 +38,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 /// * Gracefully shuts down on SIGTERM or Ctrl+C
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Install rustls crypto provider (required for kube client on some platforms)
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-
     // Enable loading on WSL
     dotenv().ok();
 
@@ -150,26 +146,6 @@ async fn main() -> Result<()> {
         .layer(DefaultBodyLimit::max(500000000));
     if let Some(cors) = cors_layer {
         app = app.layer(cors);
-    }
-
-    // Start the K8s Job orchestrator if enabled
-    if std::env::var("ENABLE_ORCHESTRATOR").unwrap_or_default() == "true" {
-        info!("Pipeline orchestrator enabled — starting background loops");
-        match Orchestrator::new().await {
-            Ok(orch) => {
-                let orch = Arc::new(orch);
-                *state.orchestrator.write().await = Some(orch.clone());
-                tokio::spawn(orchestrator::orchestration_loop(orch.clone()));
-                tokio::spawn(orchestrator::completion_monitor_loop(orch));
-                info!("Orchestrator loops spawned");
-            }
-            Err(e) => {
-                warn!("Failed to initialize orchestrator: {:?}", e);
-                warn!("Pipeline orchestration is disabled — stages must run as standalone workers");
-            }
-        }
-    } else {
-        info!("Pipeline orchestrator disabled (set ENABLE_ORCHESTRATOR=true to enable)");
     }
 
     // Setup graceful shutdown signal handling

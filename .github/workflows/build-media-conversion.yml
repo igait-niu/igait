@@ -73,7 +73,7 @@ jobs:
           for i in 1 2 3 4 5; do
             git fetch origin main
             git reset --hard origin/main
-            sed -i "s|value: ghcr.io/igait-niu/igait/media-conversion:.*|value: ghcr.io/igait-niu/igait/media-conversion:sha-${SHA_SHORT}|" infra/k8s/backend/deployment.yaml
+            sed -i "s|image: ghcr.io/igait-niu/igait/media-conversion:.*|image: ghcr.io/igait-niu/igait/media-conversion:sha-${SHA_SHORT}|" infra/k8s/stages/media-conversion/deployment.yaml
             git add infra/k8s/
             git diff --cached --quiet && echo "Already up to date" && exit 0
             git commit -m "deploy: media-conversion:sha-${SHA_SHORT}"

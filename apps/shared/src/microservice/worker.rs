@@ -6,11 +6,10 @@
 use crate::microservice::{
     backend_status::{JobStatus, StageStatus},
     queue::{
-        generate_worker_id, job_coordination_path, job_result_path, next_stage, now_ms,
-        queue_config_path, queue_item_path, queue_path, result_notification_path, stage_logs_path,
-        stage_status_path, ClaimResult, EmailNotificationMarker, FinalizeQueueItem,
-        JobCoordination, JobResult, ProcessingResult, QueueConfig, QueueItem, CLAIM_TIMEOUT_MS,
-        HEARTBEAT_INTERVAL_SECS,
+        generate_worker_id, job_coordination_path, next_stage, now_ms, queue_config_path,
+        queue_item_path, queue_path, result_notification_path, stage_logs_path, stage_status_path,
+        ClaimResult, EmailNotificationMarker, FinalizeQueueItem, JobCoordination, ProcessingResult,
+        QueueConfig, QueueItem, CLAIM_TIMEOUT_MS, HEARTBEAT_INTERVAL_SECS,
     },
     StageId,
 };
@@ -927,6 +926,25 @@ impl QueueOps {
 }
 
 // ============================================================================
+// PER-STAGE TIMEOUTS
+// ============================================================================
+
+/// Maximum wall-clock time `StageWorker::process` may run before the worker
+/// loop forces it to a `ProcessingResult::Failure`. Mirrors the per-stage
+/// `Job.spec.activeDeadlineSeconds` budgets that K8s used to enforce when
+/// stages ran as one-shot Jobs.
+fn stage_timeout_secs(stage: StageId) -> u64 {
+    match stage.key() {
+        "media-conversion" => 600,
+        "pose-estimation" => 1200,
+        "cycle-detection" => 1800,
+        "prediction" => 600,
+        "finalize" => 300,
+        other => panic!("no per-job timeout configured for stage {:?}", other),
+    }
+}
+
+// ============================================================================
 // STAGE WORKER TRAIT
 // ============================================================================
 
@@ -1142,8 +1160,9 @@ impl<W: StageWorker> WorkerRunner<W> {
             }
         });
 
+        let timeout = Duration::from_secs(stage_timeout_secs(stage));
         let process_result = tokio::select! {
-            result = self.worker.process(&job) => result,
+            biased;
             _ = self.shutdown_token.cancelled() => {
                 println!(
                     "[{}] Job {} processing cancelled due to shutdown",
@@ -1157,6 +1176,20 @@ impl<W: StageWorker> WorkerRunner<W> {
                     );
                 }
                 return Ok(false);
+            }
+            res = tokio::time::timeout(timeout, self.worker.process(&job)) => match res {
+                Ok(result) => result,
+                Err(_elapsed) => {
+                    eprintln!(
+                        "[{}] Job {} timed out after {}s",
+                        self.worker_id, job.job_id, timeout.as_secs()
+                    );
+                    ProcessingResult::Failure {
+                        error: format!("stage {} exceeded {}s timeout", stage, timeout.as_secs()),
+                        logs: format!("Worker timed out after {}s\n", timeout.as_secs()),
+                        duration_ms: timeout.as_millis() as u64,
+                    }
+                }
             }
         };
 
@@ -1374,152 +1407,4 @@ macro_rules! stage_worker_main {
             $crate::microservice::run_stage_worker($worker).await
         }
     };
-}
-
-// ============================================================================
-// K8S JOB MODE (RUN-ONCE)
-// ============================================================================
-
-/// Runs a stage worker in single-job mode for K8s Job execution.
-///
-/// Instead of polling a queue in a loop, this reads a pre-serialized `QueueItem`
-/// from the `IGAIT_JOB_PAYLOAD` environment variable, processes it once, writes
-/// the result to Firebase RTDB at `job_results/{job_id}`, and exits.
-///
-/// The backend orchestrator is responsible for:
-/// - Claiming the job and spawning this K8s Job
-/// - Reading the `JobResult` from RTDB after completion
-/// - Moving the job to the next stage queue (or finalize on failure)
-///
-/// # Exit codes
-/// - 0: Processing completed (check `JobResult.success` for outcome)
-/// - 1: Fatal error (couldn't read env, connect to RTDB, etc.)
-pub async fn run_stage_job<W: StageWorker>(worker: W) -> Result<()> {
-    let stage = worker.stage();
-
-    println!("[job-mode] Starting {} ({})", stage, stage.name());
-
-    // Read the job payload from environment
-    let payload = std::env::var("IGAIT_JOB_PAYLOAD")
-        .context("Missing IGAIT_JOB_PAYLOAD environment variable")?;
-    let job: QueueItem = serde_json::from_str(&payload)
-        .context("Failed to deserialize IGAIT_JOB_PAYLOAD as QueueItem")?;
-
-    println!("[job-mode] Processing job {}", job.job_id);
-
-    // Connect to Firebase RTDB for status updates and result reporting
-    let db = FirebaseRtdb::from_env()?;
-    let queue_ops = QueueOps::new(db.clone(), format!("job-{}", job.job_id));
-
-    // Update job status to Processing. These writes are best-effort: a stuck
-    // status is cosmetic compared to a failed stage run, so we log and proceed
-    // rather than aborting the stage for a transient write failure.
-    if let Ok((user_id, job_index)) = QueueOps::parse_job_id(&job.job_id) {
-        if let Err(e) = queue_ops
-            .update_job_status(&user_id, &job_index, &JobStatus::processing(stage))
-            .await
-        {
-            eprintln!(
-                "[job-mode] Failed to mark job {} as Processing: {:?}",
-                job.job_id, e
-            );
-        }
-        if let Err(e) = queue_ops
-            .update_stage_status(&user_id, &job_index, stage, &StageStatus::Running)
-            .await
-        {
-            eprintln!(
-                "[job-mode] Failed to mark {} Running for {}: {:?}",
-                stage, job.job_id, e
-            );
-        }
-    }
-
-    let job_epoch: u64 = std::env::var("IGAIT_JOB_EPOCH")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
-
-    let process_result = worker.process(&job).await;
-
-    let job_result = match &process_result {
-        ProcessingResult::Success {
-            output_keys,
-            logs,
-            duration_ms,
-        } => {
-            println!(
-                "[job-mode] Job {} completed successfully in {}ms",
-                job.job_id, duration_ms
-            );
-
-            JobResult {
-                stage,
-                success: true,
-                output_keys: output_keys.clone(),
-                error: None,
-                logs: logs.clone(),
-                duration_ms: *duration_ms,
-                job_id: job.job_id.clone(),
-                user_id: job.user_id.clone(),
-                metadata: job.metadata.clone(),
-                input_keys: job.input_keys.clone(),
-                requires_approval: job.requires_approval,
-                approved: job.approved,
-                epoch: job.epoch,
-                job_epoch,
-                taken_by: None,
-                taken_at: None,
-            }
-        }
-        ProcessingResult::Failure {
-            error,
-            logs,
-            duration_ms,
-        } => {
-            eprintln!(
-                "[job-mode] Job {} failed after {}ms: {}",
-                job.job_id, duration_ms, error
-            );
-
-            JobResult {
-                stage,
-                success: false,
-                output_keys: HashMap::new(),
-                error: Some(error.clone()),
-                logs: logs.clone(),
-                duration_ms: *duration_ms,
-                job_id: job.job_id.clone(),
-                user_id: job.user_id.clone(),
-                metadata: job.metadata.clone(),
-                input_keys: job.input_keys.clone(),
-                requires_approval: job.requires_approval,
-                approved: job.approved,
-                epoch: job.epoch,
-                job_epoch,
-                taken_by: None,
-                taken_at: None,
-            }
-        }
-    };
-
-    // Write result to Firebase RTDB for the orchestrator to read
-    let result_path = job_result_path(&job.job_id);
-    db.set(&result_path, &job_result)
-        .await
-        .context("Failed to write JobResult to Firebase RTDB")?;
-
-    println!("[job-mode] Result written to RTDB at {}", result_path);
-
-    // Exit with appropriate code
-    if job_result.success {
-        Ok(())
-    } else {
-        // Return error so the process exits with code 1
-        anyhow::bail!(
-            "Job {} failed: {}",
-            job.job_id,
-            job_result.error.unwrap_or_default()
-        );
-    }
 }
