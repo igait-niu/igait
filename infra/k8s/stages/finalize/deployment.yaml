@@ -31,7 +31,7 @@ spec:
       terminationGracePeriodSeconds: 360
       containers:
       - name: finalize
-        image: ghcr.io/igait-niu/igait/finalize:sha-e530730
+        image: ghcr.io/igait-niu/igait/finalize:sha-766c2ee
         env:
         - name: RUST_LOG
           value: "info"
