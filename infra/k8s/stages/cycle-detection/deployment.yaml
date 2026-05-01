@@ -31,7 +31,7 @@ spec:
       terminationGracePeriodSeconds: 1860
       containers:
       - name: cycle-detection
-        image: ghcr.io/igait-niu/igait/cycle-detection:sha-e530730
+        image: ghcr.io/igait-niu/igait/cycle-detection:sha-766c2ee
         env:
         - name: RUST_LOG
           value: "info"
