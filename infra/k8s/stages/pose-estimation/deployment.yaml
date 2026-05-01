@@ -31,7 +31,7 @@ spec:
       terminationGracePeriodSeconds: 1260
       containers:
       - name: pose-estimation
-        image: ghcr.io/igait-niu/igait/pose-estimation:sha-e530730
+        image: ghcr.io/igait-niu/igait/pose-estimation:sha-766c2ee
         env:
         - name: RUST_LOG
           value: "info"
